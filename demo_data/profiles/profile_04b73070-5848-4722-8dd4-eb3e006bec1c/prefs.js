@@ -44,7 +44,7 @@ user_pref("extensions.formautofill.creditCards.reauth.optout", "MDIEEPgAAAAAAAAA
 user_pref("extensions.lastAppBuildId", "20250315105607");
 user_pref("extensions.lastAppVersion", "135.0.1-beta.24");
 user_pref("extensions.lastPlatformVersion", "135.0.1");
-user_pref("extensions.pendingOperations", true);
+user_pref("extensions.pendingOperations", false);
 user_pref("extensions.pictureinpicture.enable_picture_in_picture_overrides", true);
 user_pref("extensions.systemAddonSet", "{\"schema\":1,\"addons\":{}}");
 user_pref("extensions.webcompat.enable_shims", true);
@@ -69,7 +69,8 @@ user_pref("places.database.lastMaintenance", 1750180832);
 user_pref("privacy.bounceTrackingProtection.hasMigratedUserActivationData", true);
 user_pref("privacy.purge_trackers.date_in_cookie_database", "0");
 user_pref("privacy.purge_trackers.last_purge", "1750180832480");
-user_pref("privacy.sanitize.pending", "[{\"id\":\"newtab-container\",\"itemsToClear\":[],\"options\":{}}]");
+user_pref("privacy.sanitize.clearOnShutdown.hasMigratedToNewPrefs2", true);
+user_pref("privacy.sanitize.pending", "[]");
 user_pref("security.sandbox.warn_unprivileged_namespaces", false);
 user_pref("sidebar.backupState", "{\"width\":\"\",\"command\":\"\",\"expanded\":false,\"hidden\":true}");
 user_pref("signon.management.page.os-auth.optout", "MDIEEPgAAAAAAAAAAAAAAAAAAAEwFAYIKoZIhvcNAwcECDEFm9uHcllMBAics86fV3UdLQ==");
