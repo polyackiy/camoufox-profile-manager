@@ -54,17 +54,34 @@ class ProfileUpdateRequest(BaseModel):
     browser_settings: Optional[Dict[str, Any]] = Field(None)
     proxy_config: Optional[Dict[str, Any]] = Field(None)
     notes: Optional[str] = Field(None, max_length=1000)
-    auto_rotate_fingerprint: Optional[bool] = Field(None)
-    rotate_interval_hours: Optional[int] = Field(None, ge=1, le=8760)
-    max_sessions_per_day: Optional[int] = Field(None, ge=1, le=1000)
+    
+    # Расширенные настройки браузера
+    browser_os: Optional[str] = Field(None, description="Операционная система (windows, macos, linux)")
+    browser_screen: Optional[str] = Field(None, description="Разрешение экрана (1920x1080)")
+    browser_user_agent: Optional[str] = Field(None, description="User-Agent строка")
+    browser_languages: Optional[List[str]] = Field(None, description="Языки браузера")
+    browser_timezone: Optional[str] = Field(None, description="Часовой пояс")
+    browser_locale: Optional[str] = Field(None, description="Локаль (en_US, ru_RU)")
+    browser_webrtc_mode: Optional[str] = Field(None, description="WebRTC режим (forward, replace, real, none)")
+    browser_canvas_noise: Optional[bool] = Field(None, description="Canvas шум")
+    browser_webgl_noise: Optional[bool] = Field(None, description="WebGL шум")
+    browser_audio_noise: Optional[bool] = Field(None, description="Аудио шум")
+    browser_hardware_concurrency: Optional[int] = Field(None, ge=1, le=32, description="Количество ядер")
+    browser_device_memory: Optional[int] = Field(None, ge=1, le=128, description="Память устройства (GB)")
+    browser_max_touch_points: Optional[int] = Field(None, ge=0, le=10, description="Макс. точек касания")
+    browser_window_width: Optional[int] = Field(None, ge=800, le=3840, description="Ширина окна браузера")
+    browser_window_height: Optional[int] = Field(None, ge=600, le=2160, description="Высота окна браузера")
     
     class Config:
         json_schema_extra = {
             "example": {
                 "status": "inactive",
                 "notes": "Обновленные заметки",
-                "auto_rotate_fingerprint": True,
-                "rotate_interval_hours": 24
+                "browser_os": "windows",
+                "browser_screen": "1920x1080",
+                "browser_webrtc_mode": "replace",
+                "browser_canvas_noise": True,
+                "browser_webgl_noise": True
             }
         }
 
@@ -79,9 +96,6 @@ class ProfileResponse(BaseModel):
     proxy_config: Optional[Dict[str, Any]]
     storage_path: Optional[str]
     notes: Optional[str]
-    auto_rotate_fingerprint: bool
-    rotate_interval_hours: int
-    max_sessions_per_day: int
     created_at: datetime
     updated_at: datetime
     last_used: Optional[datetime]

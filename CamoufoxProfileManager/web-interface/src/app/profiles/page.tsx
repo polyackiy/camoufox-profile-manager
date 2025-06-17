@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { usePathname } from 'next/navigation'
 import { profilesAPI, type Profile, type ProfilesResponse, formatProxyString, formatLastUsed, getStatusColor, getOSIcon } from '@/lib/api'
+import EditProfileModal from '@/components/EditProfileModal'
 
 // Компонент навигации
 function NavigationSidebar() {
@@ -85,6 +86,8 @@ export default function ProfilesPage() {
   const [currentPage, setCurrentPage] = useState(1)
   const [totalProfiles, setTotalProfiles] = useState(0)
   const [hasNext, setHasNext] = useState(false)
+  const [editingProfile, setEditingProfile] = useState<Profile | null>(null)
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false)
 
   // Загрузка профилей
   const loadProfiles = async () => {
@@ -92,7 +95,7 @@ export default function ProfilesPage() {
       setLoading(true)
       setError(null)
       
-      const params: any = {
+      const params: Record<string, any> = {
         page: currentPage,
         per_page: 20
       }
@@ -184,6 +187,24 @@ export default function ProfilesPage() {
     e.preventDefault()
     setCurrentPage(1)
     loadProfiles()
+  }
+
+  const handleEditProfile = (profileId: string) => {
+    const profile = profiles.find(p => p.id === profileId)
+    if (profile) {
+      setEditingProfile(profile)
+      setIsEditModalOpen(true)
+    }
+  }
+
+  const handleEditSave = (updatedProfile: Profile) => {
+    // Обновляем профиль в списке
+    setProfiles(profiles.map(p => p.id === updatedProfile.id ? updatedProfile : p))
+  }
+
+  const handleEditClose = () => {
+    setIsEditModalOpen(false)
+    setEditingProfile(null)
   }
 
   // Закрытие меню при клике вне его
@@ -440,7 +461,7 @@ export default function ProfilesPage() {
                               onClick={(e) => {
                                 e.stopPropagation()
                                 setOpenMenuId(null)
-                                // Здесь будет функция редактирования
+                                handleEditProfile(profile.id)
                               }}
                               style={{
                                 display: 'block',
@@ -558,6 +579,14 @@ export default function ProfilesPage() {
           </div>
         )}
       </div>
+      
+      {/* Модальное окно редактирования */}
+      <EditProfileModal
+        profile={editingProfile}
+        isOpen={isEditModalOpen}
+        onClose={handleEditClose}
+        onSave={handleEditSave}
+      />
     </div>
   )
 } 

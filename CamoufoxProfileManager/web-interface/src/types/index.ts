@@ -21,6 +21,8 @@ export interface BrowserSettings {
   screen_resolution: string
   timezone: string
   language: string
+  window_width?: number
+  window_height?: number
   geolocation?: {
     latitude: number
     longitude: number
