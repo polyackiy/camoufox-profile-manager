@@ -7,6 +7,46 @@ from typing import Optional, Dict, List, Any
 from enum import Enum
 from pydantic import BaseModel, Field
 import uuid
+import string
+import random
+import time
+
+
+def generate_short_id(length: int = 8) -> str:
+    """
+    Генерирует короткий ID из букв и цифр
+    Использует timestamp для обеспечения уникальности и порядка
+    """
+    # Используем буквы и цифры (исключаем похожие символы)
+    chars = string.ascii_lowercase + string.digits
+    # Убираем похожие символы для лучшей читаемости
+    chars = chars.replace('0', '').replace('o', '').replace('1', '').replace('l', '').replace('i', '')
+    
+    # Получаем timestamp в микросекундах для уникальности
+    timestamp = int(time.time() * 1000000)
+    
+    # Конвертируем timestamp в base36 и берем последние символы
+    base36_time = ''
+    temp_time = timestamp
+    while temp_time > 0 and len(base36_time) < length - 2:
+        base36_time = chars[temp_time % len(chars)] + base36_time
+        temp_time //= len(chars)
+    
+    # Дополняем случайными символами до нужной длины
+    while len(base36_time) < length:
+        base36_time += random.choice(chars)
+    
+    return base36_time[:length]
+
+
+def generate_profile_id() -> str:
+    """Генерирует короткий ID для профиля (8 символов)"""
+    return generate_short_id(8)
+
+
+def generate_group_id() -> str:
+    """Генерирует короткий ID для группы (8 символов)"""
+    return generate_short_id(8)
 
 
 class ProfileStatus(str, Enum):
@@ -107,7 +147,7 @@ class BrowserSettings(BaseModel):
 
 class Profile(BaseModel):
     """Модель профиля браузера"""
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    id: str = Field(default_factory=generate_profile_id)
     name: str
     group: Optional[str] = None
     status: ProfileStatus = ProfileStatus.ACTIVE
@@ -171,7 +211,7 @@ class Profile(BaseModel):
 
 class ProfileGroup(BaseModel):
     """Группа профилей"""
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    id: str = Field(default_factory=generate_group_id)
     name: str
     description: Optional[str] = None
     created_at: datetime = Field(default_factory=datetime.now)
