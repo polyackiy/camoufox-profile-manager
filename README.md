@@ -1,5 +1,127 @@
 # Camoufox Profile Manager 🦊
 
+> **⚠️ In Development** - Project is in active development
+
+Antidetect browser profile management system based on [Camoufox](https://github.com/daijro/camoufox).
+
+## 🎯 Project Goal
+
+Creating an open-source alternative to commercial antidetect browser profile management systems (AdsPower, Multilogin, GoLogin) using the Firefox-based Camoufox browser.
+
+## 🚀 Planned Features
+
+### Profile Management
+- Create and manage unlimited number of profiles
+- Generate realistic browser fingerprints
+- Automatic device characteristics rotation
+- Save cookies, localStorage and sessions
+- Profile cloning and export/import
+
+### Web Interface
+- Modern web interface for profile management
+- Dashboard with analytics and statistics
+- Bulk operations on profiles
+- Search and filtering
+
+### API and Integration
+- REST API for automation
+- WebSocket for real-time updates
+- Integration with popular proxy services
+- Support for various export formats
+
+## 🏗️ Architecture
+
+```
+camoufox-profile-manager/
+├── backend/           # FastAPI server
+├── frontend/          # React/NextJS interface  
+├── core/             # Profile management logic
+├── database/         # SQLite database
+└── docs/             # Documentation
+```
+
+## 🛠️ Technologies
+
+- **Backend**: Python, FastAPI, SQLite
+- **Frontend**: React/NextJS, TypeScript
+- **Browser**: Camoufox (Firefox-based)
+- **Automation**: Playwright
+
+## 📋 Roadmap
+
+### Stage 1: Foundation (4-6 weeks)
+- [ ] Profile management system
+- [ ] Browser fingerprint generator
+- [ ] SQLite database
+- [ ] Basic Camoufox integration
+
+### Stage 2: API (2-3 weeks)
+- [ ] REST API with FastAPI
+- [ ] WebSocket support
+- [ ] OpenAPI documentation
+- [ ] Authentication and authorization
+
+### Stage 3: Web Interface (3-4 weeks)
+- [ ] React/NextJS frontend
+- [ ] Dashboard and analytics
+- [ ] Profile management through UI
+- [ ] Responsive design
+
+### Stage 4: Advanced Features (2-3 weeks)
+- [ ] Task scheduler
+- [ ] Automatic profile rotation
+- [ ] Proxy service integration
+- [ ] Monitoring system
+
+## 🎯 Advantages over Commercial Solutions
+
+| Parameter | Commercial | Camoufox PM |
+|-----------|------------|-------------|
+| Cost | $50-200/month | Free |
+| Source Code | Closed | Open |
+| Customization | Limited | Full |
+| Browser | Chromium | Firefox |
+| Profile Limits | Up to 1000 | Unlimited |
+
+## 🚦 Development Status
+
+- 🔄 **Planning**: Architecture and technical solutions
+- ⏳ **In Development**: Basic functionality
+- ❌ **Not Ready**: Public release
+
+## 🤝 Contributing
+
+Project is open for developer contributions:
+
+1. Fork the repository
+2. Create a feature branch
+3. Make changes
+4. Submit a Pull Request
+
+### Help needed with:
+- Backend development (Python/FastAPI)
+- Frontend development (React/TypeScript)
+- UI/UX design
+- Testing
+- Documentation
+
+## 📄 License
+
+MIT License
+
+## 📞 Contact
+
+- GitHub Issues for bugs and suggestions
+- GitHub Discussions for discussions
+
+---
+
+> **Note**: Project is in active development. Not recommended for production use.
+
+---
+
+# Camoufox Profile Manager 🦊 (Русский)
+
 > **⚠️ В разработке** - Проект находится в стадии активной разработки
 
 Система управления профилями антидетект браузера на базе [Camoufox](https://github.com/daijro/camoufox).
