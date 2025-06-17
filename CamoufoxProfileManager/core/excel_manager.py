@@ -23,7 +23,7 @@ class ExcelManager:
         
         # Определяем колонки для экспорта
         self.columns = [
-            ("id", "ID профиля", "Оставьте пустым для создания нового профиля"),
+            ("id", "ID профиля", "Автоматически генерируемый ID (только для чтения)"),
             ("name", "Название профиля", "Уникальное название профиля"),
             ("group", "Группа", "Название группы профилей"),
             ("status", "Статус", "active или inactive"),
@@ -210,7 +210,7 @@ class ExcelManager:
         result = {
             "success": True,
             "created_count": 0,
-            "updated_count": 0,
+            "updated_count": 0,  # Всегда 0, так как мы не обновляем профили
             "error_count": 0,
             "errors": [],
             "summary": ""
@@ -241,12 +241,12 @@ class ExcelManager:
             result["summary"] = (
                 f"Импорт завершен:\n"
                 f"✅ Создано профилей: {result['created_count']}\n"
-                f"✅ Обновлено профилей: {result['updated_count']}\n"
-                f"❌ Ошибок: {result['error_count']}"
+                f"❌ Ошибок: {result['error_count']}\n"
+                f"💡 Все профили создаются с новыми автоматически генерируемыми ID"
             )
             
             if result["error_count"] == 0:
-                logger.success(f"Импорт успешен: создано {result['created_count']}, обновлено {result['updated_count']}")
+                logger.success(f"Импорт успешен: создано {result['created_count']} профилей")
             else:
                 logger.warning(f"Импорт с ошибками: {result['error_count']} ошибок")
                 result["success"] = False
@@ -275,45 +275,19 @@ class ExcelManager:
         if not row_data["name"]:
             raise ValueError("Название профиля обязательно")
         
-        # Определяем операцию: создание или обновление
-        profile_id = row_data["id"]
-        is_update = bool(profile_id and profile_id != "None")
+        # ID игнорируется - всегда создаем новый профиль с автоматически генерируемым ID
+        # Это обеспечивает уникальность и последовательность ID
+        browser_settings = self._create_browser_settings(row_data)
+        proxy_config = self._create_proxy_config(row_data)
         
-        if is_update:
-            # Пытаемся обновить существующий профиль
-            existing_profile = await self.profile_manager.get_profile(profile_id)
-            if existing_profile:
-                # Подготавливаем данные для обновления
-                updates = self._prepare_profile_updates(row_data)
-                await self.profile_manager.update_profile(profile_id, updates)
-                result["updated_count"] += 1
-            else:
-                # Профиль с указанным ID не найден, создаем новый
-                logger.warning(f"Профиль с ID {profile_id} не найден, создаем новый профиль")
-                browser_settings = self._create_browser_settings(row_data)
-                proxy_config = self._create_proxy_config(row_data)
-                
-                await self.profile_manager.create_profile(
-                    name=row_data["name"],
-                    group=row_data["group"] or None,
-                    browser_settings=browser_settings,
-                    proxy_config=proxy_config,
-                    generate_fingerprint=False  # Используем данные из Excel
-                )
-                result["created_count"] += 1
-        else:
-            # Создание нового профиля
-            browser_settings = self._create_browser_settings(row_data)
-            proxy_config = self._create_proxy_config(row_data)
-            
-            await self.profile_manager.create_profile(
-                name=row_data["name"],
-                group=row_data["group"] or None,
-                browser_settings=browser_settings,
-                proxy_config=proxy_config,
-                generate_fingerprint=False  # Используем данные из Excel
-            )
-            result["created_count"] += 1
+        await self.profile_manager.create_profile(
+            name=row_data["name"],
+            group=row_data["group"] or None,
+            browser_settings=browser_settings,
+            proxy_config=proxy_config,
+            generate_fingerprint=False  # Используем данные из Excel
+        )
+        result["created_count"] += 1
     
     def _prepare_profile_updates(self, row_data: Dict[str, str]) -> Dict[str, Any]:
         """Подготавливает данные для обновления профиля"""

@@ -210,7 +210,7 @@ export default function ProfilesPage() {
   // Обработчики Excel функций
   const handleExportToExcel = async () => {
     try {
-      const response = await fetch('/api/profiles/export/excel')
+      const response = await fetch('http://localhost:8000/api/profiles/export/excel')
       if (!response.ok) {
         throw new Error('Ошибка экспорта')
       }
@@ -240,7 +240,7 @@ export default function ProfilesPage() {
       const formData = new FormData()
       formData.append('file', file)
       
-      const response = await fetch('/api/profiles/import/excel', {
+      const response = await fetch('http://localhost:8000/api/profiles/import/excel', {
         method: 'POST',
         body: formData
       })
@@ -248,7 +248,7 @@ export default function ProfilesPage() {
       const result = await response.json()
       
       if (result.success) {
-        alert(`✅ Импорт успешен!\n\nСоздано профилей: ${result.data.created_count}\nОбновлено профилей: ${result.data.updated_count}`)
+        alert(`✅ Импорт успешен!\n\nСоздано профилей: ${result.data.created_count}\n\n💡 Все профили создаются с новыми автоматически генерируемыми ID`)
         loadProfiles() // Перезагружаем список профилей
       } else {
         let errorMessage = `❌ Импорт завершен с ошибками:\n\n${result.message}`
