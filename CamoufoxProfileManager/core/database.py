@@ -51,9 +51,6 @@ class DatabaseManager:
                 extensions TEXT,
                 storage_path TEXT,
                 notes TEXT,
-                auto_rotate_fingerprint BOOLEAN DEFAULT 0,
-                rotate_interval_hours INTEGER DEFAULT 24,
-                max_sessions_per_day INTEGER DEFAULT 100,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 last_used TIMESTAMP
@@ -108,18 +105,15 @@ class DatabaseManager:
         self._connection.execute("""
             INSERT OR REPLACE INTO profiles (
                 id, name, group_id, status, browser_settings, proxy_config,
-                extensions, storage_path, notes, auto_rotate_fingerprint,
-                rotate_interval_hours, max_sessions_per_day, created_at,
-                updated_at, last_used
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                extensions, storage_path, notes, created_at, updated_at, last_used
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             profile.id, profile.name, profile.group, 
             profile.status.value if hasattr(profile.status, 'value') else profile.status,
             json.dumps(profile.browser_settings.dict()),
             json.dumps(profile.proxy.dict()) if profile.proxy else None,
             json.dumps(profile.extensions),
-            profile.storage_path, profile.notes, profile.auto_rotate_fingerprint,
-            profile.rotate_interval_hours, profile.max_sessions_per_day,
+            profile.storage_path, profile.notes,
             profile.created_at.isoformat(), profile.updated_at.isoformat(),
             profile.last_used.isoformat() if profile.last_used else None
         ))
@@ -332,9 +326,6 @@ class DatabaseManager:
             extensions=extensions,
             storage_path=row['storage_path'],
             notes=row['notes'],
-            auto_rotate_fingerprint=bool(row['auto_rotate_fingerprint']),
-            rotate_interval_hours=row['rotate_interval_hours'],
-            max_sessions_per_day=row['max_sessions_per_day'],
             created_at=datetime.fromisoformat(row['created_at']),
             updated_at=datetime.fromisoformat(row['updated_at']),
             last_used=datetime.fromisoformat(row['last_used']) if row['last_used'] else None

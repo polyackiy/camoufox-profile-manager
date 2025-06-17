@@ -9,7 +9,7 @@ import subprocess
 import os
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Union
 from loguru import logger
 
 from .models import Profile, ProfileGroup, ProfileStatus, UsageStats
@@ -46,7 +46,7 @@ class ProfileManager:
     async def create_profile(self, 
                            name: str, 
                            group: Optional[str] = None,
-                           browser_settings: Optional[Dict[str, Any]] = None,
+                           browser_settings: Optional[Union[Dict[str, Any], 'BrowserSettings']] = None,
                            proxy_config: Optional[Dict[str, Any]] = None,
                            generate_fingerprint: bool = True) -> Profile:
         """Создать новый профиль"""
@@ -66,9 +66,14 @@ class ProfileManager:
             
         # Применяем пользовательские настройки браузера
         if browser_settings:
-            for key, value in browser_settings.items():
-                if hasattr(profile.browser_settings, key):
-                    setattr(profile.browser_settings, key, value)
+            # Если browser_settings - это объект BrowserSettings, используем его напрямую
+            if hasattr(browser_settings, 'dict'):
+                profile.browser_settings = browser_settings
+            # Если это словарь, применяем поля
+            elif isinstance(browser_settings, dict):
+                for key, value in browser_settings.items():
+                    if hasattr(profile.browser_settings, key):
+                        setattr(profile.browser_settings, key, value)
         
         # Настраиваем прокси если указан
         if proxy_config:
@@ -111,10 +116,32 @@ class ProfileManager:
         
         # Обновляем поля профиля
         for key, value in updates.items():
+            # Маппинг proxy_config -> proxy для совместимости с API
+            if key == "proxy_config":
+                key = "proxy"
+            
             if hasattr(profile, key):
                 # Специальная обработка для status - преобразуем строку в enum
                 if key == "status" and isinstance(value, str):
                     value = ProfileStatus(value)
+                # Специальная обработка для proxy - преобразуем в ProxyConfig
+                elif key == "proxy" and value is not None:
+                    if isinstance(value, dict):
+                        from core.models import ProxyConfig
+                        value = ProxyConfig(**value)
+                elif key == "proxy" and value is None:
+                    value = None
+                # Специальная обработка для browser_settings
+                elif key == "browser_settings" and value is not None:
+                    if isinstance(value, dict):
+                        from core.models import BrowserSettings, WebRTCMode
+                        # Преобразуем webrtc_mode в enum если это строка
+                        if 'webrtc_mode' in value and isinstance(value['webrtc_mode'], str):
+                            try:
+                                value['webrtc_mode'] = WebRTCMode(value['webrtc_mode'])
+                            except ValueError:
+                                value['webrtc_mode'] = WebRTCMode.REPLACE
+                        value = BrowserSettings(**value)
                 setattr(profile, key, value)
         
         profile.updated_at = datetime.now()

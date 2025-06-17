@@ -63,9 +63,6 @@ async def list_profiles(
                 proxy_config=profile.proxy.dict() if profile.proxy else None,
                 storage_path=profile.storage_path,
                 notes=profile.notes,
-                auto_rotate_fingerprint=profile.auto_rotate_fingerprint,
-                rotate_interval_hours=profile.rotate_interval_hours,
-                max_sessions_per_day=profile.max_sessions_per_day,
                 created_at=profile.created_at,
                 updated_at=profile.updated_at,
                 last_used=profile.last_used
@@ -117,9 +114,6 @@ async def create_profile(request: ProfileCreateRequest):
             proxy_config=profile.proxy.dict() if profile.proxy else None,
             storage_path=profile.storage_path,
             notes=profile.notes,
-            auto_rotate_fingerprint=profile.auto_rotate_fingerprint,
-            rotate_interval_hours=profile.rotate_interval_hours,
-            max_sessions_per_day=profile.max_sessions_per_day,
             created_at=profile.created_at,
             updated_at=profile.updated_at,
             last_used=profile.last_used
@@ -159,9 +153,6 @@ async def get_profile(profile_id: str):
             proxy_config=profile.proxy.dict() if profile.proxy else None,
             storage_path=profile.storage_path,
             notes=profile.notes,
-            auto_rotate_fingerprint=profile.auto_rotate_fingerprint,
-            rotate_interval_hours=profile.rotate_interval_hours,
-            max_sessions_per_day=profile.max_sessions_per_day,
             created_at=profile.created_at,
             updated_at=profile.updated_at,
             last_used=profile.last_used
@@ -199,39 +190,72 @@ async def update_profile(profile_id: str, request: ProfileUpdateRequest):
             updates['proxy_config'] = request.proxy_config
         if request.notes is not None:
             updates['notes'] = request.notes
-        if request.auto_rotate_fingerprint is not None:
-            updates['auto_rotate_fingerprint'] = request.auto_rotate_fingerprint
-        if request.rotate_interval_hours is not None:
-            updates['rotate_interval_hours'] = request.rotate_interval_hours
-        if request.max_sessions_per_day is not None:
-            updates['max_sessions_per_day'] = request.max_sessions_per_day
+            
+        # Обработка расширенных настроек браузера
+        browser_updates = {}
+        if request.browser_os is not None:
+            browser_updates['os'] = request.browser_os
+        if request.browser_screen is not None:
+            browser_updates['screen'] = request.browser_screen
+        if request.browser_user_agent is not None:
+            browser_updates['user_agent'] = request.browser_user_agent
+        if request.browser_languages is not None:
+            browser_updates['languages'] = request.browser_languages
+        if request.browser_timezone is not None:
+            browser_updates['timezone'] = request.browser_timezone
+        if request.browser_locale is not None:
+            browser_updates['locale'] = request.browser_locale
+        if request.browser_webrtc_mode is not None:
+            browser_updates['webrtc_mode'] = request.browser_webrtc_mode
+        if request.browser_canvas_noise is not None:
+            browser_updates['canvas_noise'] = request.browser_canvas_noise
+        if request.browser_webgl_noise is not None:
+            browser_updates['webgl_noise'] = request.browser_webgl_noise
+        if request.browser_audio_noise is not None:
+            browser_updates['audio_noise'] = request.browser_audio_noise
+        if request.browser_hardware_concurrency is not None:
+            browser_updates['hardware_concurrency'] = request.browser_hardware_concurrency
+        if request.browser_device_memory is not None:
+            browser_updates['device_memory'] = request.browser_device_memory
+        if request.browser_max_touch_points is not None:
+            browser_updates['max_touch_points'] = request.browser_max_touch_points
+        if request.browser_window_width is not None:
+            browser_updates['window_width'] = request.browser_window_width
+        if request.browser_window_height is not None:
+            browser_updates['window_height'] = request.browser_window_height
+            
+        # Если есть обновления настроек браузера, добавляем их
+        if browser_updates:
+            # Получаем текущий профиль для обновления настроек браузера
+            current_profile = await profile_manager.get_profile(profile_id)
+            if current_profile and current_profile.browser_settings:
+                current_settings = current_profile.browser_settings.dict()
+                current_settings.update(browser_updates)
+                updates['browser_settings'] = current_settings
         
         # Обновляем профиль
-        profile = await profile_manager.update_profile(profile_id, updates)
+        updated_profile = await profile_manager.update_profile(profile_id, updates)
         
-        if not profile:
+        if not updated_profile:
             raise HTTPException(
                 status_code=404,
                 detail=f"Профиль с ID {profile_id} не найден"
             )
         
-        logger.info(f"📝 Обновлен профиль: {profile.name} (ID: {profile_id})")
+        logger.success(f"✅ Обновлен профиль: {updated_profile.name} (ID: {profile_id})")
         
         return ProfileResponse(
-            id=profile.id,
-            name=profile.name,
-            group=profile.group,
-            status=profile.status,
-            browser_settings=profile.browser_settings.dict() if profile.browser_settings else {},
-            proxy_config=profile.proxy.dict() if profile.proxy else None,
-            storage_path=profile.storage_path,
-            notes=profile.notes,
-            auto_rotate_fingerprint=profile.auto_rotate_fingerprint,
-            rotate_interval_hours=profile.rotate_interval_hours,
-            max_sessions_per_day=profile.max_sessions_per_day,
-            created_at=profile.created_at,
-            updated_at=profile.updated_at,
-            last_used=profile.last_used
+            id=updated_profile.id,
+            name=updated_profile.name,
+            group=updated_profile.group,
+            status=updated_profile.status,
+            browser_settings=updated_profile.browser_settings.dict() if updated_profile.browser_settings else {},
+            proxy_config=updated_profile.proxy.dict() if updated_profile.proxy else None,
+            storage_path=updated_profile.storage_path,
+            notes=updated_profile.notes,
+            created_at=updated_profile.created_at,
+            updated_at=updated_profile.updated_at,
+            last_used=updated_profile.last_used
         )
         
     except HTTPException:
@@ -339,9 +363,6 @@ async def clone_profile(profile_id: str, request: ProfileCloneRequest):
             proxy_config=cloned_profile.proxy.dict() if cloned_profile.proxy else None,
             storage_path=cloned_profile.storage_path,
             notes=cloned_profile.notes,
-            auto_rotate_fingerprint=cloned_profile.auto_rotate_fingerprint,
-            rotate_interval_hours=cloned_profile.rotate_interval_hours,
-            max_sessions_per_day=cloned_profile.max_sessions_per_day,
             created_at=cloned_profile.created_at,
             updated_at=cloned_profile.updated_at,
             last_used=cloned_profile.last_used
@@ -389,4 +410,49 @@ async def get_profile_stats(profile_id: str):
         raise
     except Exception as e:
         logger.error(f"Ошибка получения статистики профиля {profile_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post(
+    "/profiles/{profile_id}/reset-fingerprint",
+    response_model=ProfileResponse,
+    summary="Сбросить отпечаток профиля",
+    description="Полностью регенерировать отпечаток браузера для профиля"
+)
+async def reset_profile_fingerprint(profile_id: str):
+    """Сбросить и регенерировать отпечаток профиля"""
+    try:
+        profile_manager = get_profile_manager()
+        
+        # Проверяем существование профиля
+        profile = await profile_manager.get_profile(profile_id)
+        if not profile:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Профиль с ID {profile_id} не найден"
+            )
+        
+        # Регенерируем отпечаток
+        updated_profile = await profile_manager.rotate_profile_fingerprint(profile_id)
+        
+        logger.success(f"✅ Сброшен отпечаток профиля: {updated_profile.name} (ID: {profile_id})")
+        
+        return ProfileResponse(
+            id=updated_profile.id,
+            name=updated_profile.name,
+            group=updated_profile.group,
+            status=updated_profile.status,
+            browser_settings=updated_profile.browser_settings.dict() if updated_profile.browser_settings else {},
+            proxy_config=updated_profile.proxy.dict() if updated_profile.proxy else None,
+            storage_path=updated_profile.storage_path,
+            notes=updated_profile.notes,
+            created_at=updated_profile.created_at,
+            updated_at=updated_profile.updated_at,
+            last_used=updated_profile.last_used
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Ошибка сброса отпечатка профиля {profile_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e)) 

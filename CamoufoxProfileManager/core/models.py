@@ -25,6 +25,14 @@ class ProxyType(str, Enum):
     SOCKS5 = "socks5"
 
 
+class WebRTCMode(str, Enum):
+    """Режим WebRTC IP Spoofing"""
+    FORWARD = "forward"    # Передавать реальный IP
+    REPLACE = "replace"    # Заменить на IP прокси
+    REAL = "real"         # Использовать реальный IP
+    NONE = "none"         # Отключить WebRTC
+
+
 class ProxyConfig(BaseModel):
     """Конфигурация прокси"""
     type: ProxyType
@@ -45,31 +53,55 @@ class ProxyConfig(BaseModel):
 
 class BrowserSettings(BaseModel):
     """Настройки браузера"""
+    # Базовые настройки
     os: str = "windows"  # windows, linux, macos
     screen: str = "1920x1080"
     user_agent: Optional[str] = None
     languages: List[str] = ["en-US", "en"]
     timezone: Optional[str] = None
+    locale: Optional[str] = None  # Основная локаль (ru_RU, en_US)
+    
+    # Размер окна браузера
+    window_width: Optional[int] = 1280  # Ширина окна браузера
+    window_height: Optional[int] = 720  # Высота окна браузера
+    
+    # Геолокация
     geolocation: Optional[Dict[str, float]] = None
-    fonts: Optional[List[str]] = None
+    
+    # WebRTC настройки
+    webrtc_mode: WebRTCMode = WebRTCMode.REPLACE
+    webrtc_public_ip: Optional[str] = None
+    webrtc_local_ips: Optional[List[str]] = None
+    
+    # Canvas и WebGL fingerprinting
+    canvas_noise: bool = True
+    webgl_noise: bool = True
     webgl_vendor: Optional[str] = None
     webgl_renderer: Optional[str] = None
+    
+    # Аудио контекст
+    audio_noise: bool = True
+    audio_context_sample_rate: Optional[int] = None
+    
+    # Характеристики устройства
     hardware_concurrency: Optional[int] = None
     device_memory: Optional[int] = None
+    max_touch_points: int = 0
+    
+    # Шрифты
+    fonts: Optional[List[str]] = None
+    
+    # Дополнительные HTTP заголовки
+    accept_language: Optional[str] = None
+    accept_encoding: Optional[str] = None
     
     def to_camoufox_config(self) -> Dict[str, Any]:
-        """Преобразование в конфигурацию Camoufox"""
-        # Используем только базовые параметры, позволяя Camoufox генерировать остальное
-        config = {
-            "os": self.os,
-            "locale": ",".join(self.languages),
-            "i_know_what_im_doing": True  # Отключаем предупреждения
-        }
+        """Преобразование в конфигурацию Camoufox (только config-параметры)"""
+        config = {}
         
-        # Примечание: timezone передается через другие механизмы Camoufox
-        # if self.timezone:
-        #     config["timezone"] = self.timezone
-            
+        # Пока оставляем config минимальным, так как большинство параметров 
+        # должны передаваться как основные параметры Camoufox
+        
         return config
 
 
@@ -89,11 +121,6 @@ class Profile(BaseModel):
     storage_path: Optional[str] = None
     notes: Optional[str] = None
     
-    # Дополнительные настройки
-    auto_rotate_fingerprint: bool = False
-    rotate_interval_hours: int = 24
-    max_sessions_per_day: int = 100
-    
     class Config:
         use_enum_values = True
 
@@ -105,15 +132,40 @@ class Profile(BaseModel):
 
     def to_camoufox_launch_options(self) -> Dict[str, Any]:
         """Преобразование в параметры запуска Camoufox"""
-        options = self.browser_settings.to_camoufox_config()
+        # Получаем конфигурацию браузера (только config-параметры)
+        config = self.browser_settings.to_camoufox_config()
         
+        # Формируем основные параметры для AsyncCamoufox
+        options = {
+            "os": self.browser_settings.os,
+            "locale": ",".join(self.browser_settings.languages),
+            "config": config,  # Конфигурация передается через параметр config
+            "user_data_dir": self.get_storage_path(),
+            "persistent_context": True,
+            "headless": False,
+            "humanize": True,
+            "i_know_what_im_doing": True  # Отключаем предупреждения
+        }
+        
+        # Добавляем размер окна
+        if self.browser_settings.window_width and self.browser_settings.window_height:
+            options["window"] = (self.browser_settings.window_width, self.browser_settings.window_height)
+        
+        # Добавляем геолокацию
+        if self.browser_settings.geolocation:
+            options["geoip"] = False  # Отключаем автоматическое определение
+            # Для Camoufox используем config для геолокации
+            config["geolocation:latitude"] = self.browser_settings.geolocation["lat"]
+            config["geolocation:longitude"] = self.browser_settings.geolocation["lon"]
+            if "accuracy" in self.browser_settings.geolocation:
+                config["geolocation:accuracy"] = self.browser_settings.geolocation["accuracy"]
+        else:
+            options["geoip"] = True  # Автоматическое определение на основе IP
+        
+        # Добавляем прокси если настроен
         if self.proxy:
             options["proxy"] = self.proxy.to_camoufox_format()
             
-        # Добавляем путь к данным профиля
-        options["user_data_dir"] = self.get_storage_path()
-        options["persistent_context"] = True
-        
         return options
 
 
