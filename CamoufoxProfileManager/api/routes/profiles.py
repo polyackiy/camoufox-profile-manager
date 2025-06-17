@@ -323,9 +323,13 @@ async def launch_profile(profile_id: str, request: ProfileLaunchRequest):
         return ProfileLaunchResponse(
             profile_id=profile_id,
             browser_session_id=str(uuid.uuid4()),  # Заглушка для ID сессии
-            status="launched",
-            message="Браузер успешно запущен",
-            camoufox_options=browser_session
+            status=browser_session.get("status", "launched"),
+            message=browser_session.get("message", "Браузер успешно запущен"),
+            camoufox_options={
+                "process_id": browser_session.get("process_id"),
+                "status": browser_session.get("status"),
+                "options": browser_session.get("camoufox_options", {})
+            }
         )
         
     except ValueError as e:
@@ -534,4 +538,63 @@ async def import_profiles_from_excel(file: UploadFile = File(...)):
         raise
     except Exception as e:
         logger.error(f"Ошибка импорта профилей из Excel: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post(
+    "/profiles/{profile_id}/close",
+    summary="Закрыть браузер профиля",
+    description="Принудительно закрыть браузер для указанного профиля"
+)
+async def close_profile_browser(profile_id: str):
+    """Закрыть браузер для профиля"""
+    try:
+        profile_manager = get_profile_manager()
+        result = await profile_manager.close_browser(profile_id)
+        
+        logger.success(f"🔒 Браузер закрыт для профиля: {profile_id}")
+        return result
+        
+    except Exception as e:
+        logger.error(f"Ошибка закрытия браузера для профиля {profile_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get(
+    "/browsers/active",
+    summary="Получить активные браузеры",
+    description="Получить список всех активных браузеров"
+)
+async def get_active_browsers():
+    """Получить список активных браузеров"""
+    try:
+        profile_manager = get_profile_manager()
+        active_browsers = await profile_manager.get_active_browsers()
+        
+        return {
+            "active_browsers": active_browsers,
+            "count": len(active_browsers)
+        }
+        
+    except Exception as e:
+        logger.error(f"Ошибка получения активных браузеров: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post(
+    "/browsers/close-all",
+    summary="Закрыть все браузеры",
+    description="Принудительно закрыть все активные браузеры"
+)
+async def close_all_browsers():
+    """Закрыть все активные браузеры"""
+    try:
+        profile_manager = get_profile_manager()
+        result = await profile_manager.close_all_browsers()
+        
+        logger.success(f"🔒 Закрыто браузеров: {result['closed_count']}")
+        return result
+        
+    except Exception as e:
+        logger.error(f"Ошибка закрытия всех браузеров: {e}")
         raise HTTPException(status_code=500, detail=str(e)) 

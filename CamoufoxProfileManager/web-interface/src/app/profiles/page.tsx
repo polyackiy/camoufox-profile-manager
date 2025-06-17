@@ -88,6 +88,7 @@ export default function ProfilesPage() {
   const [hasNext, setHasNext] = useState(false)
   const [editingProfile, setEditingProfile] = useState<Profile | null>(null)
   const [isEditModalOpen, setIsEditModalOpen] = useState(false)
+  const [activeBrowsers, setActiveBrowsers] = useState<Set<string>>(new Set())
 
   // Загрузка профилей
   const loadProfiles = async () => {
@@ -122,10 +123,34 @@ export default function ProfilesPage() {
     }
   }
 
+  // Загрузка активных браузеров
+  const loadActiveBrowsers = async () => {
+    try {
+      const response = await fetch('http://localhost:8000/api/browsers/active')
+      if (response.ok) {
+        const result = await response.json()
+        const activeProfileIds = new Set<string>(result.active_browsers.map((browser: { profile_id: string }) => browser.profile_id))
+        setActiveBrowsers(activeProfileIds)
+      }
+    } catch (err) {
+      console.error('Ошибка загрузки активных браузеров:', err)
+    }
+  }
+
   // Загружаем профили при изменении параметров
   useEffect(() => {
     loadProfiles()
   }, [currentPage, statusFilter, searchTerm])
+
+  // Загружаем активные браузеры при загрузке компонента и периодически обновляем
+  useEffect(() => {
+    loadActiveBrowsers()
+    
+    // Обновляем активные браузеры каждые 5 секунд
+    const interval = setInterval(loadActiveBrowsers, 5000)
+    
+    return () => clearInterval(interval)
+  }, [])
 
   // Обработчики событий
   const handleSelectProfile = (profileId: string) => {
@@ -149,8 +174,9 @@ export default function ProfilesPage() {
   const handleOpenProfile = async (profileId: string) => {
     try {
       await profilesAPI.startProfile(profileId)
-      // Обновляем список профилей после запуска
+      // Обновляем список профилей и активных браузеров после запуска
       loadProfiles()
+      loadActiveBrowsers()
     } catch (err) {
       console.error('Ошибка запуска профиля:', err)
       alert('Ошибка запуска профиля: ' + (err instanceof Error ? err.message : 'Неизвестная ошибка'))
@@ -205,6 +231,49 @@ export default function ProfilesPage() {
   const handleEditClose = () => {
     setIsEditModalOpen(false)
     setEditingProfile(null)
+  }
+
+  // Обработчики управления браузерами
+  const handleCloseProfileBrowser = async (profileId: string) => {
+    try {
+      const response = await fetch(`http://localhost:8000/api/profiles/${profileId}/close`, {
+        method: 'POST'
+      })
+      const result = await response.json()
+      
+      if (response.ok) {
+        console.log(`✅ ${result.message}`)
+        // Обновляем активные браузеры после закрытия
+        loadActiveBrowsers()
+      } else {
+        console.error(`❌ Ошибка: ${result.detail || result.message}`)
+      }
+    } catch (err) {
+      console.error('Ошибка закрытия браузера:', err)
+    }
+  }
+
+  const handleCloseAllBrowsers = async () => {
+    if (!confirm('Вы уверены, что хотите закрыть ВСЕ активные браузеры?')) {
+      return
+    }
+
+    try {
+      const response = await fetch('http://localhost:8000/api/browsers/close-all', {
+        method: 'POST'
+      })
+      const result = await response.json()
+      
+      if (response.ok) {
+        console.log(`✅ ${result.message}`)
+        // Обновляем активные браузеры после закрытия всех
+        loadActiveBrowsers()
+      } else {
+        console.error(`❌ Ошибка: ${result.detail || result.message}`)
+      }
+    } catch (err) {
+      console.error('Ошибка закрытия всех браузеров:', err)
+    }
   }
 
   // Обработчики Excel функций
@@ -393,8 +462,24 @@ export default function ProfilesPage() {
             <option value="pending">Ожидание</option>
           </select>
 
-          {/* Excel кнопки */}
+          {/* Кнопки управления */}
           <div style={{ display: 'flex', gap: '10px', marginLeft: 'auto' }}>
+            <button
+              onClick={handleCloseAllBrowsers}
+              style={{
+                padding: '10px 20px',
+                backgroundColor: '#dc3545',
+                color: 'white',
+                border: 'none',
+                borderRadius: '6px',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '5px'
+              }}
+            >
+              🔒 Закрыть все браузеры
+            </button>
             <button
               onClick={handleExportToExcel}
               style={{
@@ -503,10 +588,16 @@ export default function ProfilesPage() {
                   <td style={{ padding: '15px' }}>
                     <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
                       <button
-                        onClick={() => handleOpenProfile(profile.id)}
+                        onClick={() => {
+                          if (activeBrowsers.has(profile.id)) {
+                            handleCloseProfileBrowser(profile.id)
+                          } else {
+                            handleOpenProfile(profile.id)
+                          }
+                        }}
                         style={{
                           padding: '8px 16px',
-                          backgroundColor: '#ff6b35',
+                          backgroundColor: activeBrowsers.has(profile.id) ? '#dc3545' : '#ff6b35',
                           color: 'white',
                           border: 'none',
                           borderRadius: '6px',
@@ -514,10 +605,14 @@ export default function ProfilesPage() {
                           fontWeight: '500',
                           transition: 'background-color 0.2s'
                         }}
-                        onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#e55a2b'}
-                        onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#ff6b35'}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.backgroundColor = activeBrowsers.has(profile.id) ? '#c82333' : '#e55a2b'
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.backgroundColor = activeBrowsers.has(profile.id) ? '#dc3545' : '#ff6b35'
+                        }}
                       >
-                        Open
+                        {activeBrowsers.has(profile.id) ? 'Close' : 'Open'}
                       </button>
                       <div style={{ position: 'relative' }}>
                         <button
