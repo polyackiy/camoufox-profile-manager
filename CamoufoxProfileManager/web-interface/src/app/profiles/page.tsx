@@ -207,6 +207,68 @@ export default function ProfilesPage() {
     setEditingProfile(null)
   }
 
+  // Обработчики Excel функций
+  const handleExportToExcel = async () => {
+    try {
+      const response = await fetch('/api/profiles/export/excel')
+      if (!response.ok) {
+        throw new Error('Ошибка экспорта')
+      }
+      
+      const blob = await response.blob()
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = 'camoufox_profiles.xlsx'
+      document.body.appendChild(a)
+      a.click()
+      window.URL.revokeObjectURL(url)
+      document.body.removeChild(a)
+      
+      alert('✅ Профили успешно экспортированы в Excel!')
+    } catch (err) {
+      console.error('Ошибка экспорта:', err)
+      alert('❌ Ошибка экспорта: ' + (err instanceof Error ? err.message : 'Неизвестная ошибка'))
+    }
+  }
+
+  const handleImportFromExcel = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      
+      const response = await fetch('/api/profiles/import/excel', {
+        method: 'POST',
+        body: formData
+      })
+      
+      const result = await response.json()
+      
+      if (result.success) {
+        alert(`✅ Импорт успешен!\n\nСоздано профилей: ${result.data.created_count}\nОбновлено профилей: ${result.data.updated_count}`)
+        loadProfiles() // Перезагружаем список профилей
+      } else {
+        let errorMessage = `❌ Импорт завершен с ошибками:\n\n${result.message}`
+        if (result.data.errors && result.data.errors.length > 0) {
+          errorMessage += '\n\nОшибки:\n' + result.data.errors.slice(0, 5).join('\n')
+          if (result.data.errors.length > 5) {
+            errorMessage += `\n... и еще ${result.data.errors.length - 5} ошибок`
+          }
+        }
+        alert(errorMessage)
+      }
+    } catch (err) {
+      console.error('Ошибка импорта:', err)
+      alert('❌ Ошибка импорта: ' + (err instanceof Error ? err.message : 'Неизвестная ошибка'))
+    }
+    
+    // Сбрасываем значение input для возможности повторного выбора того же файла
+    event.target.value = ''
+  }
+
   // Закрытие меню при клике вне его
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -330,6 +392,47 @@ export default function ProfilesPage() {
             <option value="error">С ошибками</option>
             <option value="pending">Ожидание</option>
           </select>
+
+          {/* Excel кнопки */}
+          <div style={{ display: 'flex', gap: '10px', marginLeft: 'auto' }}>
+            <button
+              onClick={handleExportToExcel}
+              style={{
+                padding: '10px 20px',
+                backgroundColor: '#28a745',
+                color: 'white',
+                border: 'none',
+                borderRadius: '6px',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '5px'
+              }}
+            >
+              📊 Экспорт в Excel
+            </button>
+            <label
+              style={{
+                padding: '10px 20px',
+                backgroundColor: '#007bff',
+                color: 'white',
+                border: 'none',
+                borderRadius: '6px',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '5px'
+              }}
+            >
+              📥 Импорт из Excel
+              <input
+                type="file"
+                accept=".xlsx,.xls"
+                onChange={handleImportFromExcel}
+                style={{ display: 'none' }}
+              />
+            </label>
+          </div>
         </div>
 
         {/* Таблица профилей */}

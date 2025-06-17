@@ -4,12 +4,14 @@ API роуты для управления профилями
 
 import uuid
 from typing import Optional, List
-from fastapi import APIRouter, HTTPException, Query, Depends, status
+from fastapi import APIRouter, HTTPException, Query, Depends, status, UploadFile, File
+from fastapi.responses import Response
 from loguru import logger
 
 from api.models.profiles import *
 from api.models.system import ApiResponse, ErrorResponse
 from core.models import ProfileStatus
+from core.excel_manager import ExcelManager
 from api.dependencies import get_profile_manager
 
 
@@ -455,4 +457,81 @@ async def reset_profile_fingerprint(profile_id: str):
         raise
     except Exception as e:
         logger.error(f"Ошибка сброса отпечатка профиля {profile_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get(
+    "/profiles/export/excel",
+    summary="Экспорт профилей в Excel",
+    description="Экспортировать все профили в Excel файл для массового редактирования"
+)
+async def export_profiles_to_excel():
+    """Экспорт всех профилей в Excel файл"""
+    try:
+        profile_manager = get_profile_manager()
+        excel_manager = ExcelManager(profile_manager)
+        
+        # Экспортируем профили
+        excel_data = await excel_manager.export_profiles_to_excel()
+        
+        logger.success("📊 Профили экспортированы в Excel")
+        
+        return Response(
+            content=excel_data,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={
+                "Content-Disposition": "attachment; filename=camoufox_profiles.xlsx"
+            }
+        )
+        
+    except Exception as e:
+        logger.error(f"Ошибка экспорта профилей в Excel: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post(
+    "/profiles/import/excel",
+    response_model=ApiResponse,
+    summary="Импорт профилей из Excel",
+    description="Импортировать профили из Excel файла с автоматическим созданием/обновлением"
+)
+async def import_profiles_from_excel(file: UploadFile = File(...)):
+    """Импорт профилей из Excel файла"""
+    try:
+        # Проверяем тип файла
+        if not file.filename.endswith(('.xlsx', '.xls')):
+            raise HTTPException(
+                status_code=400,
+                detail="Поддерживаются только файлы Excel (.xlsx, .xls)"
+            )
+        
+        # Читаем файл
+        excel_data = await file.read()
+        
+        profile_manager = get_profile_manager()
+        excel_manager = ExcelManager(profile_manager)
+        
+        # Импортируем профили
+        result = await excel_manager.import_profiles_from_excel(excel_data)
+        
+        if result["success"]:
+            logger.success(f"📥 Импорт завершен: создано {result['created_count']}, обновлено {result['updated_count']}")
+        else:
+            logger.warning(f"📥 Импорт с ошибками: {result['error_count']} ошибок")
+        
+        return ApiResponse(
+            success=result["success"],
+            message=result["summary"],
+            data={
+                "created_count": result["created_count"],
+                "updated_count": result["updated_count"],
+                "error_count": result["error_count"],
+                "errors": result["errors"]
+            }
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Ошибка импорта профилей из Excel: {e}")
         raise HTTPException(status_code=500, detail=str(e)) 
