@@ -7,6 +7,8 @@ import json
 import shutil
 import subprocess
 import os
+import signal
+import psutil
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional, Dict, Any, Union
@@ -25,6 +27,60 @@ except ImportError:
     logger.warning("Camoufox не установлен. Запуск браузера будет недоступен.")
 
 
+class BrowserSession:
+    """Класс для отслеживания сессии браузера"""
+    
+    def __init__(self, profile_id: str, process_id: int, task: asyncio.Task):
+        self.profile_id = profile_id
+        self.process_id = process_id
+        self.task = task
+        self.browser = None  # Ссылка на объект браузера
+        self.started_at = datetime.now()
+        self.is_running = True
+    
+    async def terminate(self):
+        """Принудительно завершить сессию браузера"""
+        logger.info(f"Завершение сессии браузера для профиля {self.profile_id}")
+        
+        self.is_running = False
+        
+        # Сначала пытаемся закрыть браузер программно
+        if self.browser:
+            try:
+                await self.browser.close()
+                logger.info(f"Браузер закрыт программно для профиля {self.profile_id}")
+            except Exception as e:
+                logger.warning(f"Не удалось закрыть браузер программно: {e}")
+        
+        # Затем завершаем задачу
+        if not self.task.done():
+            self.task.cancel()
+            try:
+                await self.task
+            except asyncio.CancelledError:
+                pass
+        
+        # В крайнем случае убиваем процесс
+        if self.process_id and self.process_id != 99999:
+            try:
+                import psutil
+                process = psutil.Process(self.process_id)
+                process.terminate()
+                
+                # Ждем завершения процесса
+                try:
+                    process.wait(timeout=5)
+                except psutil.TimeoutExpired:
+                    # Если процесс не завершился, принудительно убиваем
+                    process.kill()
+                
+                logger.info(f"Процесс {self.process_id} завершен для профиля {self.profile_id}")
+            except psutil.NoSuchProcess:
+                logger.info(f"Процесс {self.process_id} уже завершен")
+            except Exception as e:
+                logger.error(f"Ошибка завершения процесса {self.process_id}: {e}")
+
+
 class ProfileManager:
     """Основной класс для управления профилями браузера"""
     
@@ -33,6 +89,9 @@ class ProfileManager:
         self.data_dir = Path(data_dir)
         self.profiles_dir = self.data_dir / "profiles"
         self.fingerprint_generator = FingerprintGenerator()
+        
+        # Отслеживание активных сессий браузера
+        self.active_sessions: Dict[str, BrowserSession] = {}
         
         # Создаем необходимые директории
         self.profiles_dir.mkdir(parents=True, exist_ok=True)
@@ -482,12 +541,23 @@ class ProfileManager:
 
     async def launch_browser(self, profile_id: str, headless: bool = False, 
                            window_size: Optional[str] = None, **kwargs) -> Dict[str, Any]:
-        """Запуск браузера с профилем"""
-        logger.info(f"Запуск браузера для профиля {profile_id}")
-        
+        """Запустить браузер для профиля"""
+        # Получаем профиль
         profile = await self.get_profile(profile_id)
         if not profile:
             raise ValueError(f"Профиль с ID {profile_id} не найден")
+        
+        # Проверяем, что браузер еще не запущен для этого профиля
+        if profile_id in self.active_sessions:
+            return {
+                "status": "already_running",
+                "profile_id": profile_id,
+                "message": "Браузер уже запущен для этого профиля",
+                "process_id": self.active_sessions[profile_id].process_id
+            }
+        
+        # Инициализируем переменную для PID в начале функции
+        browser_process_id = None
 
         if not CAMOUFOX_AVAILABLE:
             raise RuntimeError("Camoufox не установлен. Установите его с помощью: pip install camoufox[geoip]")
@@ -523,47 +593,231 @@ class ProfileManager:
             # Запускаем браузер
             logger.info(f"Запуск Camoufox с опциями: {camoufox_options}")
             
-            # Создаем задачу для запуска браузера в фоне
-            async def run_browser():
-                async with AsyncCamoufox(**camoufox_options) as browser:
-                    logger.success(f"Браузер запущен для профиля {profile_id}")
-                    
-                    # Проверяем есть ли уже открытые страницы
-                    pages = browser.pages
-                    if not pages:
-                        # Если страниц нет, создаем новую
-                        page = await browser.new_page()
-                        await page.goto("about:blank")
-                    else:
-                        # Если есть страницы, используем первую
-                        page = pages[0]
-                        # Переходим на about:blank только если страница пустая
-                        if page.url == "about:blank" or page.url == "":
-                            await page.goto("about:blank")
-                    
-                    # Браузер будет работать пока пользователь его не закроет
+            # Создаем браузер согласно документации Camoufox
+            browser = AsyncCamoufox(**camoufox_options)
+            await browser.start()
+            logger.info("Camoufox браузер запущен")
+            
+            # Получаем PID процесса браузера
+            browser_process_id = None
+            
+            # Способ 1: через _browser_process
+            if hasattr(browser, '_browser_process') and browser._browser_process:
+                browser_process_id = browser._browser_process.pid
+                logger.info(f"PID получен через _browser_process: {browser_process_id}")
+            else:
+                logger.warning("_browser_process не найден или пуст")
+            
+            # Способ 2: через playwright browser
+            if not browser_process_id and hasattr(browser, '_browser') and hasattr(browser._browser, '_impl'):
+                try:
+                    browser_process_id = browser._browser._impl._connection._transport._proc.pid
+                    logger.info(f"PID получен через playwright: {browser_process_id}")
+                except Exception as e:
+                    logger.warning(f"Не удалось получить PID через playwright: {e}")
+            
+            # Способ 3: ищем процесс по профилю
+            if not browser_process_id:
+                import psutil
+                profile_path = str(profile.get_storage_path())
+                logger.info(f"Поиск процесса по пути профиля: {profile_path}")
+                await asyncio.sleep(2)  # Даем больше времени процессу запуститься
+                
+                for proc in psutil.process_iter(['pid', 'cmdline']):
                     try:
-                        # Ждем бесконечно долго - браузер закроется когда пользователь его закроет
-                        while True:
-                            await asyncio.sleep(1)
+                        if proc.info['cmdline'] and any(profile_path in arg for arg in proc.info['cmdline']):
+                            if 'camoufox' in ' '.join(proc.info['cmdline']).lower():
+                                browser_process_id = proc.info['pid']
+                                logger.info(f"PID найден через поиск: {browser_process_id}")
+                                break
+                    except (psutil.NoSuchProcess, psutil.AccessDenied):
+                        pass
+            
+            # Способ 4: ищем любой процесс camoufox, запущенный недавно
+            if not browser_process_id:
+                logger.info("Ищем любой недавно запущенный процесс Camoufox")
+                import time
+                current_time = time.time()
+                
+                for proc in psutil.process_iter(['pid', 'cmdline', 'create_time']):
+                    try:
+                        if proc.info['cmdline'] and 'camoufox' in ' '.join(proc.info['cmdline']).lower():
+                            # Проверяем, что процесс запущен недавно (в течение последних 30 секунд)
+                            if current_time - proc.info['create_time'] < 30:
+                                browser_process_id = proc.info['pid']
+                                logger.info(f"PID найден через поиск недавних процессов: {browser_process_id}")
+                                break
+                    except (psutil.NoSuchProcess, psutil.AccessDenied):
+                        pass
+            
+            # Если PID все еще не найден, используем заглушку
+            if not browser_process_id:
+                browser_process_id = 99999
+                logger.warning(f"PID процесса не найден для профиля {profile_id}, используется заглушка")
+            
+            logger.success(f"Браузер запущен для профиля {profile_id}, PID: {browser_process_id}")
+            
+            # Создаем начальную страницу
+            try:
+                page = await browser.new_page()
+                await page.goto("about:blank")
+                logger.info("Создана начальная страница")
+            except Exception as e:
+                logger.warning(f"Не удалось создать начальную страницу: {e}")
+            
+            # Создаем фоновую задачу для мониторинга браузера
+            async def monitor_browser():
+                try:
+                    logger.info(f"Начинаем мониторинг браузера для профиля {profile_id}")
+                    
+                    # Основной цикл мониторинга - проверяем состояние каждые 10 секунд
+                    while True:
+                        await asyncio.sleep(10)
+                        
+                        # Проверяем только процесс, не браузер объект
+                        if browser_process_id and browser_process_id != 99999:
+                            try:
+                                proc = psutil.Process(browser_process_id)
+                                if proc.is_running():
+                                    logger.debug(f"Браузер {profile_id} (PID: {browser_process_id}) все еще активен")
+                                else:
+                                    logger.info(f"Процесс браузера {browser_process_id} не активен")
+                                    break
+                            except psutil.NoSuchProcess:
+                                logger.info(f"Процесс браузера {browser_process_id} завершен")
+                                break
+                            except Exception as e:
+                                logger.warning(f"Ошибка проверки процесса {browser_process_id}: {e}")
+                        else:
+                            logger.debug(f"Мониторинг браузера {profile_id} с заглушкой PID")
+                        
+                except Exception as e:
+                    logger.error(f"Ошибка в мониторинге браузера для профиля {profile_id}: {e}")
+                finally:
+                    logger.info(f"Завершаем мониторинг браузера для профиля {profile_id}")
+                    
+                    # Закрываем браузер если он еще активен
+                    try:
+                        await browser.close()
+                        logger.info(f"Браузер закрыт для профиля {profile_id}")
                     except Exception as e:
-                        logger.info(f"Браузер для профиля {profile_id} закрыт: {e}")
+                        logger.warning(f"Ошибка закрытия браузера: {e}")
+                    
+                    # Убираем сессию из активных
+                    if profile_id in self.active_sessions:
+                        del self.active_sessions[profile_id]
+                        logger.info(f"Сессия удалена из активных для профиля {profile_id}")
+                    
+                    logger.info(f"Мониторинг браузера для профиля {profile_id} завершен")
             
-            # Запускаем браузер в фоновой задаче
-            task = asyncio.create_task(run_browser())
+            # Запускаем мониторинг в фоне
+            task = asyncio.create_task(monitor_browser())
             
-            # Ждем немного чтобы браузер успел запуститься
-            await asyncio.sleep(1)
+            # Создаем и сохраняем сессию
+            session = BrowserSession(profile_id, browser_process_id, task)
+            session.browser = browser  # Сохраняем ссылку на браузер
+            self.active_sessions[profile_id] = session
             
-            logger.success(f"Браузер запущен для профиля {profile_id}")
+            logger.success(f"Сессия браузера создана для профиля {profile_id}, PID: {browser_process_id}")
+            logger.info(f"Всего активных сессий: {len(self.active_sessions)}")
             
             return {
                 "status": "launched",
                 "profile_id": profile_id,
                 "message": "Браузер успешно запущен",
-                "camoufox_options": camoufox_options
+                "process_id": browser_process_id,
+                "debug_info": {
+                    "browser_process_id_type": type(browser_process_id).__name__,
+                    "browser_process_id_value": str(browser_process_id),
+                    "active_sessions_count": len(self.active_sessions),
+                    "session_exists": profile_id in self.active_sessions
+                },
+                "camoufox_options": {
+                    "process_id": browser_process_id,
+                    "options": camoufox_options
+                }
             }
                 
         except Exception as e:
             logger.error(f"Ошибка при запуске браузера для профиля {profile_id}: {e}")
             raise RuntimeError(f"Не удалось запустить браузер: {str(e)}")
+    
+    async def close_browser(self, profile_id: str) -> Dict[str, Any]:
+        """Закрыть браузер для профиля"""
+        logger.info(f"Закрытие браузера для профиля {profile_id}")
+        
+        if profile_id not in self.active_sessions:
+            return {
+                "status": "not_running",
+                "profile_id": profile_id,
+                "message": "Браузер не запущен для этого профиля"
+            }
+        
+        session = self.active_sessions[profile_id]
+        await session.terminate()
+        
+        # Удаляем сессию
+        if profile_id in self.active_sessions:
+            del self.active_sessions[profile_id]
+        
+        # Логируем закрытие
+        await self.storage.log_usage(UsageStats(
+            profile_id=profile_id,
+            action="close_browser",
+            details={"forced": True}
+        ))
+        
+        return {
+            "status": "closed",
+            "profile_id": profile_id,
+            "message": "Браузер успешно закрыт"
+        }
+    
+    async def get_active_browsers(self) -> List[Dict[str, Any]]:
+        """Получить список активных браузеров"""
+        active_browsers = []
+        
+        # Очищаем неактивные сессии
+        inactive_sessions = []
+        for profile_id, session in self.active_sessions.items():
+            try:
+                # Проверяем, что процесс еще существует
+                psutil.Process(session.process_id)
+                if session.task.done():
+                    inactive_sessions.append(profile_id)
+                else:
+                    active_browsers.append({
+                        "profile_id": profile_id,
+                        "process_id": session.process_id,
+                        "started_at": session.started_at.isoformat(),
+                        "is_running": session.is_running
+                    })
+            except psutil.NoSuchProcess:
+                inactive_sessions.append(profile_id)
+        
+        # Удаляем неактивные сессии
+        for profile_id in inactive_sessions:
+            del self.active_sessions[profile_id]
+        
+        return active_browsers
+    
+    async def close_all_browsers(self) -> Dict[str, Any]:
+        """Закрыть все активные браузеры"""
+        logger.info("Закрытие всех активных браузеров")
+        
+        closed_count = 0
+        errors = []
+        
+        for profile_id in list(self.active_sessions.keys()):
+            try:
+                await self.close_browser(profile_id)
+                closed_count += 1
+            except Exception as e:
+                errors.append(f"Ошибка закрытия {profile_id}: {str(e)}")
+        
+        return {
+            "status": "completed",
+            "closed_count": closed_count,
+            "errors": errors,
+            "message": f"Закрыто {closed_count} браузеров"
+        }
