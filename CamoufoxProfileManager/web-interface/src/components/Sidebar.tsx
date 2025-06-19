@@ -104,7 +104,7 @@ export function Sidebar({ isCollapsed, onToggle, profileCount = 0, groupCount = 
           </li>
           <li style={{ marginBottom: '4px' }}>
             <a
-              href="/profiles2"
+              href="/profiles"
               style={{
                 display: 'flex',
                 alignItems: 'center',
