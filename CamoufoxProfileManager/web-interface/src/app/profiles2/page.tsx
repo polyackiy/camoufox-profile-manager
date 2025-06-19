@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from 'react'
 import { usePathname } from 'next/navigation'
-import { profilesAPI, type Profile, type ProfilesResponse, formatProxyString, formatLastUsed, getStatusColor, getOSIcon } from '@/lib/api'
+import { profilesAPI, type Profile, type ProfilesResponse, formatProxyString, formatLastUsed, getStatusColor } from '@/lib/api'
+import { OSIcon } from '@/components/OSIcon'
 import EditProfileModal from '@/components/EditProfileModal'
 
 // Компонент навигации
@@ -43,34 +44,6 @@ function NavigationSidebar() {
       
       <nav>
         <a
-          href="/dashboard"
-          style={{
-            display: 'block',
-            padding: '12px 20px',
-            color: pathname === '/dashboard' ? '#ff6b35' : '#ccc',
-            backgroundColor: pathname === '/dashboard' ? 'rgba(255, 107, 53, 0.1)' : 'transparent',
-            textDecoration: 'none',
-            borderRight: pathname === '/dashboard' ? '3px solid #ff6b35' : 'none',
-            transition: 'all 0.2s'
-          }}
-        >
-          📊 Dashboard
-        </a>
-        <a
-          href="/profiles"
-          style={{
-            display: 'block',
-            padding: '12px 20px',
-            color: pathname === '/profiles' ? '#ff6b35' : '#ccc',
-            backgroundColor: pathname === '/profiles' ? 'rgba(255, 107, 53, 0.1)' : 'transparent',
-            textDecoration: 'none',
-            borderRight: pathname === '/profiles' ? '3px solid #ff6b35' : 'none',
-            transition: 'all 0.2s'
-          }}
-        >
-          👥 Profiles
-        </a>
-        <a
           href="/profiles2"
           style={{
             display: 'block',
@@ -82,7 +55,7 @@ function NavigationSidebar() {
             transition: 'all 0.2s'
           }}
         >
-          👥 Profiles2
+          👥 Profiles
         </a>
       </nav>
     </div>
@@ -90,6 +63,7 @@ function NavigationSidebar() {
 }
 
 export default function ProfilesPage() {
+  const [allProfiles, setAllProfiles] = useState<Profile[]>([])
   const [profiles, setProfiles] = useState<Profile[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -100,35 +74,60 @@ export default function ProfilesPage() {
   const [currentPage, setCurrentPage] = useState(1)
   const [totalProfiles, setTotalProfiles] = useState(0)
   const [hasNext, setHasNext] = useState(false)
+  const [perPage, setPerPage] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return Number(localStorage.getItem('profiles2_per_page') || 20)
+    }
+    return 20
+  })
+  const [sortBy, setSortBy] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('profiles2_sort_by') || 'name'
+    }
+    return 'name'
+  })
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>(() => {
+    if (typeof window !== 'undefined') {
+      return (localStorage.getItem('profiles2_sort_order') as 'asc' | 'desc') || 'asc'
+    }
+    return 'asc'
+  })
   const [editingProfile, setEditingProfile] = useState<Profile | null>(null)
   const [isEditModalOpen, setIsEditModalOpen] = useState(false)
   const [activeBrowsers, setActiveBrowsers] = useState<Set<string>>(new Set())
+  const [pageInput, setPageInput] = useState<string>('1')
 
-  // Загрузка профилей
-  const loadProfiles = async () => {
+  const totalPages = Math.max(1, Math.ceil(totalProfiles / perPage))
+
+  // Полная загрузка всех профилей
+  const fetchAllProfiles = async () => {
     try {
       setLoading(true)
       setError(null)
-      
-      const params: Record<string, any> = {
-        page: currentPage,
-        per_page: 20
+
+      let page = 1
+      const perPageFetch = 100
+      let fetched: Profile[] = []
+      let hasNextPage = true
+
+      while (hasNextPage) {
+        const params: Record<string, any> = {
+          page,
+          per_page: perPageFetch
+        }
+
+        if (statusFilter !== 'all') {
+          params.status = statusFilter
+        }
+
+        const response: ProfilesResponse = await profilesAPI.getProfiles(params)
+        fetched = fetched.concat(response.profiles)
+        hasNextPage = response.has_next
+        page += 1
       }
-      
-      if (statusFilter !== 'all') {
-        params.status = statusFilter
-      }
-      
-      if (searchTerm.trim()) {
-        params.search = searchTerm.trim()
-      }
-      
-      const response: ProfilesResponse = await profilesAPI.getProfiles(params)
-      
-      setProfiles(response.profiles)
-      setTotalProfiles(response.total)
-      setHasNext(response.has_next)
-      
+
+      setAllProfiles(fetched)
+
     } catch (err) {
       console.error('Ошибка загрузки профилей:', err)
       setError(err instanceof Error ? err.message : 'Неизвестная ошибка')
@@ -136,6 +135,52 @@ export default function ProfilesPage() {
       setLoading(false)
     }
   }
+
+  // Сортировка и пагинация на клиенте
+  const applySortingAndPaging = () => {
+    // Клиентский фильтр по имени
+    const filtered = searchTerm.trim()
+      ? allProfiles.filter(p => p.name.toLowerCase().includes(searchTerm.toLowerCase()))
+      : allProfiles
+
+    const sorted = [...filtered].sort((a, b) => {
+      const dir = sortOrder === 'asc' ? 1 : -1
+      switch (sortBy) {
+        case 'name':
+          return a.name.localeCompare(b.name) * dir
+        case 'status':
+          return a.status.localeCompare(b.status) * dir
+        case 'os':
+          return a.browser_settings.os.localeCompare(b.browser_settings.os) * dir
+        case 'last_used':
+          return (new Date(a.last_used || 0).getTime() - new Date(b.last_used || 0).getTime()) * dir
+        case 'group':
+          return a.group.localeCompare(b.group) * dir
+        case 'id':
+          return a.id.localeCompare(b.id) * dir
+        case 'created_at':
+        default:
+          return (new Date(a.created_at).getTime() - new Date(b.created_at).getTime()) * dir
+      }
+    })
+
+    setTotalProfiles(sorted.length)
+    setHasNext(currentPage * perPage < sorted.length)
+
+    const startIdx = (currentPage - 1) * perPage
+    const pageSlice = sorted.slice(startIdx, startIdx + perPage)
+    setProfiles(pageSlice)
+  }
+
+  // Загружаем все профили при изменении фильтров поиска/статуса
+  useEffect(() => {
+    fetchAllProfiles()
+  }, [statusFilter])
+
+  // Применяем сортировку и пагинацию при изменении входных данных
+  useEffect(() => {
+    applySortingAndPaging()
+  }, [allProfiles, currentPage, perPage, sortBy, sortOrder, searchTerm])
 
   // Загрузка активных браузеров
   const loadActiveBrowsers = async () => {
@@ -150,11 +195,6 @@ export default function ProfilesPage() {
       console.error('Ошибка загрузки активных браузеров:', err)
     }
   }
-
-  // Загружаем профили при изменении параметров
-  useEffect(() => {
-    loadProfiles()
-  }, [currentPage, statusFilter, searchTerm])
 
   // Загружаем активные браузеры при загрузке компонента и периодически обновляем
   useEffect(() => {
@@ -185,11 +225,22 @@ export default function ProfilesPage() {
     }
   }
 
+  // Сортировка по колонкам
+  const handleSort = (column: string) => {
+    if (sortBy === column) {
+      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')
+    } else {
+      setSortBy(column)
+      setSortOrder('asc')
+    }
+    setCurrentPage(1)
+  }
+
   const handleOpenProfile = async (profileId: string) => {
     try {
       await profilesAPI.startProfile(profileId)
       // Обновляем список профилей и активных браузеров после запуска
-      loadProfiles()
+      fetchAllProfiles()
       loadActiveBrowsers()
     } catch (err) {
       console.error('Ошибка запуска профиля:', err)
@@ -203,7 +254,7 @@ export default function ProfilesPage() {
       const newName = prompt('Введите имя для клона:', profile?.name + ' (Clone)')
       if (newName) {
         await profilesAPI.cloneProfile(profileId, newName)
-        loadProfiles()
+        fetchAllProfiles()
       }
     } catch (err) {
       console.error('Ошибка клонирования профиля:', err)
@@ -215,7 +266,7 @@ export default function ProfilesPage() {
     if (confirm('Вы уверены, что хотите удалить этот профиль?')) {
       try {
         await profilesAPI.deleteProfile(profileId)
-        loadProfiles()
+        fetchAllProfiles()
       } catch (err) {
         console.error('Ошибка удаления профиля:', err)
         alert('Ошибка удаления: ' + (err instanceof Error ? err.message : 'Неизвестная ошибка'))
@@ -223,11 +274,10 @@ export default function ProfilesPage() {
     }
   }
 
-  const handleSearch = (e: React.FormEvent) => {
-    e.preventDefault()
+  // Поиск без кнопки: фильтруем на лету, страницу сбрасываем
+  useEffect(() => {
     setCurrentPage(1)
-    loadProfiles()
-  }
+  }, [searchTerm])
 
   const handleEditProfile = (profileId: string) => {
     const profile = profiles.find(p => p.id === profileId)
@@ -290,6 +340,27 @@ export default function ProfilesPage() {
     }
   }
 
+  // Удалить выбранные профили
+  const handleBulkDelete = async () => {
+    if (selectedProfiles.size === 0) {
+      alert('No profiles selected')
+      return
+    }
+    if (!confirm(`Delete ${selectedProfiles.size} selected profiles?`)) {
+      return
+    }
+    try {
+      for (const id of selectedProfiles) {
+        await profilesAPI.deleteProfile(id)
+      }
+      setSelectedProfiles(new Set())
+      fetchAllProfiles()
+    } catch (err) {
+      console.error('Bulk delete error', err)
+      alert('Error deleting profiles')
+    }
+  }
+
   // Обработчики Excel функций
   const handleExportToExcel = async () => {
     try {
@@ -332,7 +403,7 @@ export default function ProfilesPage() {
       
       if (result.success) {
         alert(`✅ Импорт успешен!\n\nСоздано профилей: ${result.data.created_count}\n\n💡 Все профили создаются с новыми автоматически генерируемыми ID`)
-        loadProfiles() // Перезагружаем список профилей
+        fetchAllProfiles() // Перезагружаем список профилей
       } else {
         let errorMessage = `❌ Импорт завершен с ошибками:\n\n${result.message}`
         if (result.data.errors && result.data.errors.length > 0) {
@@ -365,6 +436,20 @@ export default function ProfilesPage() {
     return () => document.removeEventListener('click', handleClickOutside)
   }, [])
 
+  // Синхронизируем поле ввода страницы с текущей страницей
+  useEffect(() => {
+    setPageInput(currentPage.toString())
+  }, [currentPage])
+
+  // Сохраняем настройки в localStorage
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('profiles2_sort_by', sortBy)
+      localStorage.setItem('profiles2_sort_order', sortOrder)
+      localStorage.setItem('profiles2_per_page', perPage.toString())
+    }
+  }, [sortBy, sortOrder, perPage])
+
   if (loading) {
     return (
       <div style={{ display: 'flex', height: '100vh', backgroundColor: '#0f0f0f' }}>
@@ -385,7 +470,7 @@ export default function ProfilesPage() {
             Ошибка: {error}
             <br />
             <button 
-              onClick={loadProfiles}
+              onClick={fetchAllProfiles}
               style={{
                 marginTop: '20px',
                 padding: '10px 20px',
@@ -409,12 +494,12 @@ export default function ProfilesPage() {
       <NavigationSidebar />
       
       <div style={{ marginLeft: '250px', padding: '40px', flex: 1, minHeight: '100vh', overflow: 'visible' }}>
-        <div style={{ marginBottom: '30px' }}>
-          <h1 style={{ color: '#fff', fontSize: '32px', fontWeight: 'bold', margin: '0 0 10px 0' }}>
+        <div style={{ marginBottom: '16px' }}>
+          <h1 style={{ color: '#fff', fontSize: '28px', fontWeight: 'bold', margin: 0 }}>
             Profiles ({totalProfiles})
           </h1>
-          <p style={{ color: '#888', fontSize: '16px', margin: 0 }}>
-            Управление профилями антидетект браузера
+          <p style={{ color: '#888', fontSize: '14px', margin: '4px 0 0 0' }}>
+            Antidetect browser profile management
           </p>
         </div>
 
@@ -425,35 +510,20 @@ export default function ProfilesPage() {
           marginBottom: '30px',
           alignItems: 'center'
         }}>
-          <form onSubmit={handleSearch} style={{ display: 'flex', gap: '10px' }}>
-            <input
-              type="text"
-              placeholder="Поиск профилей..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              style={{
-                padding: '10px 15px',
-                backgroundColor: '#1a1a1a',
-                border: '1px solid #333',
-                borderRadius: '6px',
-                color: '#fff',
-                width: '300px'
-              }}
-            />
-            <button
-              type="submit"
-              style={{
-                padding: '10px 20px',
-                backgroundColor: '#ff6b35',
-                color: 'white',
-                border: 'none',
-                borderRadius: '6px',
-                cursor: 'pointer'
-              }}
-            >
-              Поиск
-            </button>
-          </form>
+          <input
+            type="text"
+            placeholder="Search profiles..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            style={{
+              padding: '10px 15px',
+              backgroundColor: '#1a1a1a',
+              border: '1px solid #333',
+              borderRadius: '6px',
+              color: '#fff',
+              width: '300px'
+            }}
+          />
 
           <select
             value={statusFilter}
@@ -469,11 +539,11 @@ export default function ProfilesPage() {
               color: '#fff'
             }}
           >
-            <option value="all">Все статусы</option>
-            <option value="active">Активные</option>
-            <option value="inactive">Неактивные</option>
-            <option value="error">С ошибками</option>
-            <option value="pending">Ожидание</option>
+            <option value="all">All statuses</option>
+            <option value="active">Active</option>
+            <option value="inactive">Inactive</option>
+            <option value="error">Error</option>
+            <option value="pending">Pending</option>
           </select>
 
           {/* Кнопки управления */}
@@ -481,7 +551,7 @@ export default function ProfilesPage() {
             <button
               onClick={handleCloseAllBrowsers}
               style={{
-                padding: '10px 20px',
+                padding: '1px 10px',
                 backgroundColor: '#dc3545',
                 color: 'white',
                 border: 'none',
@@ -489,15 +559,33 @@ export default function ProfilesPage() {
                 cursor: 'pointer',
                 display: 'flex',
                 alignItems: 'center',
-                gap: '5px'
+                gap: '5px',
+                fontSize: '14px'
               }}
             >
-              🔒 Закрыть все браузеры
+              🔒 Close all browsers
+            </button>
+            <button
+              onClick={handleBulkDelete}
+              style={{
+                padding: '5px 10px',
+                backgroundColor: '#814280',
+                color: 'white',
+                border: 'none',
+                borderRadius: '6px',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '5px',
+                fontSize: '14px'
+              }}
+            >
+              🗑️ Delete selected
             </button>
             <button
               onClick={handleExportToExcel}
               style={{
-                padding: '10px 20px',
+                padding: '5px 10px',
                 backgroundColor: '#28a745',
                 color: 'white',
                 border: 'none',
@@ -505,14 +593,15 @@ export default function ProfilesPage() {
                 cursor: 'pointer',
                 display: 'flex',
                 alignItems: 'center',
-                gap: '5px'
+                gap: '5px',
+                fontSize: '14px'
               }}
             >
-              📊 Экспорт в Excel
+              📊 Export to Excel
             </button>
             <label
               style={{
-                padding: '10px 20px',
+                padding: '5px 10px',
                 backgroundColor: '#007bff',
                 color: 'white',
                 border: 'none',
@@ -520,10 +609,11 @@ export default function ProfilesPage() {
                 cursor: 'pointer',
                 display: 'flex',
                 alignItems: 'center',
-                gap: '5px'
+                gap: '5px',
+                fontSize: '14px'
               }}
             >
-              📥 Импорт из Excel
+              📥 Import from Excel
               <input
                 type="file"
                 accept=".xlsx,.xls"
@@ -544,39 +634,82 @@ export default function ProfilesPage() {
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ backgroundColor: '#222' }}>
-                <th style={{ padding: '15px', textAlign: 'left', color: '#ccc', fontWeight: '600' }}>
+                <th
+                  style={{ padding: '10px', textAlign: 'left', color: '#ccc', fontWeight: '600' }}
+                >
                   <input
                     type="checkbox"
                     checked={selectedProfiles.size === profiles.length && profiles.length > 0}
                     onChange={handleSelectAll}
-                    style={{ marginRight: '10px' }}
+                    style={{ marginRight: '6px', cursor: 'pointer' }}
+                    title="Select all on current page"
                   />
-                  SELECT
+                  <span
+                    onClick={() => handleSort('name')}
+                    style={{ cursor: 'pointer' }}
+                  >
+                    NAME {sortBy === 'name' ? (sortOrder === 'asc' ? '▲' : '▼') : ''}
+                  </span>
                 </th>
-                <th style={{ padding: '15px', textAlign: 'left', color: '#ccc', fontWeight: '600' }}>NAME</th>
-                <th style={{ padding: '15px', textAlign: 'left', color: '#ccc', fontWeight: '600' }}>STATUS</th>
-                <th style={{ padding: '15px', textAlign: 'left', color: '#ccc', fontWeight: '600' }}>OS</th>
-                <th style={{ padding: '15px', textAlign: 'left', color: '#ccc', fontWeight: '600' }}>PROXY</th>
-                <th style={{ padding: '15px', textAlign: 'left', color: '#ccc', fontWeight: '600' }}>LAST USED</th>
-                <th style={{ padding: '15px', textAlign: 'left', color: '#ccc', fontWeight: '600' }}>ACTION</th>
+                <th
+                  onClick={() => handleSort('id')}
+                  style={{ padding: '10px', textAlign: 'left', color: '#ccc', fontWeight: '600', cursor: 'pointer' }}
+                >
+                  ID {sortBy === 'id' ? (sortOrder === 'asc' ? '▲' : '▼') : ''}
+                </th>
+                <th
+                  onClick={() => handleSort('group')}
+                  style={{ padding: '10px', textAlign: 'left', color: '#ccc', fontWeight: '600', cursor: 'pointer' }}
+                >
+                  GROUP {sortBy === 'group' ? (sortOrder === 'asc' ? '▲' : '▼') : ''}
+                </th>
+                <th
+                  onClick={() => handleSort('os')}
+                  style={{ padding: '10px', textAlign: 'left', color: '#ccc', fontWeight: '600', cursor: 'pointer' }}
+                >
+                  OS {sortBy === 'os' ? (sortOrder === 'asc' ? '▲' : '▼') : ''}
+                </th>
+                <th style={{ padding: '10px', textAlign: 'left', color: '#ccc', fontWeight: '600' }}>PROXY</th>
+                <th
+                  onClick={() => handleSort('status')}
+                  style={{ padding: '10px', textAlign: 'left', color: '#ccc', fontWeight: '600', cursor: 'pointer' }}
+                >
+                  STATUS {sortBy === 'status' ? (sortOrder === 'asc' ? '▲' : '▼') : ''}
+                </th>
+                <th
+                  onClick={() => handleSort('last_used')}
+                  style={{ padding: '10px', textAlign: 'left', color: '#ccc', fontWeight: '600', cursor: 'pointer' }}
+                >
+                  LAST USED {sortBy === 'last_used' ? (sortOrder === 'asc' ? '▲' : '▼') : ''}
+                </th>
+                <th style={{ padding: '10px', textAlign: 'left', color: '#ccc', fontWeight: '600' }}>ACTION</th>
               </tr>
             </thead>
             <tbody>
-              {profiles.map((profile) => (
+              {profiles.map((profile, idx) => (
                 <tr key={profile.id} style={{ borderTop: '1px solid #333' }}>
-                  <td style={{ padding: '15px', color: '#fff' }}>
+                  <td style={{ padding: '6px', color: '#fff', fontSize: '13px' }}>
                     <input
                       type="checkbox"
                       checked={selectedProfiles.has(profile.id)}
                       onChange={() => handleSelectProfile(profile.id)}
-                      style={{ marginRight: '10px' }}
+                      style={{ marginRight: '6px' }}
                     />
-                    {profile.id.slice(0, 8)}...
-                  </td>
-                  <td style={{ padding: '15px', color: '#fff', fontWeight: '500' }}>
                     {profile.name}
                   </td>
-                  <td style={{ padding: '15px' }}>
+                  <td style={{ padding: '6px', color: '#fff', fontSize: '13px' }}>
+                    {profile.id}
+                  </td>
+                  <td style={{ padding: '6px', color: '#fff', fontSize: '13px' }}>
+                    {profile.group}
+                  </td>
+                  <td style={{ padding: '6px', color: '#fff', fontSize: '16px' }}>
+                    <OSIcon os={profile.browser_settings.os} />
+                  </td>
+                  <td style={{ padding: '6px', color: '#888', fontSize: '13px' }}>
+                    {formatProxyString(profile.proxy_config)}
+                  </td>
+                  <td style={{ padding: '6px' }}>
                     <span style={{
                       display: 'inline-block',
                       padding: '4px 8px',
@@ -590,16 +723,10 @@ export default function ProfilesPage() {
                       {profile.status}
                     </span>
                   </td>
-                  <td style={{ padding: '15px', color: '#fff' }}>
-                    {getOSIcon(profile.browser_settings.os)} {profile.browser_settings.os}
-                  </td>
-                  <td style={{ padding: '15px', color: '#888' }}>
-                    {formatProxyString(profile.proxy_config)}
-                  </td>
-                  <td style={{ padding: '15px', color: '#888' }}>
+                  <td style={{ padding: '6px', color: '#888', fontSize: '13px' }}>
                     {formatLastUsed(profile.last_used)}
                   </td>
-                  <td style={{ padding: '15px' }}>
+                  <td style={{ padding: '6px' }}>
                     <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
                       <button
                         onClick={() => {
@@ -656,7 +783,7 @@ export default function ProfilesPage() {
                             style={{
                               position: 'absolute',
                               // Показываем меню сверху для последних 3 строк
-                              ...(profiles.indexOf(profile) >= profiles.length - 3 
+                              ...(idx >= profiles.length - 3 
                                 ? { bottom: '100%', marginBottom: '5px' } 
                                 : { top: '100%', marginTop: '5px' }
                               ),
@@ -747,47 +874,109 @@ export default function ProfilesPage() {
         </div>
 
         {/* Пагинация */}
-        {totalProfiles > 20 && (
+        {totalProfiles > perPage && (
           <div style={{
             display: 'flex',
             justifyContent: 'center',
             alignItems: 'center',
-            gap: '20px',
-            marginTop: '30px'
+            gap: '16px',
+            marginTop: '30px',
+            flexWrap: 'wrap'
           }}>
+            <span style={{ color: '#ccc', fontSize: '14px' }}>
+              Total: {totalProfiles}
+            </span>
+
             <button
               onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
               disabled={currentPage === 1}
               style={{
-                padding: '10px 20px',
+                padding: '6px 10px',
                 backgroundColor: currentPage === 1 ? '#333' : '#ff6b35',
                 color: currentPage === 1 ? '#666' : 'white',
                 border: 'none',
-                borderRadius: '6px',
-                cursor: currentPage === 1 ? 'not-allowed' : 'pointer'
+                borderRadius: '4px',
+                cursor: currentPage === 1 ? 'not-allowed' : 'pointer',
+                fontSize: '14px'
               }}
             >
-              ← Предыдущая
+              ‹
             </button>
-            
-            <span style={{ color: '#ccc' }}>
-              Страница {currentPage}
-            </span>
-            
-            <button
-              onClick={() => setCurrentPage(prev => prev + 1)}
-              disabled={!hasNext}
+
+            <input
+              type="number"
+              min={1}
+              max={totalPages}
+              value={pageInput}
+              onChange={(e) => setPageInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  const num = Number(pageInput)
+                  if (!isNaN(num)) {
+                    const target = Math.min(Math.max(1, num), totalPages)
+                    setCurrentPage(target)
+                  }
+                }
+              }}
+              onBlur={() => {
+                const num = Number(pageInput)
+                if (!isNaN(num)) {
+                  const target = Math.min(Math.max(1, num), totalPages)
+                  setCurrentPage(target)
+                }
+              }}
               style={{
-                padding: '10px 20px',
-                backgroundColor: !hasNext ? '#333' : '#ff6b35',
-                color: !hasNext ? '#666' : 'white',
+                width: '60px',
+                textAlign: 'center',
+                padding: '6px 8px',
+                backgroundColor: '#1a1a1a',
+                border: '1px solid #555',
+                borderRadius: '4px',
+                color: '#fff',
+                fontSize: '14px'
+              }}
+            />
+
+            <span style={{ color: '#ccc', fontSize: '14px' }}>
+              / {totalPages}
+            </span>
+
+            <button
+              onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+              disabled={currentPage === totalPages}
+              style={{
+                padding: '6px 10px',
+                backgroundColor: currentPage === totalPages ? '#333' : '#ff6b35',
+                color: currentPage === totalPages ? '#666' : 'white',
                 border: 'none',
-                borderRadius: '6px',
-                cursor: !hasNext ? 'not-allowed' : 'pointer'
+                borderRadius: '4px',
+                cursor: currentPage === totalPages ? 'not-allowed' : 'pointer',
+                fontSize: '14px'
               }}
             >
-              Следующая →
+              ›
             </button>
+
+            <select
+              value={perPage}
+              onChange={(e) => {
+                setPerPage(Number(e.target.value))
+                setCurrentPage(1)
+              }}
+              style={{
+                padding: '6px 10px',
+                backgroundColor: '#1a1a1a',
+                border: '1px solid #333',
+                borderRadius: '4px',
+                color: '#fff',
+                fontSize: '14px'
+              }}
+            >
+              <option value={10}>10/page</option>
+              <option value={20}>20/page</option>
+              <option value={50}>50/page</option>
+              <option value={100}>100/page</option>
+            </select>
           </div>
         )}
       </div>

@@ -1,0 +1,136 @@
+# Конфигурация миграции профилей Chrome в Camoufox
+# Этот файл определяет стратегии маппинга и настройки миграции
+
+# Стратегии маппинга профилей
+mapping_strategies:
+  # Стратегия по умолчанию для неопознанных профилей
+  default:
+    type: "create_new"
+    group: "chrome_imports"
+    name_template: "Chrome - {display_name}"
+  
+  # Настроенные маппинги для конкретных профилей
+  configured:
+    # Пример: основной профиль Chrome -> конкретный профиль Camoufox
+    "Default":
+      type: "create_new"
+      group: "chrome_test"
+      name_template: "Тест - {display_name}"
+  
+  # Паттерн-маппинг на основе имен профилей
+  pattern_matching:
+    # Профили с именем "Person 1" -> группа work_profiles
+    "Person 1":
+      type: "create_new"
+      group: "work_profiles"
+      name_template: "Work - {display_name}"
+    
+    # Профили с именем "Person 2" -> группа personal_profiles  
+    "Person 2":
+      type: "create_new"
+      group: "personal_profiles"
+      name_template: "Personal - {display_name}"
+    
+    # Профили с именем содержащим "Test" -> группа test_profiles
+    "*Test*":
+      type: "create_new"
+      group: "test_profiles"
+      name_template: "Test - {display_name}"
+
+# Настройки миграции по умолчанию
+migration_settings:
+  # Что мигрировать по умолчанию
+  include_cookies: true
+  include_bookmarks: true
+  include_history: false
+  
+  # Настройки безопасности
+  security:
+    # Максимальное количество профилей для массовой миграции
+    max_bulk_profiles: 50
+    
+    # Создавать резервные копии перед миграцией
+    create_backups: false
+    
+    # Исключить определенные типы данных
+    exclude_data:
+      - "passwords"  # Пароли не мигрируются
+      - "payment_methods"  # Платежные методы не мигрируются
+  
+  # Настройки производительности
+  performance:
+    # Пауза между миграциями профилей (секунды)
+    delay_between_migrations: 1
+    
+    # Максимальный размер файла куков для миграции (MB)
+    max_cookies_file_size: 100
+
+# Настройки создания профилей Camoufox
+camoufox_profile_defaults:
+  # Настройки браузера по умолчанию для мигрированных профилей
+  browser_settings:
+    os: "windows"
+    screen: "1920x1080"
+    languages: ["ru-RU", "en-US"]
+    timezone: "Europe/Moscow"
+    window_width: 1280
+    window_height: 720
+    webrtc_mode: "replace"
+    canvas_noise: true
+    webgl_noise: true
+    audio_noise: true
+  
+  # Группы профилей и их описания
+  groups:
+    chrome_imports:
+      description: "Импортированные профили Chrome"
+      color: "#4285f4"  # Chrome blue
+    
+    chrome_test:
+      description: "Тестовые профили Chrome"
+      color: "#34a853"  # Chrome green
+    
+    work_profiles:
+      description: "Рабочие профили"
+      color: "#ea4335"  # Chrome red
+    
+    personal_profiles:
+      description: "Личные профили"
+      color: "#fbbc04"  # Chrome yellow
+    
+    test_profiles:
+      description: "Тестовые профили"
+      color: "#9aa0a6"  # Chrome gray
+
+# Логирование миграции
+logging:
+  # Уровень логирования (DEBUG, INFO, WARNING, ERROR)
+  level: "INFO"
+  
+  # Сохранять детальные логи миграции
+  save_migration_logs: true
+  
+  # Путь к файлу логов
+  log_file: "chrome_migration.log"
+
+# Пути к данным (автоматически определяются, но можно переопределить)
+paths:
+  # Путь к данным Chrome (оставьте пустым для автоопределения)
+  chrome_data_path: ""
+  
+  # Путь к профилям Camoufox
+  camoufox_profiles_path: "data/profiles"
+  
+  # Путь к временным файлам
+  temp_path: "/tmp/chrome_migration"
+
+# Экспериментальные функции
+experimental:
+  # Попытка миграции расширений Chrome (экспериментально)
+  migrate_extensions: false
+  
+  # Попытка миграции настроек Chrome (экспериментально)
+  migrate_settings: false
+  
+  # Использовать продвинутую расшифровку куков
+  advanced_cookie_decryption: true 

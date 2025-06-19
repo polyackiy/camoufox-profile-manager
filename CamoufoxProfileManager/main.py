@@ -29,11 +29,11 @@ async def lifespan(app: FastAPI):
     
     try:
         # Инициализируем базу данных
-        storage_manager = StorageManager("demo_data/profiles.db")
+        storage_manager = StorageManager("data/profiles.db")
         await storage_manager.initialize()
         
         # Инициализируем менеджер профилей
-        profile_manager = ProfileManager(storage_manager, "demo_data")
+        profile_manager = ProfileManager(storage_manager, "data")
         await profile_manager.initialize()
         
         # Устанавливаем зависимости

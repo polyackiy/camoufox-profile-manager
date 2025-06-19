@@ -1,0 +1,112 @@
+# Конфигурация миграции профилей Chrome в Camoufox
+# Этот файл позволяет настроить автоматическое сопоставление профилей
+
+# Путь к данным Chrome (если отличается от стандартного)
+chrome_data_path: null  # null = автоматическое определение по ОС
+
+# Настройки миграции по умолчанию
+default_migration_settings:
+  include_cookies: true
+  include_bookmarks: true
+  include_history: false
+  include_extensions: false
+  include_passwords: false  # Не рекомендуется из соображений безопасности
+
+# Маппинг профилей: Chrome профиль -> Camoufox профиль
+# Форматы:
+# 1. По имени профиля Chrome
+# 2. По ID профиля Camoufox
+# 3. Автоматическое создание нового профиля
+profile_mapping:
+  # Пример 1: Перенос в существующий профиль Camoufox
+  - chrome_profile: "Default"
+    chrome_display_name: "Основной"  # Опциональный фильтр по отображаемому имени
+    camoufox_profile_id: "xcj2cs4r"  # ID существующего профиля
+    migration_settings:
+      include_cookies: true
+      include_bookmarks: true
+      include_history: false
+  
+  # Пример 2: Создание нового профиля при миграции
+  - chrome_profile: "Profile 1"  
+    create_new_profile: true
+    new_profile_name: "Imported from Chrome Profile 1"
+    new_profile_group: "chrome_imports"
+    migration_settings:
+      include_cookies: true
+      include_bookmarks: false
+      include_history: false
+  
+  # Пример 3: Перенос по отображаемому имени
+  - chrome_display_name: "Работа"
+    camoufox_profile_id: "xcj3adjy"
+    migration_settings:
+      include_cookies: true
+      include_bookmarks: true
+  
+  # Пример 4: Массовое создание профилей с шаблоном
+  - chrome_profile_pattern: "Profile *"  # Все профили типа Profile 1, Profile 2, etc.
+    auto_create_profiles: true
+    new_profile_name_template: "Chrome {chrome_profile_name}"
+    new_profile_group: "chrome_batch_import"
+    migration_settings:
+      include_cookies: true
+      include_bookmarks: false
+      include_history: false
+
+# Настройки для автоматического создания профилей
+auto_profile_creation:
+  default_group: "chrome_imports"
+  inherit_chrome_settings: true  # Попытаться извлечь настройки из Chrome
+  generate_fingerprint: true     # Генерировать новый отпечаток или использовать дефолтный
+  
+  # Настройки браузера по умолчанию для новых профилей
+  default_browser_settings:
+    os: "windows"
+    screen: "1920x1080"
+    window_width: 1280
+    window_height: 720
+    languages: ["ru-RU", "en-US"]
+    timezone: "Europe/Moscow"
+
+# Настройки безопасности
+security_settings:
+  backup_chrome_data: true       # Создавать резервную копию данных Chrome
+  verify_data_integrity: true    # Проверять целостность данных при миграции
+  log_migration_details: true    # Подробное логирование процесса миграции
+
+# Фильтры для исключения данных
+exclusion_filters:
+  # Исключить куки с определенных доменов
+  exclude_cookie_domains:
+    - "ads.google.com"
+    - "doubleclick.net"
+    - "googlesyndication.com"
+  
+  # Исключить куки с определенными именами
+  exclude_cookie_names:
+    - "_ga"
+    - "_gid"
+    - "_fbp"
+  
+  # Исключить историю с определенных доменов
+  exclude_history_domains:
+    - "localhost"
+    - "127.0.0.1"
+
+# Расписание автоматической миграции (опционально)
+schedule:
+  enabled: false
+  cron_expression: "0 2 * * 0"  # Каждое воскресенье в 2:00
+  auto_update_existing: false   # Обновлять существующие профили
+  notifications:
+    enabled: true
+    on_success: true
+    on_error: true
+
+# Интеграция с Excel
+excel_integration:
+  enabled: true
+  generate_mapping_template: true  # Создавать Excel шаблон для маппинга
+  export_results: true            # Экспортировать результаты в Excel
+  template_path: "config/chrome_migration_template.xlsx" 

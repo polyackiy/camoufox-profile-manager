@@ -102,6 +102,23 @@ export function Sidebar({ isCollapsed, onToggle, profileCount = 0, groupCount = 
               👥 {!isCollapsed && `Profiles (${profileCount})`}
             </a>
           </li>
+          <li style={{ marginBottom: '4px' }}>
+            <a
+              href="/profiles2"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                padding: '10px 12px',
+                color: '#d4d4d4',
+                borderRadius: '6px',
+                textDecoration: 'none',
+                fontSize: '14px',
+                fontWeight: '500'
+              }}
+            >
+              👥 {!isCollapsed && 'Profiles2'}
+            </a>
+          </li>
         </ul>
       </nav>
     </div>

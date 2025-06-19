@@ -1,0 +1,941 @@
+'# Автоматически сгенерированный шаблон маппинга профилей': null
+'# Создан': '2025-06-19T01:46:04.363427'
+'# Существующие профили Camoufox для справки:': null
+chrome_data_path: null
+existing_camoufox_profiles:
+- group: chrome_imports
+  id: p2wvzunq
+  name: A002
+  status: active
+- group: chrome_imports
+  id: agwpk453
+  name: Chrome - Person 1
+  status: active
+- group: chrome_imports
+  id: 7pyb4yq2
+  name: Chrome - Person 1
+  status: active
+- group: chrome_test
+  id: dc4czm6q
+  name: Тест - -ThomaS-
+  status: active
+- group: chrome_test
+  id: wkcwbnhk
+  name: Тест - -ThomaS-
+  status: active
+- group: chrome_test
+  id: sxxuyv4j
+  name: Тест - -ThomaS-
+  status: active
+- group: chrome_test
+  id: 6eqs93w4
+  name: Тест - -ThomaS-
+  status: active
+- group: Main
+  id: xcj77qz4
+  name: AP011
+  status: active
+- group: Main
+  id: xcj62hhq
+  name: AP010
+  status: active
+- group: Main
+  id: xcj5kas6
+  name: AP009
+  status: active
+- group: Main
+  id: xcj3adjy
+  name: AP008
+  status: active
+- group: Main
+  id: xcj2cs4r
+  name: AP007
+  status: active
+- group: Main
+  id: xcjzeqvs
+  name: AP006
+  status: active
+- group: Main
+  id: xcjya2aw
+  name: AP005
+  status: active
+- group: Main
+  id: xcjw5yex
+  name: AP004
+  status: active
+- group: Main
+  id: xcjvwhe9
+  name: AP003
+  status: active
+- group: Main
+  id: xcjp9y9k
+  name: AP002
+  status: active
+- group: Main
+  id: xcjkwehk
+  name: AP001
+  status: active
+- group: Main
+  id: r9fnd7us
+  name: AP009 (Clone)
+  status: active
+- group: Main
+  id: 22a65186-70cf-4f8a-bf66-b2f4866b1409
+  name: AP001
+  status: active
+- group: Main
+  id: 04b73070-5848-4722-8dd4-eb3e006bec1c
+  name: AP002
+  status: active
+- group: Main
+  id: ac8c59ca-4a56-48b8-8007-1b49180fb4de
+  name: AP003
+  status: active
+profile_mapping:
+- '# Chrome профиль: -ThomaS-': null
+  '# Вариант 1: Перенос в существующий профиль': null
+  '# Вариант 2: Создание нового профиля': null
+  '# Выберите один из вариантов ниже:': null
+  camoufox_profile_id: '# укажите ID профиля'
+  chrome_display_name: -ThomaS-
+  chrome_path: /Volumes/Disk2/apol/Library/Application Support/Google/Chrome/Default
+  chrome_profile: Default
+  create_new_profile: false
+  migration_settings:
+    include_bookmarks: true
+    include_cookies: true
+    include_history: false
+  new_profile_group: chrome_imports
+  new_profile_name: Chrome - -ThomaS-
+- '# Chrome профиль: Person 1': null
+  '# Вариант 1: Перенос в существующий профиль': null
+  '# Вариант 2: Создание нового профиля': null
+  '# Выберите один из вариантов ниже:': null
+  camoufox_profile_id: '# укажите ID профиля'
+  chrome_display_name: Person 1
+  chrome_path: /Volumes/Disk2/apol/Library/Application Support/Google/Chrome/Profile
+    28
+  chrome_profile: Profile 28
+  create_new_profile: false
+  migration_settings:
+    include_bookmarks: true
+    include_cookies: true
+    include_history: false
+  new_profile_group: chrome_imports
+  new_profile_name: Chrome - Person 1
+- '# Chrome профиль: Person 2': null
+  '# Вариант 1: Перенос в существующий профиль': null
+  '# Вариант 2: Создание нового профиля': null
+  '# Выберите один из вариантов ниже:': null
+  camoufox_profile_id: '# укажите ID профиля'
+  chrome_display_name: Person 2
+  chrome_path: /Volumes/Disk2/apol/Library/Application Support/Google/Chrome/Profile
+    17
+  chrome_profile: Profile 17
+  create_new_profile: false
+  migration_settings:
+    include_bookmarks: true
+    include_cookies: true
+    include_history: false
+  new_profile_group: chrome_imports
+  new_profile_name: Chrome - Person 2
+- '# Chrome профиль: Person 1': null
+  '# Вариант 1: Перенос в существующий профиль': null
+  '# Вариант 2: Создание нового профиля': null
+  '# Выберите один из вариантов ниже:': null
+  camoufox_profile_id: '# укажите ID профиля'
+  chrome_display_name: Person 1
+  chrome_path: /Volumes/Disk2/apol/Library/Application Support/Google/Chrome/Profile
+    10
+  chrome_profile: Profile 10
+  create_new_profile: false
+  migration_settings:
+    include_bookmarks: true
+    include_cookies: true
+    include_history: false
+  new_profile_group: chrome_imports
+  new_profile_name: Chrome - Person 1
+- '# Chrome профиль: Person 1': null
+  '# Вариант 1: Перенос в существующий профиль': null
+  '# Вариант 2: Создание нового профиля': null
+  '# Выберите один из вариантов ниже:': null
+  camoufox_profile_id: '# укажите ID профиля'
+  chrome_display_name: Person 1
+  chrome_path: /Volumes/Disk2/apol/Library/Application Support/Google/Chrome/Profile
+    19
+  chrome_profile: Profile 19
+  create_new_profile: false
+  migration_settings:
+    include_bookmarks: true
+    include_cookies: true
+    include_history: false
+  new_profile_group: chrome_imports
+  new_profile_name: Chrome - Person 1
+- '# Chrome профиль: Person 1': null
+  '# Вариант 1: Перенос в существующий профиль': null
+  '# Вариант 2: Создание нового профиля': null
+  '# Выберите один из вариантов ниже:': null
+  camoufox_profile_id: '# укажите ID профиля'
+  chrome_display_name: Person 1
+  chrome_path: /Volumes/Disk2/apol/Library/Application Support/Google/Chrome/Profile
+    26
+  chrome_profile: Profile 26
+  create_new_profile: false
+  migration_settings:
+    include_bookmarks: true
+    include_cookies: true
+    include_history: false
+  new_profile_group: chrome_imports
+  new_profile_name: Chrome - Person 1
+- '# Chrome профиль: Person 1': null
+  '# Вариант 1: Перенос в существующий профиль': null
+  '# Вариант 2: Создание нового профиля': null
+  '# Выберите один из вариантов ниже:': null
+  camoufox_profile_id: '# укажите ID профиля'
+  chrome_display_name: Person 1
+  chrome_path: /Volumes/Disk2/apol/Library/Application Support/Google/Chrome/Profile
+    21
+  chrome_profile: Profile 21
+  create_new_profile: false
+  migration_settings:
+    include_bookmarks: true
+    include_cookies: true
+    include_history: false
+  new_profile_group: chrome_imports
+  new_profile_name: Chrome - Person 1
+- '# Chrome профиль: Person 1': null
+  '# Вариант 1: Перенос в существующий профиль': null
+  '# Вариант 2: Создание нового профиля': null
+  '# Выберите один из вариантов ниже:': null
+  camoufox_profile_id: '# укажите ID профиля'
+  chrome_display_name: Person 1
+  chrome_path: /Volumes/Disk2/apol/Library/Application Support/Google/Chrome/Profile
+    44
+  chrome_profile: Profile 44
+  create_new_profile: false
+  migration_settings:
+    include_bookmarks: true
+    include_cookies: true
+    include_history: false
+  new_profile_group: chrome_imports
+  new_profile_name: Chrome - Person 1
+- '# Chrome профиль: Person 1': null
+  '# Вариант 1: Перенос в существующий профиль': null
+  '# Вариант 2: Создание нового профиля': null
+  '# Выберите один из вариантов ниже:': null
+  camoufox_profile_id: '# укажите ID профиля'
+  chrome_display_name: Person 1
+  chrome_path: /Volumes/Disk2/apol/Library/Application Support/Google/Chrome/Profile
+    43
+  chrome_profile: Profile 43
+  create_new_profile: false
+  migration_settings:
+    include_bookmarks: true
+    include_cookies: true
+    include_history: false
+  new_profile_group: chrome_imports
+  new_profile_name: Chrome - Person 1
+- '# Chrome профиль: Person 1': null
+  '# Вариант 1: Перенос в существующий профиль': null
+  '# Вариант 2: Создание нового профиля': null
+  '# Выберите один из вариантов ниже:': null
+  camoufox_profile_id: '# укажите ID профиля'
+  chrome_display_name: Person 1
+  chrome_path: /Volumes/Disk2/apol/Library/Application Support/Google/Chrome/Profile
+    20
+  chrome_profile: Profile 20
+  create_new_profile: false
+  migration_settings:
+    include_bookmarks: true
+    include_cookies: true
+    include_history: false
+  new_profile_group: chrome_imports
+  new_profile_name: Chrome - Person 1
+- '# Chrome профиль: Person 1': null
+  '# Вариант 1: Перенос в существующий профиль': null
+  '# Вариант 2: Создание нового профиля': null
+  '# Выберите один из вариантов ниже:': null
+  camoufox_profile_id: '# укажите ID профиля'
+  chrome_display_name: Person 1
+  chrome_path: /Volumes/Disk2/apol/Library/Application Support/Google/Chrome/Profile
+    18
+  chrome_profile: Profile 18
+  create_new_profile: false
+  migration_settings:
+    include_bookmarks: true
+    include_cookies: true
+    include_history: false
+  new_profile_group: chrome_imports
+  new_profile_name: Chrome - Person 1
+- '# Chrome профиль: Person 1': null
+  '# Вариант 1: Перенос в существующий профиль': null
+  '# Вариант 2: Создание нового профиля': null
+  '# Выберите один из вариантов ниже:': null
+  camoufox_profile_id: '# укажите ID профиля'
+  chrome_display_name: Person 1
+  chrome_path: /Volumes/Disk2/apol/Library/Application Support/Google/Chrome/Profile
+    27
+  chrome_profile: Profile 27
+  create_new_profile: false
+  migration_settings:
+    include_bookmarks: true
+    include_cookies: true
+    include_history: false
+  new_profile_group: chrome_imports
+  new_profile_name: Chrome - Person 1
+- '# Chrome профиль: Person 1': null
+  '# Вариант 1: Перенос в существующий профиль': null
+  '# Вариант 2: Создание нового профиля': null
+  '# Выберите один из вариантов ниже:': null
+  camoufox_profile_id: '# укажите ID профиля'
+  chrome_display_name: Person 1
+  chrome_path: /Volumes/Disk2/apol/Library/Application Support/Google/Chrome/Profile
+    11
+  chrome_profile: Profile 11
+  create_new_profile: false
+  migration_settings:
+    include_bookmarks: true
+    include_cookies: true
+    include_history: false
+  new_profile_group: chrome_imports
+  new_profile_name: Chrome - Person 1
+- '# Chrome профиль: Person 1': null
+  '# Вариант 1: Перенос в существующий профиль': null
+  '# Вариант 2: Создание нового профиля': null
+  '# Выберите один из вариантов ниже:': null
+  camoufox_profile_id: '# укажите ID профиля'
+  chrome_display_name: Person 1
+  chrome_path: /Volumes/Disk2/apol/Library/Application Support/Google/Chrome/Profile
+    29
+  chrome_profile: Profile 29
+  create_new_profile: false
+  migration_settings:
+    include_bookmarks: true
+    include_cookies: true
+    include_history: false
+  new_profile_group: chrome_imports
+  new_profile_name: Chrome - Person 1
+- '# Chrome профиль: Person 2': null
+  '# Вариант 1: Перенос в существующий профиль': null
+  '# Вариант 2: Создание нового профиля': null
+  '# Выберите один из вариантов ниже:': null
+  camoufox_profile_id: '# укажите ID профиля'
+  chrome_display_name: Person 2
+  chrome_path: /Volumes/Disk2/apol/Library/Application Support/Google/Chrome/Profile
+    16
+  chrome_profile: Profile 16
+  create_new_profile: false
+  migration_settings:
+    include_bookmarks: true
+    include_cookies: true
+    include_history: false
+  new_profile_group: chrome_imports
+  new_profile_name: Chrome - Person 2
+- '# Chrome профиль: Person 1': null
+  '# Вариант 1: Перенос в существующий профиль': null
+  '# Вариант 2: Создание нового профиля': null
+  '# Выберите один из вариантов ниже:': null
+  camoufox_profile_id: '# укажите ID профиля'
+  chrome_display_name: Person 1
+  chrome_path: /Volumes/Disk2/apol/Library/Application Support/Google/Chrome/Profile
+    42
+  chrome_profile: Profile 42
+  create_new_profile: false
+  migration_settings:
+    include_bookmarks: true
+    include_cookies: true
+    include_history: false
+  new_profile_group: chrome_imports
+  new_profile_name: Chrome - Person 1
+- '# Chrome профиль: Person 1': null
+  '# Вариант 1: Перенос в существующий профиль': null
+  '# Вариант 2: Создание нового профиля': null
+  '# Выберите один из вариантов ниже:': null
+  camoufox_profile_id: '# укажите ID профиля'
+  chrome_display_name: Person 1
+  chrome_path: /Volumes/Disk2/apol/Library/Application Support/Google/Chrome/Profile
+    45
+  chrome_profile: Profile 45
+  create_new_profile: false
+  migration_settings:
+    include_bookmarks: true
+    include_cookies: true
+    include_history: false
+  new_profile_group: chrome_imports
+  new_profile_name: Chrome - Person 1
+- '# Chrome профиль: Person 1': null
+  '# Вариант 1: Перенос в существующий профиль': null
+  '# Вариант 2: Создание нового профиля': null
+  '# Выберите один из вариантов ниже:': null
+  camoufox_profile_id: '# укажите ID профиля'
+  chrome_display_name: Person 1
+  chrome_path: /Volumes/Disk2/apol/Library/Application Support/Google/Chrome/Profile
+    56
+  chrome_profile: Profile 56
+  create_new_profile: false
+  migration_settings:
+    include_bookmarks: true
+    include_cookies: true
+    include_history: false
+  new_profile_group: chrome_imports
+  new_profile_name: Chrome - Person 1
+- '# Chrome профиль: Person 1': null
+  '# Вариант 1: Перенос в существующий профиль': null
+  '# Вариант 2: Создание нового профиля': null
+  '# Выберите один из вариантов ниже:': null
+  camoufox_profile_id: '# укажите ID профиля'
+  chrome_display_name: Person 1
+  chrome_path: /Volumes/Disk2/apol/Library/Application Support/Google/Chrome/Profile
+    51
+  chrome_profile: Profile 51
+  create_new_profile: false
+  migration_settings:
+    include_bookmarks: true
+    include_cookies: true
+    include_history: false
+  new_profile_group: chrome_imports
+  new_profile_name: Chrome - Person 1
+- '# Chrome профиль: Person 1': null
+  '# Вариант 1: Перенос в существующий профиль': null
+  '# Вариант 2: Создание нового профиля': null
+  '# Выберите один из вариантов ниже:': null
+  camoufox_profile_id: '# укажите ID профиля'
+  chrome_display_name: Person 1
+  chrome_path: /Volumes/Disk2/apol/Library/Application Support/Google/Chrome/Profile
+    7
+  chrome_profile: Profile 7
+  create_new_profile: false
+  migration_settings:
+    include_bookmarks: true
+    include_cookies: true
+    include_history: false
+  new_profile_group: chrome_imports
+  new_profile_name: Chrome - Person 1
+- '# Chrome профиль: Person 1': null
+  '# Вариант 1: Перенос в существующий профиль': null
+  '# Вариант 2: Создание нового профиля': null
+  '# Выберите один из вариантов ниже:': null
+  camoufox_profile_id: '# укажите ID профиля'
+  chrome_display_name: Person 1
+  chrome_path: /Volumes/Disk2/apol/Library/Application Support/Google/Chrome/Profile
+    9
+  chrome_profile: Profile 9
+  create_new_profile: false
+  migration_settings:
+    include_bookmarks: true
+    include_cookies: true
+    include_history: false
+  new_profile_group: chrome_imports
+  new_profile_name: Chrome - Person 1
+- '# Chrome профиль: Person 1': null
+  '# Вариант 1: Перенос в существующий профиль': null
+  '# Вариант 2: Создание нового профиля': null
+  '# Выберите один из вариантов ниже:': null
+  camoufox_profile_id: '# укажите ID профиля'
+  chrome_display_name: Person 1
+  chrome_path: /Volumes/Disk2/apol/Library/Application Support/Google/Chrome/Profile
+    34
+  chrome_profile: Profile 34
+  create_new_profile: false
+  migration_settings:
+    include_bookmarks: true
+    include_cookies: true
+    include_history: false
+  new_profile_group: chrome_imports
+  new_profile_name: Chrome - Person 1
+- '# Chrome профиль: Person 1': null
+  '# Вариант 1: Перенос в существующий профиль': null
+  '# Вариант 2: Создание нового профиля': null
+  '# Выберите один из вариантов ниже:': null
+  camoufox_profile_id: '# укажите ID профиля'
+  chrome_display_name: Person 1
+  chrome_path: /Volumes/Disk2/apol/Library/Application Support/Google/Chrome/Profile
+    33
+  chrome_profile: Profile 33
+  create_new_profile: false
+  migration_settings:
+    include_bookmarks: true
+    include_cookies: true
+    include_history: false
+  new_profile_group: chrome_imports
+  new_profile_name: Chrome - Person 1
+- '# Chrome профиль: Person 1': null
+  '# Вариант 1: Перенос в существующий профиль': null
+  '# Вариант 2: Создание нового профиля': null
+  '# Выберите один из вариантов ниже:': null
+  camoufox_profile_id: '# укажите ID профиля'
+  chrome_display_name: Person 1
+  chrome_path: /Volumes/Disk2/apol/Library/Application Support/Google/Chrome/Profile
+    8
+  chrome_profile: Profile 8
+  create_new_profile: false
+  migration_settings:
+    include_bookmarks: true
+    include_cookies: true
+    include_history: false
+  new_profile_group: chrome_imports
+  new_profile_name: Chrome - Person 1
+- '# Chrome профиль: Person 1': null
+  '# Вариант 1: Перенос в существующий профиль': null
+  '# Вариант 2: Создание нового профиля': null
+  '# Выберите один из вариантов ниже:': null
+  camoufox_profile_id: '# укажите ID профиля'
+  chrome_display_name: Person 1
+  chrome_path: /Volumes/Disk2/apol/Library/Application Support/Google/Chrome/Profile
+    50
+  chrome_profile: Profile 50
+  create_new_profile: false
+  migration_settings:
+    include_bookmarks: true
+    include_cookies: true
+    include_history: false
+  new_profile_group: chrome_imports
+  new_profile_name: Chrome - Person 1
+- '# Chrome профиль: Person 1': null
+  '# Вариант 1: Перенос в существующий профиль': null
+  '# Вариант 2: Создание нового профиля': null
+  '# Выберите один из вариантов ниже:': null
+  camoufox_profile_id: '# укажите ID профиля'
+  chrome_display_name: Person 1
+  chrome_path: /Volumes/Disk2/apol/Library/Application Support/Google/Chrome/Profile
+    6
+  chrome_profile: Profile 6
+  create_new_profile: false
+  migration_settings:
+    include_bookmarks: true
+    include_cookies: true
+    include_history: false
+  new_profile_group: chrome_imports
+  new_profile_name: Chrome - Person 1
+- '# Chrome профиль: Person 1': null
+  '# Вариант 1: Перенос в существующий профиль': null
+  '# Вариант 2: Создание нового профиля': null
+  '# Выберите один из вариантов ниже:': null
+  camoufox_profile_id: '# укажите ID профиля'
+  chrome_display_name: Person 1
+  chrome_path: /Volumes/Disk2/apol/Library/Application Support/Google/Chrome/Profile
+    32
+  chrome_profile: Profile 32
+  create_new_profile: false
+  migration_settings:
+    include_bookmarks: true
+    include_cookies: true
+    include_history: false
+  new_profile_group: chrome_imports
+  new_profile_name: Chrome - Person 1
+- '# Chrome профиль: Person 1': null
+  '# Вариант 1: Перенос в существующий профиль': null
+  '# Вариант 2: Создание нового профиля': null
+  '# Выберите один из вариантов ниже:': null
+  camoufox_profile_id: '# укажите ID профиля'
+  chrome_display_name: Person 1
+  chrome_path: /Volumes/Disk2/apol/Library/Application Support/Google/Chrome/Profile
+    35
+  chrome_profile: Profile 35
+  create_new_profile: false
+  migration_settings:
+    include_bookmarks: true
+    include_cookies: true
+    include_history: false
+  new_profile_group: chrome_imports
+  new_profile_name: Chrome - Person 1
+- '# Chrome профиль: Person 1': null
+  '# Вариант 1: Перенос в существующий профиль': null
+  '# Вариант 2: Создание нового профиля': null
+  '# Выберите один из вариантов ниже:': null
+  camoufox_profile_id: '# укажите ID профиля'
+  chrome_display_name: Person 1
+  chrome_path: /Volumes/Disk2/apol/Library/Application Support/Google/Chrome/Profile
+    49
+  chrome_profile: Profile 49
+  create_new_profile: false
+  migration_settings:
+    include_bookmarks: true
+    include_cookies: true
+    include_history: false
+  new_profile_group: chrome_imports
+  new_profile_name: Chrome - Person 1
+- '# Chrome профиль: Person 1': null
+  '# Вариант 1: Перенос в существующий профиль': null
+  '# Вариант 2: Создание нового профиля': null
+  '# Выберите один из вариантов ниже:': null
+  camoufox_profile_id: '# укажите ID профиля'
+  chrome_display_name: Person 1
+  chrome_path: /Volumes/Disk2/apol/Library/Application Support/Google/Chrome/Profile
+    47
+  chrome_profile: Profile 47
+  create_new_profile: false
+  migration_settings:
+    include_bookmarks: true
+    include_cookies: true
+    include_history: false
+  new_profile_group: chrome_imports
+  new_profile_name: Chrome - Person 1
+- '# Chrome профиль: Person 1': null
+  '# Вариант 1: Перенос в существующий профиль': null
+  '# Вариант 2: Создание нового профиля': null
+  '# Выберите один из вариантов ниже:': null
+  camoufox_profile_id: '# укажите ID профиля'
+  chrome_display_name: Person 1
+  chrome_path: /Volumes/Disk2/apol/Library/Application Support/Google/Chrome/Profile
+    13
+  chrome_profile: Profile 13
+  create_new_profile: false
+  migration_settings:
+    include_bookmarks: true
+    include_cookies: true
+    include_history: false
+  new_profile_group: chrome_imports
+  new_profile_name: Chrome - Person 1
+- '# Chrome профиль: Person 1': null
+  '# Вариант 1: Перенос в существующий профиль': null
+  '# Вариант 2: Создание нового профиля': null
+  '# Выберите один из вариантов ниже:': null
+  camoufox_profile_id: '# укажите ID профиля'
+  chrome_display_name: Person 1
+  chrome_path: /Volumes/Disk2/apol/Library/Application Support/Google/Chrome/Profile
+    14
+  chrome_profile: Profile 14
+  create_new_profile: false
+  migration_settings:
+    include_bookmarks: true
+    include_cookies: true
+    include_history: false
+  new_profile_group: chrome_imports
+  new_profile_name: Chrome - Person 1
+- '# Chrome профиль: Person 1': null
+  '# Вариант 1: Перенос в существующий профиль': null
+  '# Вариант 2: Создание нового профиля': null
+  '# Выберите один из вариантов ниже:': null
+  camoufox_profile_id: '# укажите ID профиля'
+  chrome_display_name: Person 1
+  chrome_path: /Volumes/Disk2/apol/Library/Application Support/Google/Chrome/Profile
+    22
+  chrome_profile: Profile 22
+  create_new_profile: false
+  migration_settings:
+    include_bookmarks: true
+    include_cookies: true
+    include_history: false
+  new_profile_group: chrome_imports
+  new_profile_name: Chrome - Person 1
+- '# Chrome профиль: Person 1': null
+  '# Вариант 1: Перенос в существующий профиль': null
+  '# Вариант 2: Создание нового профиля': null
+  '# Выберите один из вариантов ниже:': null
+  camoufox_profile_id: '# укажите ID профиля'
+  chrome_display_name: Person 1
+  chrome_path: /Volumes/Disk2/apol/Library/Application Support/Google/Chrome/Profile
+    25
+  chrome_profile: Profile 25
+  create_new_profile: false
+  migration_settings:
+    include_bookmarks: true
+    include_cookies: true
+    include_history: false
+  new_profile_group: chrome_imports
+  new_profile_name: Chrome - Person 1
+- '# Chrome профиль: Person 1': null
+  '# Вариант 1: Перенос в существующий профиль': null
+  '# Вариант 2: Создание нового профиля': null
+  '# Выберите один из вариантов ниже:': null
+  camoufox_profile_id: '# укажите ID профиля'
+  chrome_display_name: Person 1
+  chrome_path: /Volumes/Disk2/apol/Library/Application Support/Google/Chrome/Profile
+    46
+  chrome_profile: Profile 46
+  create_new_profile: false
+  migration_settings:
+    include_bookmarks: true
+    include_cookies: true
+    include_history: false
+  new_profile_group: chrome_imports
+  new_profile_name: Chrome - Person 1
+- '# Chrome профиль: Person 1': null
+  '# Вариант 1: Перенос в существующий профиль': null
+  '# Вариант 2: Создание нового профиля': null
+  '# Выберите один из вариантов ниже:': null
+  camoufox_profile_id: '# укажите ID профиля'
+  chrome_display_name: Person 1
+  chrome_path: /Volumes/Disk2/apol/Library/Application Support/Google/Chrome/Profile
+    41
+  chrome_profile: Profile 41
+  create_new_profile: false
+  migration_settings:
+    include_bookmarks: true
+    include_cookies: true
+    include_history: false
+  new_profile_group: chrome_imports
+  new_profile_name: Chrome - Person 1
+- '# Chrome профиль: Person 1': null
+  '# Вариант 1: Перенос в существующий профиль': null
+  '# Вариант 2: Создание нового профиля': null
+  '# Выберите один из вариантов ниже:': null
+  camoufox_profile_id: '# укажите ID профиля'
+  chrome_display_name: Person 1
+  chrome_path: /Volumes/Disk2/apol/Library/Application Support/Google/Chrome/Profile
+    48
+  chrome_profile: Profile 48
+  create_new_profile: false
+  migration_settings:
+    include_bookmarks: true
+    include_cookies: true
+    include_history: false
+  new_profile_group: chrome_imports
+  new_profile_name: Chrome - Person 1
+- '# Chrome профиль: Person 1': null
+  '# Вариант 1: Перенос в существующий профиль': null
+  '# Вариант 2: Создание нового профиля': null
+  '# Выберите один из вариантов ниже:': null
+  camoufox_profile_id: '# укажите ID профиля'
+  chrome_display_name: Person 1
+  chrome_path: /Volumes/Disk2/apol/Library/Application Support/Google/Chrome/Profile
+    24
+  chrome_profile: Profile 24
+  create_new_profile: false
+  migration_settings:
+    include_bookmarks: true
+    include_cookies: true
+    include_history: false
+  new_profile_group: chrome_imports
+  new_profile_name: Chrome - Person 1
+- '# Chrome профиль: Person 1': null
+  '# Вариант 1: Перенос в существующий профиль': null
+  '# Вариант 2: Создание нового профиля': null
+  '# Выберите один из вариантов ниже:': null
+  camoufox_profile_id: '# укажите ID профиля'
+  chrome_display_name: Person 1
+  chrome_path: /Volumes/Disk2/apol/Library/Application Support/Google/Chrome/Profile
+    23
+  chrome_profile: Profile 23
+  create_new_profile: false
+  migration_settings:
+    include_bookmarks: true
+    include_cookies: true
+    include_history: false
+  new_profile_group: chrome_imports
+  new_profile_name: Chrome - Person 1
+- '# Chrome профиль: Person 1': null
+  '# Вариант 1: Перенос в существующий профиль': null
+  '# Вариант 2: Создание нового профиля': null
+  '# Выберите один из вариантов ниже:': null
+  camoufox_profile_id: '# укажите ID профиля'
+  chrome_display_name: Person 1
+  chrome_path: /Volumes/Disk2/apol/Library/Application Support/Google/Chrome/Profile
+    15
+  chrome_profile: Profile 15
+  create_new_profile: false
+  migration_settings:
+    include_bookmarks: true
+    include_cookies: true
+    include_history: false
+  new_profile_group: chrome_imports
+  new_profile_name: Chrome - Person 1
+- '# Chrome профиль: Person 1': null
+  '# Вариант 1: Перенос в существующий профиль': null
+  '# Вариант 2: Создание нового профиля': null
+  '# Выберите один из вариантов ниже:': null
+  camoufox_profile_id: '# укажите ID профиля'
+  chrome_display_name: Person 1
+  chrome_path: /Volumes/Disk2/apol/Library/Application Support/Google/Chrome/Profile
+    12
+  chrome_profile: Profile 12
+  create_new_profile: false
+  migration_settings:
+    include_bookmarks: true
+    include_cookies: true
+    include_history: false
+  new_profile_group: chrome_imports
+  new_profile_name: Chrome - Person 1
+- '# Chrome профиль: Person 1': null
+  '# Вариант 1: Перенос в существующий профиль': null
+  '# Вариант 2: Создание нового профиля': null
+  '# Выберите один из вариантов ниже:': null
+  camoufox_profile_id: '# укажите ID профиля'
+  chrome_display_name: Person 1
+  chrome_path: /Volumes/Disk2/apol/Library/Application Support/Google/Chrome/Profile
+    30
+  chrome_profile: Profile 30
+  create_new_profile: false
+  migration_settings:
+    include_bookmarks: true
+    include_cookies: true
+    include_history: false
+  new_profile_group: chrome_imports
+  new_profile_name: Chrome - Person 1
+- '# Chrome профиль: Person 1': null
+  '# Вариант 1: Перенос в существующий профиль': null
+  '# Вариант 2: Создание нового профиля': null
+  '# Выберите один из вариантов ниже:': null
+  camoufox_profile_id: '# укажите ID профиля'
+  chrome_display_name: Person 1
+  chrome_path: /Volumes/Disk2/apol/Library/Application Support/Google/Chrome/Profile
+    37
+  chrome_profile: Profile 37
+  create_new_profile: false
+  migration_settings:
+    include_bookmarks: true
+    include_cookies: true
+    include_history: false
+  new_profile_group: chrome_imports
+  new_profile_name: Chrome - Person 1
+- '# Chrome профиль: Person 1': null
+  '# Вариант 1: Перенос в существующий профиль': null
+  '# Вариант 2: Создание нового профиля': null
+  '# Выберите один из вариантов ниже:': null
+  camoufox_profile_id: '# укажите ID профиля'
+  chrome_display_name: Person 1
+  chrome_path: /Volumes/Disk2/apol/Library/Application Support/Google/Chrome/Profile
+    39
+  chrome_profile: Profile 39
+  create_new_profile: false
+  migration_settings:
+    include_bookmarks: true
+    include_cookies: true
+    include_history: false
+  new_profile_group: chrome_imports
+  new_profile_name: Chrome - Person 1
+- '# Chrome профиль: Person 1': null
+  '# Вариант 1: Перенос в существующий профиль': null
+  '# Вариант 2: Создание нового профиля': null
+  '# Выберите один из вариантов ниже:': null
+  camoufox_profile_id: '# укажите ID профиля'
+  chrome_display_name: Person 1
+  chrome_path: /Volumes/Disk2/apol/Library/Application Support/Google/Chrome/Profile
+    52
+  chrome_profile: Profile 52
+  create_new_profile: false
+  migration_settings:
+    include_bookmarks: true
+    include_cookies: true
+    include_history: false
+  new_profile_group: chrome_imports
+  new_profile_name: Chrome - Person 1
+- '# Chrome профиль: Person 1': null
+  '# Вариант 1: Перенос в существующий профиль': null
+  '# Вариант 2: Создание нового профиля': null
+  '# Выберите один из вариантов ниже:': null
+  camoufox_profile_id: '# укажите ID профиля'
+  chrome_display_name: Person 1
+  chrome_path: /Volumes/Disk2/apol/Library/Application Support/Google/Chrome/Profile
+    4
+  chrome_profile: Profile 4
+  create_new_profile: false
+  migration_settings:
+    include_bookmarks: true
+    include_cookies: true
+    include_history: false
+  new_profile_group: chrome_imports
+  new_profile_name: Chrome - Person 1
+- '# Chrome профиль: Olesya': null
+  '# Вариант 1: Перенос в существующий профиль': null
+  '# Вариант 2: Создание нового профиля': null
+  '# Выберите один из вариантов ниже:': null
+  camoufox_profile_id: '# укажите ID профиля'
+  chrome_display_name: Olesya
+  chrome_path: /Volumes/Disk2/apol/Library/Application Support/Google/Chrome/Profile
+    3
+  chrome_profile: Profile 3
+  create_new_profile: false
+  migration_settings:
+    include_bookmarks: true
+    include_cookies: true
+    include_history: false
+  new_profile_group: chrome_imports
+  new_profile_name: Chrome - Olesya
+- '# Chrome профиль: Person 1': null
+  '# Вариант 1: Перенос в существующий профиль': null
+  '# Вариант 2: Создание нового профиля': null
+  '# Выберите один из вариантов ниже:': null
+  camoufox_profile_id: '# укажите ID профиля'
+  chrome_display_name: Person 1
+  chrome_path: /Volumes/Disk2/apol/Library/Application Support/Google/Chrome/Profile
+    55
+  chrome_profile: Profile 55
+  create_new_profile: false
+  migration_settings:
+    include_bookmarks: true
+    include_cookies: true
+    include_history: false
+  new_profile_group: chrome_imports
+  new_profile_name: Chrome - Person 1
+- '# Chrome профиль: Person 1': null
+  '# Вариант 1: Перенос в существующий профиль': null
+  '# Вариант 2: Создание нового профиля': null
+  '# Выберите один из вариантов ниже:': null
+  camoufox_profile_id: '# укажите ID профиля'
+  chrome_display_name: Person 1
+  chrome_path: /Volumes/Disk2/apol/Library/Application Support/Google/Chrome/Profile
+    38
+  chrome_profile: Profile 38
+  create_new_profile: false
+  migration_settings:
+    include_bookmarks: true
+    include_cookies: true
+    include_history: false
+  new_profile_group: chrome_imports
+  new_profile_name: Chrome - Person 1
+- '# Chrome профиль: Person 1': null
+  '# Вариант 1: Перенос в существующий профиль': null
+  '# Вариант 2: Создание нового профиля': null
+  '# Выберите один из вариантов ниже:': null
+  camoufox_profile_id: '# укажите ID профиля'
+  chrome_display_name: Person 1
+  chrome_path: /Volumes/Disk2/apol/Library/Application Support/Google/Chrome/Profile
+    31
+  chrome_profile: Profile 31
+  create_new_profile: false
+  migration_settings:
+    include_bookmarks: true
+    include_cookies: true
+    include_history: false
+  new_profile_group: chrome_imports
+  new_profile_name: Chrome - Person 1
+- '# Chrome профиль: Person 1': null
+  '# Вариант 1: Перенос в существующий профиль': null
+  '# Вариант 2: Создание нового профиля': null
+  '# Выберите один из вариантов ниже:': null
+  camoufox_profile_id: '# укажите ID профиля'
+  chrome_display_name: Person 1
+  chrome_path: /Volumes/Disk2/apol/Library/Application Support/Google/Chrome/Profile
+    54
+  chrome_profile: Profile 54
+  create_new_profile: false
+  migration_settings:
+    include_bookmarks: true
+    include_cookies: true
+    include_history: false
+  new_profile_group: chrome_imports
+  new_profile_name: Chrome - Person 1
+- '# Chrome профиль: Person 1': null
+  '# Вариант 1: Перенос в существующий профиль': null
+  '# Вариант 2: Создание нового профиля': null
+  '# Выберите один из вариантов ниже:': null
+  camoufox_profile_id: '# укажите ID профиля'
+  chrome_display_name: Person 1
+  chrome_path: /Volumes/Disk2/apol/Library/Application Support/Google/Chrome/Profile
+    53
+  chrome_profile: Profile 53
+  create_new_profile: false
+  migration_settings:
+    include_bookmarks: true
+    include_cookies: true
+    include_history: false
+  new_profile_group: chrome_imports
+  new_profile_name: Chrome - Person 1
+- '# Chrome профиль: Person 1': null
+  '# Вариант 1: Перенос в существующий профиль': null
+  '# Вариант 2: Создание нового профиля': null
+  '# Выберите один из вариантов ниже:': null
+  camoufox_profile_id: '# укажите ID профиля'
+  chrome_display_name: Person 1
+  chrome_path: /Volumes/Disk2/apol/Library/Application Support/Google/Chrome/Profile
+    5
+  chrome_profile: Profile 5
+  create_new_profile: false
+  migration_settings:
+    include_bookmarks: true
+    include_cookies: true
+    include_history: false
+  new_profile_group: chrome_imports
+  new_profile_name: Chrome - Person 1
