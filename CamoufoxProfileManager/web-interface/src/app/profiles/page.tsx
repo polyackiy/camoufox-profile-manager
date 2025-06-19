@@ -493,7 +493,7 @@ export default function ProfilesPage() {
     <div style={{ display: 'flex', height: '100vh', backgroundColor: '#0f0f0f' }}>
       <NavigationSidebar />
       
-      <div style={{ marginLeft: '250px', padding: '20px', flex: 1, minHeight: '100vh', overflowX: 'auto', overflowY: 'visible' }}>
+      <div style={{ marginLeft: '250px', padding: '20px', flex: 1, minHeight: '100vh', overflow: 'visible' }}>
         <div>
           <h1 style={{ color: '#fff', fontSize: '20px', fontWeight: 'bold', margin: 0 }}>
             Profiles ({totalProfiles})
@@ -625,8 +625,7 @@ export default function ProfilesPage() {
         <div style={{ 
           backgroundColor: '#1a1a1a', 
           borderRadius: '8px', 
-          overflowX: 'auto',
-          overflowY: 'visible',
+          overflow: 'visible',
           border: '1px solid #333'
         }}>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
