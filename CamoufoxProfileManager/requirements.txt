@@ -19,11 +19,13 @@ python-multipart==0.0.18
 jinja2==3.1.4
 aiofiles==24.1.0
 openpyxl==3.1.2
+PyYAML==6.0.2
 
 # Криптография и безопасность
 cryptography==44.0.0
 passlib[bcrypt]==1.7.4
 python-jose[cryptography]==3.3.0
+pycryptodome==3.19.0
 
 # Логирование и мониторинг
 loguru==0.7.2

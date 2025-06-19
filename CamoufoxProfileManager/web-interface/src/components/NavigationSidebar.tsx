@@ -21,6 +21,12 @@ export function NavigationSidebar({ profileCount = 23 }: NavigationSidebarProps)
       icon: '👥',
       label: `Profiles (${profileCount})`,
       isActive: pathname === '/profiles'
+    },
+    {
+      href: '/profiles2',
+      icon: '👥',
+      label: 'Profiles2',
+      isActive: pathname === '/profiles2'
     }
   ]
 

@@ -69,6 +69,20 @@ function NavigationSidebar() {
         >
           👥 Profiles
         </a>
+        <a
+          href="/profiles2"
+          style={{
+            display: 'block',
+            padding: '12px 20px',
+            color: pathname === '/profiles2' ? '#ff6b35' : '#ccc',
+            backgroundColor: pathname === '/profiles2' ? 'rgba(255, 107, 53, 0.1)' : 'transparent',
+            textDecoration: 'none',
+            borderRight: pathname === '/profiles2' ? '3px solid #ff6b35' : 'none',
+            transition: 'all 0.2s'
+          }}
+        >
+          👥 Profiles2
+        </a>
       </nav>
     </div>
   )

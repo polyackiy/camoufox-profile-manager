@@ -65,40 +65,49 @@ class PaginationResponse(BaseModel):
 
 class SystemStatusResponse(BaseModel):
     """Статус системы"""
-    status: str = Field(..., description="Статус системы (healthy/unhealthy)")
-    version: str = Field(..., description="Версия API")
+    total_profiles: int = Field(..., description="Всего профилей")
+    active_profiles: int = Field(..., description="Активных профилей")
+    running_browsers: int = Field(..., description="Запущенных браузеров")
+    total_groups: int = Field(..., description="Всего групп")
+    system_load: float = Field(..., description="Загрузка системы")
+    memory_usage: float = Field(..., description="Использование памяти в %")
+    disk_usage: float = Field(..., description="Использование диска в %")
     uptime_seconds: int = Field(..., description="Время работы в секундах")
-    database: Dict[str, Any] = Field(..., description="Статус базы данных")
-    profiles: Dict[str, Any] = Field(..., description="Статистика профилей")
-    memory_usage: Dict[str, Any] = Field(..., description="Использование памяти")
-    timestamp: datetime = Field(..., description="Время проверки")
     
     class Config:
-        json_encoders = {
-            datetime: lambda v: v.isoformat(),
-        }
         json_schema_extra = {
             "example": {
-                "status": "healthy",
-                "version": "1.0.0",
-                "uptime_seconds": 3600,
-                "database": {
-                    "status": "connected",
-                    "size_mb": 0.08,
-                    "tables": 3
-                },
-                "profiles": {
-                    "total": 25,
-                    "active": 20,
-                    "inactive": 5
-                },
-                "memory_usage": {
-                    "rss_mb": 45.2,
-                    "vms_mb": 120.5
-                },
-                "timestamp": "2025-01-17T12:00:00"
+                "total_profiles": 25,
+                "active_profiles": 20,
+                "running_browsers": 3,
+                "total_groups": 5,
+                "system_load": 0.25,
+                "memory_usage": 45.2,
+                "disk_usage": 67.8,
+                "uptime_seconds": 3600
             }
         }
+
+
+class ProfileDiagnosticResponse(BaseModel):
+    """Ответ с результатами диагностики профилей"""
+    total_profiles_in_db: int = Field(..., description="Всего профилей в БД")
+    total_directories_on_disk: int = Field(..., description="Всего директорий на диске")
+    total_disk_size_mb: float = Field(..., description="Общий размер в MB")
+    orphaned_directories: int = Field(..., description="Осиротевших директорий")
+    orphaned_size_mb: float = Field(..., description="Размер осиротевших директорий в MB")
+    missing_directories: int = Field(..., description="Профилей без директорий")
+    healthy_profiles: int = Field(..., description="Здоровых профилей")
+    issues_found: int = Field(..., description="Найдено проблем")
+
+
+class ProfileCleanupResponse(BaseModel):
+    """Ответ с результатами очистки профилей"""
+    orphaned_removed: int = Field(..., description="Удалено осиротевших директорий")
+    directories_created: int = Field(..., description="Создано директорий")
+    freed_space_mb: float = Field(..., description="Освобождено места в MB")
+    dry_run: bool = Field(..., description="Тестовый запуск")
+    message: str = Field(..., description="Сообщение о результате")
 
 
 class WebSocketMessage(BaseModel):
