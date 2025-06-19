@@ -38,7 +38,7 @@ function NavigationSidebar() {
           fontSize: '14px',
           margin: '5px 0 0 0'
         }}>
-          Profile Manager
+          Antidetect browser profile management
         </p>
       </div>
       
@@ -493,26 +493,23 @@ export default function ProfilesPage() {
     <div style={{ display: 'flex', height: '100vh', backgroundColor: '#0f0f0f' }}>
       <NavigationSidebar />
       
-      <div style={{ marginLeft: '250px', padding: '40px', flex: 1, minHeight: '100vh', overflow: 'visible' }}>
-        <div style={{ marginBottom: '16px' }}>
-          <h1 style={{ color: '#fff', fontSize: '28px', fontWeight: 'bold', margin: 0 }}>
+      <div style={{ marginLeft: '250px', padding: '20px', flex: 1, minHeight: '100vh', overflowX: 'auto', overflowY: 'visible' }}>
+        <div>
+          <h1 style={{ color: '#fff', fontSize: '20px', fontWeight: 'bold', margin: 0 }}>
             Profiles ({totalProfiles})
           </h1>
-          <p style={{ color: '#888', fontSize: '14px', margin: '4px 0 0 0' }}>
-            Antidetect browser profile management
-          </p>
         </div>
 
         {/* Фильтры и поиск */}
         <div style={{ 
           display: 'flex', 
           gap: '20px', 
-          marginBottom: '30px',
+          marginBottom: '15px',
           alignItems: 'center'
         }}>
           <input
             type="text"
-            placeholder="Search profiles..."
+            placeholder="Filter..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             style={{
@@ -628,7 +625,8 @@ export default function ProfilesPage() {
         <div style={{ 
           backgroundColor: '#1a1a1a', 
           borderRadius: '8px', 
-          overflow: 'visible', // Изменено чтобы меню не обрезалось
+          overflowX: 'auto',
+          overflowY: 'visible',
           border: '1px solid #333'
         }}>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
