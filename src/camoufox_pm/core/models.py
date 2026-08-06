@@ -1,64 +1,58 @@
-"""
-Модели данных для системы управления профилями Camoufox
-"""
+"""Data models for the Camoufox profile management system."""
 
-from datetime import datetime
-from typing import Optional, Dict, List, Any
-from enum import Enum
-from pydantic import BaseModel, Field
-import uuid
-import string
 import random
+import string
 import time
+from datetime import datetime
+from enum import Enum
+from typing import Any
+
+from pydantic import BaseModel, ConfigDict, Field
+
+# Characters used for short IDs, excluding visually confusing ones (0, o, 1, l, i).
+_ID_ALPHABET = "".join(
+    c for c in (string.ascii_lowercase + string.digits) if c not in "0o1li"
+)
 
 
 def generate_short_id(length: int = 8) -> str:
+    """Generate a short, readable ID.
+
+    Uses a microsecond timestamp for ordering and uniqueness, padded with random
+    characters. Excludes visually confusing characters for readability.
     """
-    Генерирует короткий ID из букв и цифр
-    Использует timestamp для обеспечения уникальности и порядка
-    """
-    # Используем буквы и цифры (исключаем похожие символы)
-    chars = string.ascii_lowercase + string.digits
-    # Убираем похожие символы для лучшей читаемости
-    chars = chars.replace('0', '').replace('o', '').replace('1', '').replace('l', '').replace('i', '')
-    
-    # Получаем timestamp в микросекундах для уникальности
-    timestamp = int(time.time() * 1000000)
-    
-    # Конвертируем timestamp в base36 и берем последние символы
-    base36_time = ''
-    temp_time = timestamp
-    while temp_time > 0 and len(base36_time) < length - 2:
-        base36_time = chars[temp_time % len(chars)] + base36_time
-        temp_time //= len(chars)
-    
-    # Дополняем случайными символами до нужной длины
-    while len(base36_time) < length:
-        base36_time += random.choice(chars)
-    
-    return base36_time[:length]
+    timestamp = int(time.time() * 1_000_000)
+    encoded = ""
+    while timestamp > 0 and len(encoded) < length - 2:
+        encoded = _ID_ALPHABET[timestamp % len(_ID_ALPHABET)] + encoded
+        timestamp //= len(_ID_ALPHABET)
+    while len(encoded) < length:
+        encoded += random.choice(_ID_ALPHABET)
+    return encoded[:length]
 
 
 def generate_profile_id() -> str:
-    """Генерирует короткий ID для профиля (8 символов)"""
+    """Generate a short ID for a profile."""
     return generate_short_id(8)
 
 
 def generate_group_id() -> str:
-    """Генерирует короткий ID для группы (8 символов)"""
+    """Generate a short ID for a group."""
     return generate_short_id(8)
 
 
 class ProfileStatus(str, Enum):
-    """Статус профиля"""
+    """Profile status."""
+
     ACTIVE = "active"
-    INACTIVE = "inactive" 
+    INACTIVE = "inactive"
     BLOCKED = "blocked"
     MAINTENANCE = "maintenance"
 
 
 class ProxyType(str, Enum):
-    """Тип прокси"""
+    """Proxy protocol."""
+
     HTTP = "http"
     HTTPS = "https"
     SOCKS4 = "socks4"
@@ -66,23 +60,25 @@ class ProxyType(str, Enum):
 
 
 class WebRTCMode(str, Enum):
-    """Режим WebRTC IP Spoofing"""
-    FORWARD = "forward"    # Передавать реальный IP
-    REPLACE = "replace"    # Заменить на IP прокси
-    REAL = "real"         # Использовать реальный IP
-    NONE = "none"         # Отключить WebRTC
+    """WebRTC IP spoofing mode."""
+
+    FORWARD = "forward"  # Forward the real IP
+    REPLACE = "replace"  # Replace with the proxy IP
+    REAL = "real"  # Use the real IP
+    NONE = "none"  # Disable WebRTC
 
 
 class ProxyConfig(BaseModel):
-    """Конфигурация прокси"""
+    """Proxy configuration."""
+
     type: ProxyType
     server: str
-    username: Optional[str] = None
-    password: Optional[str] = None
-    country: Optional[str] = None
-    
-    def to_camoufox_format(self) -> Dict[str, str]:
-        """Преобразование в формат Camoufox"""
+    username: str | None = None
+    password: str | None = None
+    country: str | None = None
+
+    def to_camoufox_format(self) -> dict[str, str]:
+        """Convert to the proxy dict Camoufox/Playwright expects."""
         config = {"server": f"{self.type.value}://{self.server}"}
         if self.username:
             config["username"] = self.username
@@ -92,156 +88,156 @@ class ProxyConfig(BaseModel):
 
 
 class BrowserSettings(BaseModel):
-    """Настройки браузера"""
-    # Базовые настройки
+    """Browser fingerprint and behaviour settings.
+
+    High-level fields (os, screen, languages, fonts) are handed to Camoufox,
+    which generates a consistent fingerprint. Only explicit overrides that
+    Camoufox cannot derive on its own are emitted via :meth:`to_camoufox_config`.
+    """
+
+    # Base settings
     os: str = "windows"  # windows, linux, macos
     screen: str = "1920x1080"
-    user_agent: Optional[str] = None
-    languages: List[str] = ["en-US", "en"]
-    timezone: Optional[str] = None
-    locale: Optional[str] = None  # Основная локаль (ru_RU, en_US)
-    
-    # Размер окна браузера
-    window_width: Optional[int] = 1280  # Ширина окна браузера
-    window_height: Optional[int] = 720  # Высота окна браузера
-    
-    # Геолокация
-    geolocation: Optional[Dict[str, float]] = None
-    
-    # WebRTC настройки
+    user_agent: str | None = None
+    languages: list[str] = ["en-US", "en"]
+    timezone: str | None = None
+    locale: str | None = None
+
+    # Browser window size
+    window_width: int | None = 1280
+    window_height: int | None = 720
+
+    # Geolocation
+    geolocation: dict[str, float] | None = None
+
+    # WebRTC
     webrtc_mode: WebRTCMode = WebRTCMode.REPLACE
-    webrtc_public_ip: Optional[str] = None
-    webrtc_local_ips: Optional[List[str]] = None
-    
-    # Canvas и WebGL fingerprinting
-    canvas_noise: bool = True
-    webgl_noise: bool = True
-    webgl_vendor: Optional[str] = None
-    webgl_renderer: Optional[str] = None
-    
-    # Аудио контекст
-    audio_noise: bool = True
-    audio_context_sample_rate: Optional[int] = None
-    
-    # Характеристики устройства
-    hardware_concurrency: Optional[int] = None
-    device_memory: Optional[int] = None
+    webrtc_public_ip: str | None = None
+    webrtc_local_ips: list[str] | None = None
+
+    # Device characteristics
+    hardware_concurrency: int | None = None
+    device_memory: int | None = None
     max_touch_points: int = 0
-    
-    # Шрифты
-    fonts: Optional[List[str]] = None
-    
-    # Дополнительные HTTP заголовки
-    accept_language: Optional[str] = None
-    accept_encoding: Optional[str] = None
-    
-    def to_camoufox_config(self) -> Dict[str, Any]:
-        """Преобразование в конфигурацию Camoufox (только config-параметры)"""
-        config = {}
-        
-        # Пока оставляем config минимальным, так как большинство параметров 
-        # должны передаваться как основные параметры Camoufox
-        
+
+    # Fonts
+    fonts: list[str] | None = None
+
+    def to_camoufox_config(self) -> dict[str, Any]:
+        """Build Camoufox ``config`` property overrides.
+
+        Only values Camoufox does not derive itself are included; the browser's
+        own generator owns user-agent, WebGL, canvas and audio to keep the
+        fingerprint internally consistent.
+        """
+        config: dict[str, Any] = {}
+        if self.geolocation:
+            config["geolocation:latitude"] = self.geolocation["lat"]
+            config["geolocation:longitude"] = self.geolocation["lon"]
+            if "accuracy" in self.geolocation:
+                config["geolocation:accuracy"] = self.geolocation["accuracy"]
+        if self.timezone:
+            config["timezone"] = self.timezone
+        if self.hardware_concurrency:
+            config["navigator.hardwareConcurrency"] = self.hardware_concurrency
+        if self.max_touch_points:
+            config["navigator.maxTouchPoints"] = self.max_touch_points
+        if self.webrtc_public_ip:
+            config["webrtc:ipv4"] = self.webrtc_public_ip
+        if self.webrtc_local_ips:
+            config["webrtc:ipv4"] = self.webrtc_local_ips[0]
         return config
 
 
 class Profile(BaseModel):
-    """Модель профиля браузера"""
+    """Browser profile."""
+
+    model_config = ConfigDict(use_enum_values=True)
+
     id: str = Field(default_factory=generate_profile_id)
     name: str
-    group: Optional[str] = None
+    group: str | None = None
     status: ProfileStatus = ProfileStatus.ACTIVE
     created_at: datetime = Field(default_factory=datetime.now)
     updated_at: datetime = Field(default_factory=datetime.now)
-    last_used: Optional[datetime] = None
-    
+    last_used: datetime | None = None
+
     browser_settings: BrowserSettings = Field(default_factory=BrowserSettings)
-    proxy: Optional[ProxyConfig] = None
-    extensions: List[str] = Field(default_factory=list)
-    storage_path: Optional[str] = None
-    notes: Optional[str] = None
-    
-    class Config:
-        use_enum_values = True
+    proxy: ProxyConfig | None = None
+    extensions: list[str] = Field(default_factory=list)
+    storage_path: str | None = None
+    notes: str | None = None
 
     def get_storage_path(self, base_path: str = "data/profiles") -> str:
-        """Получить путь для сохранения данных профиля"""
+        """Return (and lazily assign) the on-disk path for this profile's data."""
         if not self.storage_path:
             self.storage_path = f"{base_path}/profile_{self.id}"
         return self.storage_path
 
-    def to_camoufox_launch_options(self) -> Dict[str, Any]:
-        """Преобразование в параметры запуска Camoufox"""
-        # Получаем конфигурацию браузера (только config-параметры)
-        config = self.browser_settings.to_camoufox_config()
-        
-        # Формируем основные параметры для AsyncCamoufox
-        options = {
-            "os": self.browser_settings.os,
-            "locale": ",".join(self.browser_settings.languages),
-            "config": config,  # Конфигурация передается через параметр config
+    def to_camoufox_launch_options(self) -> dict[str, Any]:
+        """Build the keyword arguments passed to ``AsyncCamoufox``.
+
+        Passes high-level constraints and lets Camoufox generate the fingerprint;
+        does not inject a manual user-agent or WebGL renderer.
+        """
+        bs = self.browser_settings
+        options: dict[str, Any] = {
+            "os": bs.os,
+            "locale": ",".join(bs.languages) if bs.languages else "en-US",
+            "config": bs.to_camoufox_config(),
             "user_data_dir": self.get_storage_path(),
             "persistent_context": True,
-            "headless": False,
             "humanize": True,
-            "i_know_what_im_doing": True  # Отключаем предупреждения
+            "i_know_what_im_doing": True,
+            # Let Camoufox derive geo/timezone from the proxy IP unless we set coordinates.
+            "geoip": not bool(bs.geolocation),
         }
-        
-        # Добавляем размер окна
-        if self.browser_settings.window_width and self.browser_settings.window_height:
-            options["window"] = (self.browser_settings.window_width, self.browser_settings.window_height)
-        
-        # Добавляем геолокацию
-        if self.browser_settings.geolocation:
-            options["geoip"] = False  # Отключаем автоматическое определение
-            # Для Camoufox используем config для геолокации
-            config["geolocation:latitude"] = self.browser_settings.geolocation["lat"]
-            config["geolocation:longitude"] = self.browser_settings.geolocation["lon"]
-            if "accuracy" in self.browser_settings.geolocation:
-                config["geolocation:accuracy"] = self.browser_settings.geolocation["accuracy"]
-        else:
-            options["geoip"] = True  # Автоматическое определение на основе IP
-        
-        # Добавляем прокси если настроен
+        if bs.window_width and bs.window_height:
+            options["window"] = (bs.window_width, bs.window_height)
+        if bs.fonts:
+            options["fonts"] = bs.fonts
         if self.proxy:
             options["proxy"] = self.proxy.to_camoufox_format()
-            
         return options
 
 
 class ProfileGroup(BaseModel):
-    """Группа профилей"""
+    """A group of profiles."""
+
     id: str = Field(default_factory=generate_group_id)
     name: str
-    description: Optional[str] = None
+    description: str | None = None
     created_at: datetime = Field(default_factory=datetime.now)
     profile_count: int = 0
 
 
 class UsageStats(BaseModel):
-    """Статистика использования профиля"""
-    id: Optional[int] = None
+    """Profile usage record."""
+
+    id: int | None = None
     profile_id: str
     action: str
     timestamp: datetime = Field(default_factory=datetime.now)
-    duration: Optional[int] = None  # в секундах
+    duration: int | None = None  # seconds
     success: bool = True
-    details: Optional[Dict[str, Any]] = None
+    details: dict[str, Any] | None = None
 
 
 class ProxyTestResult(BaseModel):
-    """Результат тестирования прокси"""
+    """Result of testing a proxy."""
+
     proxy_id: str
     success: bool
-    response_time: Optional[int] = None  # в миллисекундах
-    error_message: Optional[str] = None
-    ip_address: Optional[str] = None
-    country: Optional[str] = None
+    response_time: int | None = None  # milliseconds
+    error_message: str | None = None
+    ip_address: str | None = None
+    country: str | None = None
     tested_at: datetime = Field(default_factory=datetime.now)
 
 
 class SystemStatus(BaseModel):
-    """Статус системы"""
+    """System status snapshot."""
+
     total_profiles: int
     active_profiles: int
     running_browsers: int
@@ -249,4 +245,4 @@ class SystemStatus(BaseModel):
     system_load: float
     memory_usage: float
     disk_usage: float
-    uptime_seconds: int 
+    uptime_seconds: int
