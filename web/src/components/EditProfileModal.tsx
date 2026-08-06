@@ -17,19 +17,19 @@ export default function EditProfileModal({ profile, isOpen, onClose, onSave }: E
     notes: '',
     status: 'inactive' as Profile['status'],
     proxy_config: {
-      type: 'http' as 'http' | 'socks5',
+      type: 'http' as string,
       server: '',
       username: '',
       password: ''
     },
     browser_settings: {
-      os: 'windows' as 'windows' | 'macos' | 'linux',
+      os: 'windows' as string,
       screen: '1920x1080',
       user_agent: '',
       languages: ['en-US'],
       timezone: 'UTC',
       locale: 'en_US',
-      webrtc_mode: 'replace' as 'forward' | 'replace' | 'real' | 'none',
+      webrtc_mode: 'replace' as string,
       canvas_noise: true,
       webgl_noise: true,
       audio_noise: true,
@@ -40,7 +40,7 @@ export default function EditProfileModal({ profile, isOpen, onClose, onSave }: E
       window_height: 720
     },
     geolocation: {
-      mode: 'auto' as 'auto' | 'manual',
+      mode: 'auto' as string,
       latitude: 0,
       longitude: 0,
       accuracy: 10
@@ -123,8 +123,8 @@ export default function EditProfileModal({ profile, isOpen, onClose, onSave }: E
         }
       }))
     } catch (err) {
-      console.error('Ошибка сброса отпечатка:', err)
-      setError(err instanceof Error ? err.message : 'Неизвестная ошибка')
+      console.error('Failed to reset fingerprint:', err)
+      setError(err instanceof Error ? err.message : 'Unknown error')
     } finally {
       setResettingFingerprint(false)
     }
@@ -138,13 +138,13 @@ export default function EditProfileModal({ profile, isOpen, onClose, onSave }: E
     setError(null)
 
     try {
-      const updateData: Record<string, any> = {
+      const updateData: Record<string, unknown> = {
         name: formData.name,
         group: formData.group || null,
         notes: formData.notes || null,
         status: formData.status,
         
-        // Настройки браузера
+        // Browser settings
         browser_os: formData.browser_settings.os,
         browser_screen: formData.browser_settings.screen,
         browser_user_agent: formData.browser_settings.user_agent || null,
@@ -162,7 +162,7 @@ export default function EditProfileModal({ profile, isOpen, onClose, onSave }: E
         browser_window_height: formData.browser_settings.window_height
       }
 
-      // Настройки прокси
+      // Proxy settings
       if (formData.proxy_config.server.trim()) {
         updateData.proxy_config = {
           type: formData.proxy_config.type,
@@ -174,9 +174,9 @@ export default function EditProfileModal({ profile, isOpen, onClose, onSave }: E
         updateData.proxy_config = null
       }
 
-      // Настройки геолокации
+      // Geolocation settings
       if (formData.geolocation.mode === 'manual') {
-        // Обновляем browser_settings с геолокацией
+        // Merge geolocation into browser_settings
         updateData.browser_settings = {
           ...formData.browser_settings,
           geolocation: {
@@ -186,7 +186,7 @@ export default function EditProfileModal({ profile, isOpen, onClose, onSave }: E
           }
         }
       } else {
-        // Режим "auto" - геолокация будет определена автоматически
+        // "auto" mode: geolocation is determined automatically
         updateData.browser_settings = {
           ...formData.browser_settings,
           geolocation: null
@@ -197,8 +197,8 @@ export default function EditProfileModal({ profile, isOpen, onClose, onSave }: E
       onSave(updatedProfile)
       onClose()
     } catch (err) {
-      console.error('Ошибка обновления профиля:', err)
-      setError(err instanceof Error ? err.message : 'Неизвестная ошибка')
+      console.error('Failed to update profile:', err)
+      setError(err instanceof Error ? err.message : 'Unknown error')
     } finally {
       setLoading(false)
     }
@@ -237,7 +237,7 @@ export default function EditProfileModal({ profile, isOpen, onClose, onSave }: E
           alignItems: 'center'
         }}>
           <h2 style={{ color: '#fff', margin: 0, fontSize: '20px', fontWeight: '600' }}>
-            Редактировать профиль
+            Edit profile
           </h2>
           <button
             onClick={onClose}
@@ -276,7 +276,7 @@ export default function EditProfileModal({ profile, isOpen, onClose, onSave }: E
 
           <div style={{ marginBottom: '16px' }}>
             <label style={{ display: 'block', color: '#ccc', marginBottom: '6px' }}>
-              Название профиля *
+              Profile name *
             </label>
             <input
               type="text"
@@ -298,7 +298,7 @@ export default function EditProfileModal({ profile, isOpen, onClose, onSave }: E
           <div style={{ display: 'flex', gap: '16px', marginBottom: '16px' }}>
             <div style={{ flex: 1 }}>
               <label style={{ display: 'block', color: '#ccc', marginBottom: '6px' }}>
-                Группа
+                Group
               </label>
               <input
                 type="text"
@@ -317,7 +317,7 @@ export default function EditProfileModal({ profile, isOpen, onClose, onSave }: E
             </div>
             <div style={{ flex: 1 }}>
               <label style={{ display: 'block', color: '#ccc', marginBottom: '6px' }}>
-                Операционная система
+                Operating system
               </label>
               <select
                 value={formData.browser_settings.os}
@@ -344,7 +344,7 @@ export default function EditProfileModal({ profile, isOpen, onClose, onSave }: E
 
           <div style={{ marginBottom: '16px' }}>
             <label style={{ display: 'block', color: '#ccc', marginBottom: '6px' }}>
-              Статус
+              Status
             </label>
             <select
               value={formData.status}
@@ -368,7 +368,7 @@ export default function EditProfileModal({ profile, isOpen, onClose, onSave }: E
 
           <div style={{ marginBottom: '16px' }}>
             <label style={{ display: 'block', color: '#ccc', marginBottom: '6px' }}>
-              Заметки
+              Notes
             </label>
             <textarea
               value={formData.notes}
@@ -388,13 +388,13 @@ export default function EditProfileModal({ profile, isOpen, onClose, onSave }: E
           </div>
 
           <h3 style={{ color: '#fff', fontSize: '16px', marginBottom: '16px' }}>
-            Настройки прокси
+            Proxy settings
           </h3>
           
           <div style={{ display: 'flex', gap: '16px', marginBottom: '16px' }}>
             <div style={{ flex: 1 }}>
               <label style={{ display: 'block', color: '#ccc', marginBottom: '6px' }}>
-                Тип прокси
+                Proxy type
               </label>
               <select
                 value={formData.proxy_config.type}
@@ -418,7 +418,7 @@ export default function EditProfileModal({ profile, isOpen, onClose, onSave }: E
             </div>
             <div style={{ flex: 2 }}>
               <label style={{ display: 'block', color: '#ccc', marginBottom: '6px' }}>
-                Сервер (host:port)
+                Server (host:port)
               </label>
               <input
                 type="text"
@@ -444,7 +444,7 @@ export default function EditProfileModal({ profile, isOpen, onClose, onSave }: E
           <div style={{ display: 'flex', gap: '16px', marginBottom: '16px' }}>
             <div style={{ flex: 1 }}>
               <label style={{ display: 'block', color: '#ccc', marginBottom: '6px' }}>
-                Логин
+                Username
               </label>
               <input
                 type="text"
@@ -466,7 +466,7 @@ export default function EditProfileModal({ profile, isOpen, onClose, onSave }: E
             </div>
             <div style={{ flex: 1 }}>
               <label style={{ display: 'block', color: '#ccc', marginBottom: '6px' }}>
-                Пароль
+                Password
               </label>
               <input
                 type="password"
@@ -489,12 +489,12 @@ export default function EditProfileModal({ profile, isOpen, onClose, onSave }: E
           </div>
 
           <h3 style={{ color: '#fff', fontSize: '16px', marginBottom: '16px' }}>
-            Настройки геолокации
+            Geolocation settings
           </h3>
           
           <div style={{ marginBottom: '16px' }}>
             <label style={{ display: 'block', color: '#ccc', marginBottom: '6px' }}>
-              Режим геолокации
+              Geolocation mode
             </label>
             <select
               value={formData.geolocation.mode}
@@ -512,8 +512,8 @@ export default function EditProfileModal({ profile, isOpen, onClose, onSave }: E
                 color: '#fff'
               }}
             >
-              <option value="auto">На основе IP</option>
-              <option value="manual">Задать вручную</option>
+              <option value="auto">Based on IP</option>
+              <option value="manual">Set manually</option>
             </select>
           </div>
 
@@ -521,7 +521,7 @@ export default function EditProfileModal({ profile, isOpen, onClose, onSave }: E
             <div style={{ display: 'flex', gap: '16px', marginBottom: '16px' }}>
               <div style={{ flex: 1 }}>
                 <label style={{ display: 'block', color: '#ccc', marginBottom: '6px' }}>
-                  Широта (Latitude)
+                  Latitude
                 </label>
                 <input
                   type="number"
@@ -547,7 +547,7 @@ export default function EditProfileModal({ profile, isOpen, onClose, onSave }: E
               </div>
               <div style={{ flex: 1 }}>
                 <label style={{ display: 'block', color: '#ccc', marginBottom: '6px' }}>
-                  Долгота (Longitude)
+                  Longitude
                 </label>
                 <input
                   type="number"
@@ -573,7 +573,7 @@ export default function EditProfileModal({ profile, isOpen, onClose, onSave }: E
               </div>
               <div style={{ flex: 1 }}>
                 <label style={{ display: 'block', color: '#ccc', marginBottom: '6px' }}>
-                  Точность (м)
+                  Accuracy (m)
                 </label>
                 <input
                   type="number"
@@ -600,13 +600,13 @@ export default function EditProfileModal({ profile, isOpen, onClose, onSave }: E
           )}
 
           <h3 style={{ color: '#fff', fontSize: '16px', marginBottom: '16px' }}>
-            Настройки браузера
+            Browser settings
           </h3>
           
           <div style={{ display: 'flex', gap: '16px', marginBottom: '16px' }}>
             <div style={{ flex: 1 }}>
               <label style={{ display: 'block', color: '#ccc', marginBottom: '6px' }}>
-                Разрешение экрана
+                Screen resolution
               </label>
               <input
                 type="text"
@@ -632,7 +632,7 @@ export default function EditProfileModal({ profile, isOpen, onClose, onSave }: E
           <div style={{ display: 'flex', gap: '16px', marginBottom: '16px' }}>
             <div style={{ flex: 1 }}>
               <label style={{ display: 'block', color: '#ccc', marginBottom: '6px' }}>
-                📐 Ширина окна браузера
+                Browser window width
               </label>
               <input
                 type="number"
@@ -657,7 +657,7 @@ export default function EditProfileModal({ profile, isOpen, onClose, onSave }: E
             </div>
             <div style={{ flex: 1 }}>
               <label style={{ display: 'block', color: '#ccc', marginBottom: '6px' }}>
-                📏 Высота окна браузера
+                Browser window height
               </label>
               <input
                 type="number"
@@ -707,7 +707,7 @@ export default function EditProfileModal({ profile, isOpen, onClose, onSave }: E
             </div>
             <div style={{ flex: 1 }}>
               <label style={{ display: 'block', color: '#ccc', marginBottom: '6px' }}>
-                Языки
+                Languages
               </label>
               <input
                 type="text"
@@ -732,7 +732,7 @@ export default function EditProfileModal({ profile, isOpen, onClose, onSave }: E
           <div style={{ display: 'flex', gap: '16px', marginBottom: '16px' }}>
             <div style={{ flex: 1 }}>
               <label style={{ display: 'block', color: '#ccc', marginBottom: '6px' }}>
-                Часовой пояс
+                Timezone
               </label>
               <input
                 type="text"
@@ -754,7 +754,7 @@ export default function EditProfileModal({ profile, isOpen, onClose, onSave }: E
             </div>
             <div style={{ flex: 1 }}>
               <label style={{ display: 'block', color: '#ccc', marginBottom: '6px' }}>
-                Локализация
+                Locale
               </label>
               <input
                 type="text"
@@ -779,7 +779,7 @@ export default function EditProfileModal({ profile, isOpen, onClose, onSave }: E
           <div style={{ display: 'flex', gap: '16px', marginBottom: '16px' }}>
             <div style={{ flex: 1 }}>
               <label style={{ display: 'block', color: '#ccc', marginBottom: '6px' }}>
-                Режим WebRTC
+                WebRTC mode
               </label>
               <select
                 value={formData.browser_settings.webrtc_mode}
@@ -954,7 +954,7 @@ export default function EditProfileModal({ profile, isOpen, onClose, onSave }: E
                 }
               }}
             >
-              {resettingFingerprint ? '🔄 Сброс...' : '🔄 Сбросить отпечаток'}
+              {resettingFingerprint ? 'Resetting...' : 'Reset fingerprint'}
             </button>
             <button
               type="button"
@@ -973,7 +973,7 @@ export default function EditProfileModal({ profile, isOpen, onClose, onSave }: E
               onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#777'}
               onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#666'}
             >
-              Отмена
+              Cancel
             </button>
             <button
               type="submit"
@@ -999,7 +999,7 @@ export default function EditProfileModal({ profile, isOpen, onClose, onSave }: E
                 }
               }}
             >
-              {loading ? 'Сохранение...' : 'Сохранить'}
+              {loading ? 'Saving...' : 'Save'}
             </button>
           </div>
         </form>

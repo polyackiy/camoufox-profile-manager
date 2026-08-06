@@ -7,7 +7,7 @@ export default function HomePage() {
   const router = useRouter()
 
   useEffect(() => {
-    // Автоматический редирект на dashboard
+    // Automatic redirect to the profiles page
     router.push('/dashboard')
   }, [router])
 
@@ -42,7 +42,7 @@ export default function HomePage() {
           Camoufox Profile Manager
         </h1>
         <p style={{ color: '#888' }}>
-          Перенаправление...
+          Redirecting...
         </p>
       </div>
     </div>

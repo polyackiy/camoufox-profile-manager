@@ -6,7 +6,7 @@ import { profilesAPI, type Profile, type ProfilesResponse, formatProxyString, fo
 import { OSIcon } from '@/components/OSIcon'
 import EditProfileModal from '@/components/EditProfileModal'
 
-// Компонент навигации
+// Navigation component
 function NavigationSidebar() {
   const pathname = usePathname()
   
@@ -73,7 +73,6 @@ export default function ProfilesPage() {
   const [statusFilter, setStatusFilter] = useState('all')
   const [currentPage, setCurrentPage] = useState(1)
   const [totalProfiles, setTotalProfiles] = useState(0)
-  const [hasNext, setHasNext] = useState(false)
   const [perPage, setPerPage] = useState(() => {
     if (typeof window !== 'undefined') {
       return Number(localStorage.getItem('profiles2_per_page') || 20)
@@ -99,7 +98,7 @@ export default function ProfilesPage() {
 
   const totalPages = Math.max(1, Math.ceil(totalProfiles / perPage))
 
-  // Полная загрузка всех профилей
+  // Load all profiles
   const fetchAllProfiles = async () => {
     try {
       setLoading(true)
@@ -111,7 +110,7 @@ export default function ProfilesPage() {
       let hasNextPage = true
 
       while (hasNextPage) {
-        const params: Record<string, any> = {
+        const params: Record<string, unknown> = {
           page,
           per_page: perPageFetch
         }
@@ -129,16 +128,16 @@ export default function ProfilesPage() {
       setAllProfiles(fetched)
 
     } catch (err) {
-      console.error('Ошибка загрузки профилей:', err)
-      setError(err instanceof Error ? err.message : 'Неизвестная ошибка')
+      console.error('Failed to load profiles:', err)
+      setError(err instanceof Error ? err.message : 'Unknown error')
     } finally {
       setLoading(false)
     }
   }
 
-  // Сортировка и пагинация на клиенте
+  // Client-side sorting and pagination
   const applySortingAndPaging = () => {
-    // Клиентский фильтр по имени
+    // Client-side filter by name
     const filtered = searchTerm.trim()
       ? allProfiles.filter(p => p.name.toLowerCase().includes(searchTerm.toLowerCase()))
       : allProfiles
@@ -151,11 +150,11 @@ export default function ProfilesPage() {
         case 'status':
           return a.status.localeCompare(b.status) * dir
         case 'os':
-          return a.browser_settings.os.localeCompare(b.browser_settings.os) * dir
+          return (a.browser_settings.os || '').localeCompare(b.browser_settings.os || '') * dir
         case 'last_used':
           return (new Date(a.last_used || 0).getTime() - new Date(b.last_used || 0).getTime()) * dir
         case 'group':
-          return a.group.localeCompare(b.group) * dir
+          return (a.group || '').localeCompare(b.group || '') * dir
         case 'id':
           return a.id.localeCompare(b.id) * dir
         case 'created_at':
@@ -165,24 +164,23 @@ export default function ProfilesPage() {
     })
 
     setTotalProfiles(sorted.length)
-    setHasNext(currentPage * perPage < sorted.length)
 
     const startIdx = (currentPage - 1) * perPage
     const pageSlice = sorted.slice(startIdx, startIdx + perPage)
     setProfiles(pageSlice)
   }
 
-  // Загружаем все профили при изменении фильтров поиска/статуса
+  // Reload all profiles when the search/status filters change
   useEffect(() => {
     fetchAllProfiles()
   }, [statusFilter])
 
-  // Применяем сортировку и пагинацию при изменении входных данных
+  // Re-apply sorting and pagination when inputs change
   useEffect(() => {
     applySortingAndPaging()
   }, [allProfiles, currentPage, perPage, sortBy, sortOrder, searchTerm])
 
-  // Загрузка активных браузеров
+  // Load active browsers
   const loadActiveBrowsers = async () => {
     try {
       const response = await fetch('http://localhost:8000/api/browsers/active')
@@ -192,21 +190,21 @@ export default function ProfilesPage() {
         setActiveBrowsers(activeProfileIds)
       }
     } catch (err) {
-      console.error('Ошибка загрузки активных браузеров:', err)
+      console.error('Failed to load active browsers:', err)
     }
   }
 
-  // Загружаем активные браузеры при загрузке компонента и периодически обновляем
+  // Load active browsers on mount and refresh periodically
   useEffect(() => {
     loadActiveBrowsers()
     
-    // Обновляем активные браузеры каждые 5 секунд
+    // Refresh active browsers every 5 seconds
     const interval = setInterval(loadActiveBrowsers, 5000)
     
     return () => clearInterval(interval)
   }, [])
 
-  // Обработчики событий
+  // Event handlers
   const handleSelectProfile = (profileId: string) => {
     const newSelected = new Set(selectedProfiles)
     if (newSelected.has(profileId)) {
@@ -225,7 +223,7 @@ export default function ProfilesPage() {
     }
   }
 
-  // Сортировка по колонкам
+  // Column sorting
   const handleSort = (column: string) => {
     if (sortBy === column) {
       setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')
@@ -239,42 +237,42 @@ export default function ProfilesPage() {
   const handleOpenProfile = async (profileId: string) => {
     try {
       await profilesAPI.startProfile(profileId)
-      // Обновляем список профилей и активных браузеров после запуска
+      // Refresh profiles and active browsers after launch
       fetchAllProfiles()
       loadActiveBrowsers()
     } catch (err) {
-      console.error('Ошибка запуска профиля:', err)
-      alert('Ошибка запуска профиля: ' + (err instanceof Error ? err.message : 'Неизвестная ошибка'))
+      console.error('Failed to launch profile:', err)
+      alert('Failed to launch profile: ' + (err instanceof Error ? err.message : 'Unknown error'))
     }
   }
 
   const handleCloneProfile = async (profileId: string) => {
     try {
       const profile = profiles.find(p => p.id === profileId)
-      const newName = prompt('Введите имя для клона:', profile?.name + ' (Clone)')
+      const newName = prompt('Enter a name for the clone:', profile?.name + ' (Clone)')
       if (newName) {
         await profilesAPI.cloneProfile(profileId, newName)
         fetchAllProfiles()
       }
     } catch (err) {
-      console.error('Ошибка клонирования профиля:', err)
-      alert('Ошибка клонирования: ' + (err instanceof Error ? err.message : 'Неизвестная ошибка'))
+      console.error('Failed to clone profile:', err)
+      alert('Failed to clone: ' + (err instanceof Error ? err.message : 'Unknown error'))
     }
   }
 
   const handleDeleteProfile = async (profileId: string) => {
-    if (confirm('Вы уверены, что хотите удалить этот профиль?')) {
+    if (confirm('Are you sure you want to delete this profile?')) {
       try {
         await profilesAPI.deleteProfile(profileId)
         fetchAllProfiles()
       } catch (err) {
-        console.error('Ошибка удаления профиля:', err)
-        alert('Ошибка удаления: ' + (err instanceof Error ? err.message : 'Неизвестная ошибка'))
+        console.error('Failed to delete profile:', err)
+        alert('Failed to delete: ' + (err instanceof Error ? err.message : 'Unknown error'))
       }
     }
   }
 
-  // Поиск без кнопки: фильтруем на лету, страницу сбрасываем
+  // Live search: filter as you type and reset to the first page
   useEffect(() => {
     setCurrentPage(1)
   }, [searchTerm])
@@ -288,7 +286,7 @@ export default function ProfilesPage() {
   }
 
   const handleEditSave = (updatedProfile: Profile) => {
-    // Обновляем профиль в списке
+    // Update the profile in the list
     setProfiles(profiles.map(p => p.id === updatedProfile.id ? updatedProfile : p))
   }
 
@@ -297,7 +295,7 @@ export default function ProfilesPage() {
     setEditingProfile(null)
   }
 
-  // Обработчики управления браузерами
+  // Browser control handlers
   const handleCloseProfileBrowser = async (profileId: string) => {
     try {
       const response = await fetch(`http://localhost:8000/api/profiles/${profileId}/close`, {
@@ -307,18 +305,18 @@ export default function ProfilesPage() {
       
       if (response.ok) {
         console.log(`✅ ${result.message}`)
-        // Обновляем активные браузеры после закрытия
+        // Refresh active browsers after closing
         loadActiveBrowsers()
       } else {
-        console.error(`❌ Ошибка: ${result.detail || result.message}`)
+        console.error(`Error: ${result.detail || result.message}`)
       }
     } catch (err) {
-      console.error('Ошибка закрытия браузера:', err)
+      console.error('Failed to close browser:', err)
     }
   }
 
   const handleCloseAllBrowsers = async () => {
-    if (!confirm('Вы уверены, что хотите закрыть ВСЕ активные браузеры?')) {
+    if (!confirm('Are you sure you want to close ALL active browsers?')) {
       return
     }
 
@@ -330,17 +328,17 @@ export default function ProfilesPage() {
       
       if (response.ok) {
         console.log(`✅ ${result.message}`)
-        // Обновляем активные браузеры после закрытия всех
+        // Refresh active browsers after closing all
         loadActiveBrowsers()
       } else {
-        console.error(`❌ Ошибка: ${result.detail || result.message}`)
+        console.error(`Error: ${result.detail || result.message}`)
       }
     } catch (err) {
-      console.error('Ошибка закрытия всех браузеров:', err)
+      console.error('Failed to close all browsers:', err)
     }
   }
 
-  // Удалить выбранные профили
+  // Delete the selected profiles
   const handleBulkDelete = async () => {
     if (selectedProfiles.size === 0) {
       alert('No profiles selected')
@@ -361,12 +359,12 @@ export default function ProfilesPage() {
     }
   }
 
-  // Обработчики Excel функций
+  // Excel handlers
   const handleExportToExcel = async () => {
     try {
       const response = await fetch('http://localhost:8000/api/profiles/export/excel')
       if (!response.ok) {
-        throw new Error('Ошибка экспорта')
+        throw new Error('Export failed')
       }
       
       const blob = await response.blob()
@@ -379,10 +377,10 @@ export default function ProfilesPage() {
       window.URL.revokeObjectURL(url)
       document.body.removeChild(a)
       
-      alert('✅ Профили успешно экспортированы в Excel!')
+      alert('Profiles exported to Excel successfully!')
     } catch (err) {
-      console.error('Ошибка экспорта:', err)
-      alert('❌ Ошибка экспорта: ' + (err instanceof Error ? err.message : 'Неизвестная ошибка'))
+      console.error('Export failed:', err)
+      alert('Export failed: ' + (err instanceof Error ? err.message : 'Unknown error'))
     }
   }
 
@@ -402,32 +400,32 @@ export default function ProfilesPage() {
       const result = await response.json()
       
       if (result.success) {
-        alert(`✅ Импорт успешен!\n\nСоздано профилей: ${result.data.created_count}\n\n💡 Все профили создаются с новыми автоматически генерируемыми ID`)
-        fetchAllProfiles() // Перезагружаем список профилей
+        alert(`Import succeeded!\n\nProfiles created: ${result.data.created_count}\n\nAll profiles are created with new auto-generated IDs`)
+        fetchAllProfiles() // Reload the profile list
       } else {
-        let errorMessage = `❌ Импорт завершен с ошибками:\n\n${result.message}`
+        let errorMessage = `Import finished with errors:\n\n${result.message}`
         if (result.data.errors && result.data.errors.length > 0) {
-          errorMessage += '\n\nОшибки:\n' + result.data.errors.slice(0, 5).join('\n')
+          errorMessage += '\n\nErrors:\n' + result.data.errors.slice(0, 5).join('\n')
           if (result.data.errors.length > 5) {
-            errorMessage += `\n... и еще ${result.data.errors.length - 5} ошибок`
+            errorMessage += `\n... and ${result.data.errors.length - 5} more errors`
           }
         }
         alert(errorMessage)
       }
     } catch (err) {
-      console.error('Ошибка импорта:', err)
-      alert('❌ Ошибка импорта: ' + (err instanceof Error ? err.message : 'Неизвестная ошибка'))
+      console.error('Import failed:', err)
+      alert('Import failed: ' + (err instanceof Error ? err.message : 'Unknown error'))
     }
     
-    // Сбрасываем значение input для возможности повторного выбора того же файла
+    // Reset the input so the same file can be selected again
     event.target.value = ''
   }
 
-  // Закрытие меню при клике вне его
+  // Close the menu when clicking outside it
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       const target = event.target as Element
-      // Проверяем что клик был не по кнопке меню и не по самому меню
+      // Ignore clicks on the menu button or the menu itself
       if (!target.closest('[data-menu-button]') && !target.closest('[data-menu-dropdown]')) {
         setOpenMenuId(null)
       }
@@ -436,12 +434,12 @@ export default function ProfilesPage() {
     return () => document.removeEventListener('click', handleClickOutside)
   }, [])
 
-  // Синхронизируем поле ввода страницы с текущей страницей
+  // Keep the page input in sync with the current page
   useEffect(() => {
     setPageInput(currentPage.toString())
   }, [currentPage])
 
-  // Сохраняем настройки в localStorage
+  // Persist settings to localStorage
   useEffect(() => {
     if (typeof window !== 'undefined') {
       localStorage.setItem('profiles2_sort_by', sortBy)
@@ -455,7 +453,7 @@ export default function ProfilesPage() {
       <div style={{ display: 'flex', height: '100vh', backgroundColor: '#0f0f0f' }}>
         <NavigationSidebar />
         <div style={{ marginLeft: '250px', padding: '40px', flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ color: '#ccc', fontSize: '18px' }}>Загрузка профилей...</div>
+          <div style={{ color: '#ccc', fontSize: '18px' }}>Loading profiles...</div>
         </div>
       </div>
     )
@@ -467,7 +465,7 @@ export default function ProfilesPage() {
         <NavigationSidebar />
         <div style={{ marginLeft: '250px', padding: '40px', flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <div style={{ color: '#ef4444', fontSize: '18px' }}>
-            Ошибка: {error}
+            Error: {error}
             <br />
             <button 
               onClick={fetchAllProfiles}
@@ -481,7 +479,7 @@ export default function ProfilesPage() {
                 cursor: 'pointer'
               }}
             >
-              Попробовать снова
+              Try again
             </button>
           </div>
         </div>
@@ -500,7 +498,7 @@ export default function ProfilesPage() {
           </h1>
         </div>
 
-        {/* Фильтры и поиск */}
+        {/* Filters and search */}
         <div style={{ 
           display: 'flex', 
           gap: '20px', 
@@ -543,7 +541,7 @@ export default function ProfilesPage() {
             <option value="pending">Pending</option>
           </select>
 
-          {/* Кнопки управления */}
+          {/* Control buttons */}
           <div style={{ display: 'flex', gap: '10px', marginLeft: 'auto' }}>
             <button
               onClick={handleCloseAllBrowsers}
@@ -621,7 +619,7 @@ export default function ProfilesPage() {
           </div>
         </div>
 
-        {/* Таблица профилей */}
+        {/* Profiles table */}
         <div style={{ 
           backgroundColor: '#1a1a1a', 
           borderRadius: '8px', 
@@ -779,7 +777,7 @@ export default function ProfilesPage() {
                             data-menu-dropdown
                             style={{
                               position: 'absolute',
-                              // Показываем меню сверху для последних 3 строк
+                              // Show the menu above for the last 3 rows
                               ...(idx >= profiles.length - 3 
                                 ? { bottom: '100%', marginBottom: '5px' } 
                                 : { top: '100%', marginTop: '5px' }
@@ -870,7 +868,7 @@ export default function ProfilesPage() {
           </table>
         </div>
 
-        {/* Пагинация */}
+        {/* Pagination */}
         {totalProfiles > perPage && (
           <div style={{
             display: 'flex',
@@ -978,7 +976,7 @@ export default function ProfilesPage() {
         )}
       </div>
       
-      {/* Модальное окно редактирования */}
+      {/* Edit modal */}
       <EditProfileModal
         profile={editingProfile}
         isOpen={isEditModalOpen}
