@@ -1,7 +1,5 @@
-"""
-API роуты для CamoufoxProfileManager
-"""
+"""API routes for Camoufox Profile Manager."""
 
-from . import profiles, groups, system, websocket
- 
-__all__ = ["profiles", "groups", "system", "websocket"] 
+from . import groups, profiles, system, websocket
+
+__all__ = ["profiles", "groups", "system", "websocket"]

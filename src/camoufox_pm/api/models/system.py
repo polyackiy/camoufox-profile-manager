@@ -1,132 +1,92 @@
-"""
-Системные модели API
-"""
+"""System-level API models."""
 
 from datetime import datetime
-from typing import Optional, Dict, Any, List, Generic, TypeVar
+from typing import Any, Dict, Generic, Optional, TypeVar
+
 from pydantic import BaseModel, Field
 
-T = TypeVar('T')
+T = TypeVar("T")
 
 
 class ApiResponse(BaseModel, Generic[T]):
-    """Базовый ответ API"""
-    success: bool = Field(True, description="Статус выполнения операции")
-    message: str = Field("", description="Сообщение")
-    data: Optional[T] = Field(None, description="Данные ответа")
-    
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "success": True,
-                "message": "Операция выполнена успешно",
-                "data": {}
-            }
-        }
+    """Generic API response."""
+
+    success: bool = Field(True, description="Whether the operation succeeded")
+    message: str = Field("", description="Message")
+    data: Optional[T] = Field(None, description="Response payload")
 
 
 class ErrorResponse(BaseModel):
-    """Ответ с ошибкой"""
+    """Error response."""
+
     success: bool = Field(False)
-    error: str = Field(..., description="Код ошибки")
-    message: str = Field(..., description="Описание ошибки")
-    details: Optional[Dict[str, Any]] = Field(None, description="Дополнительные детали")
-    
+    error: str = Field(..., description="Error code")
+    message: str = Field(..., description="Error description")
+    details: Optional[Dict[str, Any]] = Field(None, description="Additional details")
+
     class Config:
         json_schema_extra = {
             "example": {
                 "success": False,
                 "error": "PROFILE_NOT_FOUND",
-                "message": "Профиль не найден",
-                "details": {"profile_id": "invalid_id"}
+                "message": "Profile not found",
+                "details": {"profile_id": "invalid_id"},
             }
         }
 
 
 class PaginationResponse(BaseModel):
-    """Модель пагинации"""
-    page: int = Field(1, ge=1, description="Номер страницы")
-    per_page: int = Field(10, ge=1, le=100, description="Элементов на страницу")
-    total: int = Field(0, ge=0, description="Общее количество элементов")
-    has_next: bool = Field(False, description="Есть следующая страница")
-    has_prev: bool = Field(False, description="Есть предыдущая страница")
-    
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "page": 1,
-                "per_page": 10,
-                "total": 25,
-                "has_next": True,
-                "has_prev": False
-            }
-        }
+    """Pagination metadata."""
+
+    page: int = Field(1, ge=1, description="Page number")
+    per_page: int = Field(10, ge=1, le=100, description="Items per page")
+    total: int = Field(0, ge=0, description="Total number of items")
+    has_next: bool = Field(False, description="Whether a next page exists")
+    has_prev: bool = Field(False, description="Whether a previous page exists")
 
 
 class SystemStatusResponse(BaseModel):
-    """Статус системы"""
-    total_profiles: int = Field(..., description="Всего профилей")
-    active_profiles: int = Field(..., description="Активных профилей")
-    running_browsers: int = Field(..., description="Запущенных браузеров")
-    total_groups: int = Field(..., description="Всего групп")
-    system_load: float = Field(..., description="Загрузка системы")
-    memory_usage: float = Field(..., description="Использование памяти в %")
-    disk_usage: float = Field(..., description="Использование диска в %")
-    uptime_seconds: int = Field(..., description="Время работы в секундах")
-    
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "total_profiles": 25,
-                "active_profiles": 20,
-                "running_browsers": 3,
-                "total_groups": 5,
-                "system_load": 0.25,
-                "memory_usage": 45.2,
-                "disk_usage": 67.8,
-                "uptime_seconds": 3600
-            }
-        }
+    """System status."""
+
+    total_profiles: int = Field(..., description="Total profiles")
+    active_profiles: int = Field(..., description="Active profiles")
+    running_browsers: int = Field(..., description="Running browsers")
+    total_groups: int = Field(..., description="Total groups")
+    system_load: float = Field(..., description="System load")
+    memory_usage: float = Field(..., description="Memory usage in %")
+    disk_usage: float = Field(..., description="Disk usage in %")
+    uptime_seconds: int = Field(..., description="Uptime in seconds")
 
 
 class ProfileDiagnosticResponse(BaseModel):
-    """Ответ с результатами диагностики профилей"""
-    total_profiles_in_db: int = Field(..., description="Всего профилей в БД")
-    total_directories_on_disk: int = Field(..., description="Всего директорий на диске")
-    total_disk_size_mb: float = Field(..., description="Общий размер в MB")
-    orphaned_directories: int = Field(..., description="Осиротевших директорий")
-    orphaned_size_mb: float = Field(..., description="Размер осиротевших директорий в MB")
-    missing_directories: int = Field(..., description="Профилей без директорий")
-    healthy_profiles: int = Field(..., description="Здоровых профилей")
-    issues_found: int = Field(..., description="Найдено проблем")
+    """Result of a profile storage diagnostic."""
+
+    total_profiles_in_db: int = Field(..., description="Total profiles in the database")
+    total_directories_on_disk: int = Field(..., description="Total directories on disk")
+    total_disk_size_mb: float = Field(..., description="Total size in MB")
+    orphaned_directories: int = Field(..., description="Orphaned directories")
+    orphaned_size_mb: float = Field(..., description="Size of orphaned directories in MB")
+    missing_directories: int = Field(..., description="Profiles without directories")
+    healthy_profiles: int = Field(..., description="Healthy profiles")
+    issues_found: int = Field(..., description="Issues found")
 
 
 class ProfileCleanupResponse(BaseModel):
-    """Ответ с результатами очистки профилей"""
-    orphaned_removed: int = Field(..., description="Удалено осиротевших директорий")
-    directories_created: int = Field(..., description="Создано директорий")
-    freed_space_mb: float = Field(..., description="Освобождено места в MB")
-    dry_run: bool = Field(..., description="Тестовый запуск")
-    message: str = Field(..., description="Сообщение о результате")
+    """Result of a profile storage cleanup."""
+
+    orphaned_removed: int = Field(..., description="Orphaned directories removed")
+    directories_created: int = Field(..., description="Directories created")
+    freed_space_mb: float = Field(..., description="Freed space in MB")
+    dry_run: bool = Field(..., description="Dry run")
+    message: str = Field(..., description="Result message")
 
 
 class WebSocketMessage(BaseModel):
-    """Сообщение WebSocket"""
-    type: str = Field(..., description="Тип сообщения")
-    timestamp: datetime = Field(..., description="Время сообщения")
-    data: Dict[str, Any] = Field(..., description="Данные сообщения")
-    
+    """WebSocket message."""
+
+    type: str = Field(..., description="Message type")
+    timestamp: datetime = Field(..., description="Message timestamp")
+    data: Dict[str, Any] = Field(..., description="Message payload")
+
     class Config:
-        json_encoders = {
-            datetime: lambda v: v.isoformat(),
-        }
-        json_schema_extra = {
-            "example": {
-                "type": "profile_created",
-                "timestamp": "2025-01-17T12:00:00",
-                "data": {
-                    "profile_id": "profile_123",
-                    "name": "New Profile"
-                }
-            }
-        } 
+        json_encoders = {datetime: lambda v: v.isoformat()}

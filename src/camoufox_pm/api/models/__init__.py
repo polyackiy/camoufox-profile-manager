@@ -1,6 +1,4 @@
-"""
-API модели для CamoufoxProfileManager
-"""
+"""API models for Camoufox Profile Manager."""
 
 from .profiles import *
 from .groups import *
