@@ -1,106 +1,81 @@
-"""
-CamoufoxProfileManager REST API
-Полнофункциональная система управления профилями антидетект браузера
-"""
+"""Camoufox Profile Manager REST API."""
 
-import asyncio
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 from fastapi.responses import RedirectResponse
+from fastapi.staticfiles import StaticFiles
 from loguru import logger
 
-from camoufox_pm.core.profile_manager import ProfileManager
-from camoufox_pm.core.database import StorageManager
-from camoufox_pm.api.dependencies import set_storage_manager, set_profile_manager
-from camoufox_pm.api.routes import profiles, groups, system, websocket
+from camoufox_pm import __version__
+from camoufox_pm.api.dependencies import (
+    require_api_key,
+    set_profile_manager,
+    set_storage_manager,
+)
 from camoufox_pm.api.middleware.logging import LoggingMiddleware
+from camoufox_pm.api.routes import groups, profiles, system, websocket
+from camoufox_pm.config import get_settings
+from camoufox_pm.core.database import StorageManager
+from camoufox_pm.core.profile_manager import ProfileManager
+
+settings = get_settings()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Управление жизненным циклом приложения"""
-    
-    # Инициализация при запуске
-    logger.info("🚀 Запуск CamoufoxProfileManager API...")
-    
+    """Initialize shared resources on startup and clean up on shutdown."""
+    logger.info("Starting Camoufox Profile Manager API...")
+
+    storage_manager = StorageManager(settings.db_path)
+    await storage_manager.initialize()
+
+    data_dir = str(Path(settings.db_path).parent)
+    profile_manager = ProfileManager(storage_manager, data_dir)
+    await profile_manager.initialize()
+
+    set_storage_manager(storage_manager)
+    set_profile_manager(profile_manager)
+
+    logger.info("API ready")
     try:
-        # Инициализируем базу данных
-        storage_manager = StorageManager("data/profiles.db")
-        await storage_manager.initialize()
-        
-        # Инициализируем менеджер профилей
-        profile_manager = ProfileManager(storage_manager, "data")
-        await profile_manager.initialize()
-        
-        # Устанавливаем зависимости
-        set_storage_manager(storage_manager)
-        set_profile_manager(profile_manager)
-        
-        logger.success("✅ CamoufoxProfileManager API готов к работе!")
-        
-        # Передаем управление приложению
         yield
-        
-    except Exception as e:
-        logger.error(f"❌ Ошибка инициализации: {e}")
-        raise
     finally:
-        # Очистка при завершении
-        logger.info("🔄 Завершение работы API...")
+        logger.info("Shutting down API...")
         await storage_manager.close()
-        logger.info("✅ API завершен")
 
 
-# Создаем FastAPI приложение
 app = FastAPI(
-    title="CamoufoxProfileManager API",
-    description="""
-    🦊 **Система управления профилями антидетект браузера на базе Camoufox**
-    
-    ## Возможности:
-    
-    * **Управление профилями** - создание, редактирование, удаление профилей
-    * **Группировка** - организация профилей по группам
-    * **Фильтрация и поиск** - быстрый поиск по различным критериям
-    * **Статистика** - детальная аналитика использования
-    * **Запуск браузера** - интеграция с Camoufox
-    * **WebSocket** - мониторинг в реальном времени
-    
-    ## Производительность:
-    
-    * Создание 50 профилей: **0.05 секунд**
-    * Поисковые запросы: **0.002 секунды**
-    * Масштабируемость: **1000+ профилей**
-    """,
-    version="1.0.0",
+    title="Camoufox Profile Manager API",
+    description=(
+        "Self-hosted, open-source antidetect browser profile manager built on "
+        "Camoufox. Manage profiles and groups, generate fingerprints, launch the "
+        "browser, and drive everything over a REST API."
+    ),
+    version=__version__,
     docs_url="/docs",
     redoc_url="/redoc",
-    lifespan=lifespan
+    lifespan=lifespan,
 )
 
-# Настройка CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # В продакшене указать конкретные домены
+    allow_origins=settings.cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# Добавляем middleware для логирования
 app.add_middleware(LoggingMiddleware)
 
-# Подключаем роуты
-app.include_router(profiles.router, prefix="/api", tags=["Profiles"])
-app.include_router(groups.router, prefix="/api", tags=["Groups"])
-app.include_router(system.router, prefix="/api", tags=["System"])
+# Optional API-key guard; a no-op when CPM_API_KEY is unset.
+protected = [Depends(require_api_key)]
+app.include_router(profiles.router, prefix="/api", tags=["Profiles"], dependencies=protected)
+app.include_router(groups.router, prefix="/api", tags=["Groups"], dependencies=protected)
+app.include_router(system.router, prefix="/api", tags=["System"], dependencies=protected)
 app.include_router(websocket.router, prefix="/ws", tags=["WebSocket"])
 
-# Статические файлы (для будущего веб-интерфейса)
 web_dir = Path("web/static")
 if web_dir.exists():
     app.mount("/static", StaticFiles(directory=str(web_dir)), name="static")
@@ -108,42 +83,40 @@ if web_dir.exists():
 
 @app.get("/", include_in_schema=False)
 async def root():
-    """Перенаправление на документацию API"""
+    """Redirect to the API documentation."""
     return RedirectResponse(url="/docs")
 
 
 @app.get("/health", tags=["System"])
 async def health_check():
-    """Проверка состояния API"""
-    from camoufox_pm.api.dependencies import get_storage_manager, get_profile_manager
-    
+    """Report API and database health."""
+    from camoufox_pm.api.dependencies import get_profile_manager
+
     try:
-        storage_mgr = get_storage_manager()
         profile_mgr = get_profile_manager()
-        profiles = await profile_mgr.list_profiles()
-        
+        profiles_list = await profile_mgr.list_profiles()
         return {
             "status": "healthy",
-            "api_version": "1.0.0",
+            "api_version": __version__,
             "database": "connected",
-            "profiles_count": len(profiles)
+            "profiles_count": len(profiles_list),
         }
     except Exception:
         return {
             "status": "unhealthy",
-            "api_version": "1.0.0",
+            "api_version": __version__,
             "database": "disconnected",
-            "profiles_count": 0
+            "profiles_count": 0,
         }
 
 
 if __name__ == "__main__":
     import uvicorn
-    
+
     uvicorn.run(
         "camoufox_pm.main:app",
-        host="0.0.0.0",
-        port=8000,
+        host=settings.host,
+        port=settings.port,
         reload=True,
         log_level="info",
     )
