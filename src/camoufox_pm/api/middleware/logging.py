@@ -1,51 +1,34 @@
-"""
-Middleware для логирования HTTP запросов
-"""
+"""Middleware for logging HTTP requests."""
 
 import time
-from typing import Callable
+from collections.abc import Callable
+
 from fastapi import Request, Response
-from starlette.middleware.base import BaseHTTPMiddleware
 from loguru import logger
+from starlette.middleware.base import BaseHTTPMiddleware
 
 
 class LoggingMiddleware(BaseHTTPMiddleware):
-    """Middleware для логирования запросов к API"""
-    
+    """Log each API request with its method, path, status, and duration."""
+
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
-        # Начало обработки запроса
         start_time = time.time()
-        
-        # Логируем входящий запрос
-        logger.info(
-            f"🌐 {request.method} {request.url.path} "
-            f"from {request.client.host if request.client else 'unknown'}"
-        )
-        
-        # Обрабатываем запрос
+        client = request.client.host if request.client else "unknown"
+        logger.info("%s %s from %s" % (request.method, request.url.path, client))
+
         try:
             response = await call_next(request)
-            
-            # Вычисляем время обработки
             process_time = time.time() - start_time
-            
-            # Логируем ответ
-            status_emoji = "✅" if response.status_code < 400 else "❌"
             logger.info(
-                f"{status_emoji} {request.method} {request.url.path} "
-                f"→ {response.status_code} ({process_time:.3f}s)"
+                "%s %s -> %s (%.3fs)"
+                % (request.method, request.url.path, response.status_code, process_time)
             )
-            
-            # Добавляем заголовок с временем обработки
             response.headers["X-Process-Time"] = str(process_time)
-            
             return response
-            
-        except Exception as e:
-            # Логируем ошибку
+        except Exception as exc:
             process_time = time.time() - start_time
             logger.error(
-                f"💥 {request.method} {request.url.path} "
-                f"ERROR: {str(e)} ({process_time:.3f}s)"
+                "%s %s ERROR: %s (%.3fs)"
+                % (request.method, request.url.path, exc, process_time)
             )
-            raise 
+            raise
