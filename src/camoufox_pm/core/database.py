@@ -11,10 +11,26 @@ from typing import List, Optional, Dict, Any, Union
 from contextlib import asynccontextmanager
 from loguru import logger
 
+from .crypto import decrypt, encrypt
 from .models import (
-    Profile, ProfileGroup, UsageStats, ProxyConfig, 
+    Profile, ProfileGroup, UsageStats, ProxyConfig,
     ProfileStatus, ProxyTestResult, SystemStatus
 )
+
+
+def _serialize_proxy(proxy: ProxyConfig) -> dict:
+    """Serialize a proxy for storage, encrypting the password."""
+    data = proxy.model_dump()
+    if data.get("password"):
+        data["password"] = encrypt(data["password"])
+    return data
+
+
+def _deserialize_proxy(data: dict) -> ProxyConfig:
+    """Rebuild a proxy from storage, decrypting the password."""
+    if data.get("password"):
+        data["password"] = decrypt(data["password"])
+    return ProxyConfig(**data)
 
 
 class DatabaseManager:
@@ -111,7 +127,7 @@ class DatabaseManager:
             profile.id, profile.name, profile.group, 
             profile.status.value if hasattr(profile.status, 'value') else profile.status,
             json.dumps(profile.browser_settings.dict()),
-            json.dumps(profile.proxy.dict()) if profile.proxy else None,
+            json.dumps(_serialize_proxy(profile.proxy)) if profile.proxy else None,
             json.dumps(profile.extensions),
             profile.storage_path, profile.notes,
             profile.created_at.isoformat(), profile.updated_at.isoformat(),
@@ -307,11 +323,10 @@ class DatabaseManager:
         browser_settings_data = json.loads(row['browser_settings'])
         browser_settings = BrowserSettings(**browser_settings_data)
         
-        # Парсим proxy_config если есть
+        # Parse proxy_config if present (password is decrypted on read).
         proxy = None
         if row['proxy_config']:
-            proxy_data = json.loads(row['proxy_config'])
-            proxy = ProxyConfig(**proxy_data)
+            proxy = _deserialize_proxy(json.loads(row['proxy_config']))
         
         # Парсим extensions
         extensions = json.loads(row['extensions']) if row['extensions'] else []
