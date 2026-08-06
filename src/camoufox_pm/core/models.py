@@ -10,9 +10,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 # Characters used for short IDs, excluding visually confusing ones (0, o, 1, l, i).
-_ID_ALPHABET = "".join(
-    c for c in (string.ascii_lowercase + string.digits) if c not in "0o1li"
-)
+_ID_ALPHABET = "".join(c for c in (string.ascii_lowercase + string.digits) if c not in "0o1li")
 
 
 def generate_short_id(length: int = 8) -> str:

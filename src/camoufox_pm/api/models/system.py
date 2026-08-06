@@ -1,7 +1,7 @@
 """System-level API models."""
 
 from datetime import datetime
-from typing import Any, Dict, Generic, Optional, TypeVar
+from typing import Any, Generic, TypeVar
 
 from pydantic import BaseModel, Field
 
@@ -13,7 +13,7 @@ class ApiResponse(BaseModel, Generic[T]):
 
     success: bool = Field(True, description="Whether the operation succeeded")
     message: str = Field("", description="Message")
-    data: Optional[T] = Field(None, description="Response payload")
+    data: T | None = Field(None, description="Response payload")
 
 
 class ErrorResponse(BaseModel):
@@ -22,7 +22,7 @@ class ErrorResponse(BaseModel):
     success: bool = Field(False)
     error: str = Field(..., description="Error code")
     message: str = Field(..., description="Error description")
-    details: Optional[Dict[str, Any]] = Field(None, description="Additional details")
+    details: dict[str, Any] | None = Field(None, description="Additional details")
 
     class Config:
         json_schema_extra = {
@@ -86,7 +86,7 @@ class WebSocketMessage(BaseModel):
 
     type: str = Field(..., description="Message type")
     timestamp: datetime = Field(..., description="Message timestamp")
-    data: Dict[str, Any] = Field(..., description="Message payload")
+    data: dict[str, Any] = Field(..., description="Message payload")
 
     class Config:
         json_encoders = {datetime: lambda v: v.isoformat()}

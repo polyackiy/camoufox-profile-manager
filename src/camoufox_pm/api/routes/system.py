@@ -48,8 +48,8 @@ async def get_system_status():
             uptime_seconds=int(time.time() - startup_time),
         )
     except Exception as exc:
-        logger.error("Failed to get system status: %s" % exc)
-        raise HTTPException(status_code=500, detail=str(exc))
+        logger.error(f"Failed to get system status: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @router.get(
@@ -78,8 +78,8 @@ async def diagnostic_profiles():
         finally:
             await cleanup_manager.close()
     except Exception as exc:
-        logger.error("Failed to diagnose profiles: %s" % exc)
-        raise HTTPException(status_code=500, detail=str(exc))
+        logger.error(f"Failed to diagnose profiles: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @router.post(
@@ -119,8 +119,8 @@ async def cleanup_orphaned_profiles(dry_run: bool = False):
         finally:
             await cleanup_manager.close()
     except Exception as exc:
-        logger.error("Failed to clean up profiles: %s" % exc)
-        raise HTTPException(status_code=500, detail=str(exc))
+        logger.error(f"Failed to clean up profiles: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @router.post(
@@ -137,8 +137,8 @@ async def restart_system():
         logger.info("System restart requested")
         return ApiResponse(success=True, message="Browsers closed; restart the process to continue")
     except Exception as exc:
-        logger.error("Failed to restart system: %s" % exc)
-        raise HTTPException(status_code=500, detail=str(exc))
+        logger.error(f"Failed to restart system: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @router.get(

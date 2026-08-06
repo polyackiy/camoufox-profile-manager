@@ -69,6 +69,22 @@ src = ["src", "tests"]
 select = ["E", "F", "I", "UP", "B", "W", "C4"]
 ignore = ["E501"]
 
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI dependency-injection helpers are called in argument defaults by design.
+extend-immutable-calls = [
+    "fastapi.Depends",
+    "fastapi.Query",
+    "fastapi.Header",
+    "fastapi.Path",
+    "fastapi.File",
+    "fastapi.Form",
+    "fastapi.Body",
+    "fastapi.Security",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101"]
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]

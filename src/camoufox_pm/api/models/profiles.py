@@ -1,7 +1,7 @@
 """API models for profile endpoints."""
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -12,12 +12,12 @@ class ProfileCreateRequest(BaseModel):
     """Request body for creating a profile."""
 
     name: str = Field(..., min_length=1, max_length=255, description="Profile name")
-    group: Optional[str] = Field(None, description="Profile group ID")
-    browser_settings: Optional[Dict[str, Any]] = Field(
+    group: str | None = Field(None, description="Profile group ID")
+    browser_settings: dict[str, Any] | None = Field(
         None, description="Browser settings (os, screen, languages, etc.)"
     )
-    proxy_config: Optional[Dict[str, Any]] = Field(None, description="Proxy configuration")
-    notes: Optional[str] = Field(None, max_length=1000, description="Notes")
+    proxy_config: dict[str, Any] | None = Field(None, description="Proxy configuration")
+    notes: str | None = Field(None, max_length=1000, description="Notes")
     generate_fingerprint: bool = Field(True, description="Generate a fingerprint")
 
     class Config:
@@ -45,39 +45,33 @@ class ProfileCreateRequest(BaseModel):
 class ProfileUpdateRequest(BaseModel):
     """Request body for updating a profile."""
 
-    name: Optional[str] = Field(None, min_length=1, max_length=255)
-    group: Optional[str] = Field(None)
-    status: Optional[ProfileStatus] = Field(None)
-    browser_settings: Optional[Dict[str, Any]] = Field(None)
-    proxy_config: Optional[Dict[str, Any]] = Field(None)
-    notes: Optional[str] = Field(None, max_length=1000)
+    name: str | None = Field(None, min_length=1, max_length=255)
+    group: str | None = Field(None)
+    status: ProfileStatus | None = Field(None)
+    browser_settings: dict[str, Any] | None = Field(None)
+    proxy_config: dict[str, Any] | None = Field(None)
+    notes: str | None = Field(None, max_length=1000)
 
     # Individual browser settings
-    browser_os: Optional[str] = Field(None, description="Operating system (windows, macos, linux)")
-    browser_screen: Optional[str] = Field(None, description="Screen resolution (1920x1080)")
-    browser_user_agent: Optional[str] = Field(None, description="User-Agent string")
-    browser_languages: Optional[List[str]] = Field(None, description="Browser languages")
-    browser_timezone: Optional[str] = Field(None, description="Timezone")
-    browser_locale: Optional[str] = Field(None, description="Locale (en_US, ru_RU)")
-    browser_webrtc_mode: Optional[str] = Field(
+    browser_os: str | None = Field(None, description="Operating system (windows, macos, linux)")
+    browser_screen: str | None = Field(None, description="Screen resolution (1920x1080)")
+    browser_user_agent: str | None = Field(None, description="User-Agent string")
+    browser_languages: list[str] | None = Field(None, description="Browser languages")
+    browser_timezone: str | None = Field(None, description="Timezone")
+    browser_locale: str | None = Field(None, description="Locale (en_US, ru_RU)")
+    browser_webrtc_mode: str | None = Field(
         None, description="WebRTC mode (forward, replace, real, none)"
     )
-    browser_canvas_noise: Optional[bool] = Field(None, description="Canvas noise")
-    browser_webgl_noise: Optional[bool] = Field(None, description="WebGL noise")
-    browser_audio_noise: Optional[bool] = Field(None, description="Audio noise")
-    browser_hardware_concurrency: Optional[int] = Field(
-        None, ge=1, le=32, description="CPU cores"
-    )
-    browser_device_memory: Optional[int] = Field(
-        None, ge=1, le=128, description="Device memory (GB)"
-    )
-    browser_max_touch_points: Optional[int] = Field(
-        None, ge=0, le=10, description="Max touch points"
-    )
-    browser_window_width: Optional[int] = Field(
+    browser_canvas_noise: bool | None = Field(None, description="Canvas noise")
+    browser_webgl_noise: bool | None = Field(None, description="WebGL noise")
+    browser_audio_noise: bool | None = Field(None, description="Audio noise")
+    browser_hardware_concurrency: int | None = Field(None, ge=1, le=32, description="CPU cores")
+    browser_device_memory: int | None = Field(None, ge=1, le=128, description="Device memory (GB)")
+    browser_max_touch_points: int | None = Field(None, ge=0, le=10, description="Max touch points")
+    browser_window_width: int | None = Field(
         None, ge=800, le=3840, description="Browser window width"
     )
-    browser_window_height: Optional[int] = Field(
+    browser_window_height: int | None = Field(
         None, ge=600, le=2160, description="Browser window height"
     )
 
@@ -100,15 +94,15 @@ class ProfileResponse(BaseModel):
 
     id: str
     name: str
-    group: Optional[str]
+    group: str | None
     status: ProfileStatus
-    browser_settings: Dict[str, Any]
-    proxy_config: Optional[Dict[str, Any]]
-    storage_path: Optional[str]
-    notes: Optional[str]
+    browser_settings: dict[str, Any]
+    proxy_config: dict[str, Any] | None
+    storage_path: str | None
+    notes: str | None
     created_at: datetime
     updated_at: datetime
-    last_used: Optional[datetime]
+    last_used: datetime | None
 
     class Config:
         from_attributes = True
@@ -118,7 +112,7 @@ class ProfileResponse(BaseModel):
 class ProfileListResponse(BaseModel):
     """Paginated list of profiles."""
 
-    profiles: List[ProfileResponse]
+    profiles: list[ProfileResponse]
     total: int
     page: int
     per_page: int
@@ -132,9 +126,9 @@ class ProfileStatsResponse(BaseModel):
     profile_id: str
     total_sessions: int
     total_duration_minutes: int
-    last_session: Optional[datetime]
+    last_session: datetime | None
     success_rate: float
-    actions: List[Dict[str, Any]]
+    actions: list[dict[str, Any]]
 
     class Config:
         json_encoders = {datetime: lambda v: v.isoformat()}
@@ -156,8 +150,8 @@ class ProfileLaunchRequest(BaseModel):
     """Request body for launching a browser with a profile."""
 
     headless: bool = Field(False, description="Launch in headless mode")
-    window_size: Optional[str] = Field(None, description="Window size (1920x1080)")
-    additional_options: Optional[Dict[str, Any]] = Field(
+    window_size: str | None = Field(None, description="Window size (1920x1080)")
+    additional_options: dict[str, Any] | None = Field(
         None, description="Additional Camoufox options"
     )
 
@@ -178,4 +172,4 @@ class ProfileLaunchResponse(BaseModel):
     browser_session_id: str
     status: str
     message: str
-    camoufox_options: Dict[str, Any]
+    camoufox_options: dict[str, Any]

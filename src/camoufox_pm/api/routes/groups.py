@@ -38,8 +38,8 @@ async def list_groups():
         ]
         return GroupListResponse(groups=groups, total=len(groups))
     except Exception as exc:
-        logger.error("Failed to list groups: %s" % exc)
-        raise HTTPException(status_code=500, detail=str(exc))
+        logger.error(f"Failed to list groups: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @router.post(
@@ -56,7 +56,7 @@ async def create_group(request: GroupCreateRequest):
         group_data = await profile_manager.create_group(
             name=request.name, description=request.description
         )
-        logger.info("Created group: %s" % request.name)
+        logger.info(f"Created group: {request.name}")
         return GroupResponse(
             id=group_data["id"],
             name=group_data["name"],
@@ -65,10 +65,10 @@ async def create_group(request: GroupCreateRequest):
             created_at=group_data["created_at"],
         )
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
-        logger.error("Failed to create group: %s" % exc)
-        raise HTTPException(status_code=500, detail=str(exc))
+        logger.error(f"Failed to create group: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @router.get(
@@ -94,8 +94,8 @@ async def get_group(group_id: str):
     except HTTPException:
         raise
     except Exception as exc:
-        logger.error("Failed to get group %s: %s" % (group_id, exc))
-        raise HTTPException(status_code=500, detail=str(exc))
+        logger.error(f"Failed to get group {group_id}: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @router.put(
@@ -117,7 +117,7 @@ async def update_group(group_id: str, request: GroupUpdateRequest):
         group_data = await profile_manager.update_group(group_id, updates)
         if not group_data:
             raise HTTPException(status_code=404, detail=f"Group with ID {group_id} not found")
-        logger.info("Updated group: %s (ID: %s)" % (group_data["name"], group_id))
+        logger.info("Updated group: {} (ID: {})".format(group_data["name"], group_id))
         return GroupResponse(
             id=group_data["id"],
             name=group_data["name"],
@@ -128,8 +128,8 @@ async def update_group(group_id: str, request: GroupUpdateRequest):
     except HTTPException:
         raise
     except Exception as exc:
-        logger.error("Failed to update group %s: %s" % (group_id, exc))
-        raise HTTPException(status_code=500, detail=str(exc))
+        logger.error(f"Failed to update group {group_id}: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @router.delete(
@@ -145,10 +145,10 @@ async def delete_group(group_id: str):
         success = await profile_manager.delete_group(group_id)
         if not success:
             raise HTTPException(status_code=404, detail=f"Group with ID {group_id} not found")
-        logger.info("Deleted group: ID %s" % group_id)
+        logger.info(f"Deleted group: ID {group_id}")
         return ApiResponse(success=True, message=f"Group {group_id} deleted successfully")
     except HTTPException:
         raise
     except Exception as exc:
-        logger.error("Failed to delete group %s: %s" % (group_id, exc))
-        raise HTTPException(status_code=500, detail=str(exc))
+        logger.error(f"Failed to delete group {group_id}: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc

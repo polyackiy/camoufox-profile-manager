@@ -33,18 +33,18 @@ class ConnectionManager:
         await websocket.accept()
         self.active_connections.add(websocket)
         self.subscriptions[websocket] = set()
-        logger.info("WebSocket connected (%d active)" % len(self.active_connections))
+        logger.info(f"WebSocket connected ({len(self.active_connections)} active)")
 
     def disconnect(self, websocket: WebSocket) -> None:
         self.active_connections.discard(websocket)
         self.subscriptions.pop(websocket, None)
-        logger.info("WebSocket disconnected (%d active)" % len(self.active_connections))
+        logger.info(f"WebSocket disconnected ({len(self.active_connections)} active)")
 
     async def send_personal_message(self, message: WebSocketMessage, websocket: WebSocket) -> None:
         try:
             await websocket.send_text(_encode(message))
         except Exception as exc:  # noqa: BLE001
-            logger.error("Failed to send personal message: %s" % exc)
+            logger.error(f"Failed to send personal message: {exc}")
             self.disconnect(websocket)
 
     async def broadcast(self, message: WebSocketMessage, event_type: str | None = None) -> None:
@@ -56,7 +56,7 @@ class ConnectionManager:
             try:
                 await websocket.send_text(_encode(message))
             except Exception as exc:  # noqa: BLE001
-                logger.error("Failed to broadcast message: %s" % exc)
+                logger.error(f"Failed to broadcast message: {exc}")
                 disconnected.add(websocket)
         for websocket in disconnected:
             self.disconnect(websocket)
@@ -118,7 +118,9 @@ async def websocket_monitor(websocket: WebSocket):
                 )
             elif kind == "ping":
                 await manager.send_personal_message(
-                    WebSocketMessage(type="pong", timestamp=datetime.now(), data={"message": "pong"}),
+                    WebSocketMessage(
+                        type="pong", timestamp=datetime.now(), data={"message": "pong"}
+                    ),
                     websocket,
                 )
     except WebSocketDisconnect:
@@ -139,7 +141,11 @@ async def broadcast_event(event_type: str, data: dict) -> None:
 async def notify_profile_created(profile_id: str, profile_name: str) -> None:
     await broadcast_event(
         "profile_created",
-        {"profile_id": profile_id, "name": profile_name, "message": f"Profile created: {profile_name}"},
+        {
+            "profile_id": profile_id,
+            "name": profile_name,
+            "message": f"Profile created: {profile_name}",
+        },
     )
 
 
@@ -164,7 +170,11 @@ async def notify_profile_deleted(profile_id: str) -> None:
 async def notify_browser_launched(profile_id: str, profile_name: str) -> None:
     await broadcast_event(
         "profile_launched",
-        {"profile_id": profile_id, "name": profile_name, "message": f"Browser launched for: {profile_name}"},
+        {
+            "profile_id": profile_id,
+            "name": profile_name,
+            "message": f"Browser launched for: {profile_name}",
+        },
     )
 
 

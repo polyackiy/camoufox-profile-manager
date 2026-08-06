@@ -59,7 +59,7 @@ class BrowserSession:
 
     async def terminate(self) -> None:
         """Close the browser and stop its monitor task."""
-        logger.info("Terminating browser session for profile %s" % self.profile_id)
+        logger.info(f"Terminating browser session for profile {self.profile_id}")
 
         if self.monitor_task and not self.monitor_task.done():
             self.monitor_task.cancel()
@@ -72,7 +72,7 @@ class BrowserSession:
             try:
                 await self.browser.__aexit__(None, None, None)
             except Exception as exc:  # noqa: BLE001
-                logger.warning("Error closing browser for %s: %s" % (self.profile_id, exc))
+                logger.warning(f"Error closing browser for {self.profile_id}: {exc}")
 
         if self.process_id:
             try:
@@ -85,7 +85,7 @@ class BrowserSession:
             except psutil.NoSuchProcess:
                 pass
             except Exception as exc:  # noqa: BLE001
-                logger.warning("Error killing process %s: %s" % (self.process_id, exc))
+                logger.warning(f"Error killing process {self.process_id}: {exc}")
 
     def info(self) -> dict[str, Any]:
         """Return a serializable summary of this session."""
@@ -138,13 +138,9 @@ class BrowserSessionManager:
 
         process_id = _resolve_process_id(browser) or _resolve_process_id(camoufox)
         session = BrowserSession(profile_id, camoufox, process_id)
-        session.monitor_task = asyncio.create_task(
-            self._monitor(profile_id, process_id, on_exit)
-        )
+        session.monitor_task = asyncio.create_task(self._monitor(profile_id, process_id, on_exit))
         self.active_sessions[profile_id] = session
-        logger.info(
-            "Browser launched for profile %s (pid=%s)" % (profile_id, process_id)
-        )
+        logger.info(f"Browser launched for profile {profile_id} (pid={process_id})")
         return session
 
     async def close(self, profile_id: str) -> bool:
@@ -174,7 +170,7 @@ class BrowserSessionManager:
             while True:
                 await asyncio.sleep(10)
                 if process_id and not psutil.pid_exists(process_id):
-                    logger.info("Browser process %s for %s ended" % (process_id, profile_id))
+                    logger.info(f"Browser process {process_id} for {profile_id} ended")
                     break
         except asyncio.CancelledError:
             raise
@@ -184,4 +180,4 @@ class BrowserSessionManager:
                 try:
                     await on_exit(profile_id)
                 except Exception as exc:  # noqa: BLE001
-                    logger.warning("on_exit handler failed for %s: %s" % (profile_id, exc))
+                    logger.warning(f"on_exit handler failed for {profile_id}: {exc}")

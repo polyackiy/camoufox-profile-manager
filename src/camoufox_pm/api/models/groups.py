@@ -1,7 +1,6 @@
 """API models for profile group endpoints."""
 
 from datetime import datetime
-from typing import List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -10,7 +9,7 @@ class GroupCreateRequest(BaseModel):
     """Request body for creating a group."""
 
     name: str = Field(..., min_length=1, max_length=255, description="Group name")
-    description: Optional[str] = Field(None, max_length=1000, description="Group description")
+    description: str | None = Field(None, max_length=1000, description="Group description")
 
     class Config:
         json_schema_extra = {
@@ -21,12 +20,15 @@ class GroupCreateRequest(BaseModel):
 class GroupUpdateRequest(BaseModel):
     """Request body for updating a group."""
 
-    name: Optional[str] = Field(None, min_length=1, max_length=255)
-    description: Optional[str] = Field(None, max_length=1000)
+    name: str | None = Field(None, min_length=1, max_length=255)
+    description: str | None = Field(None, max_length=1000)
 
     class Config:
         json_schema_extra = {
-            "example": {"name": "Social media (updated)", "description": "Updated group description"}
+            "example": {
+                "name": "Social media (updated)",
+                "description": "Updated group description",
+            }
         }
 
 
@@ -35,7 +37,7 @@ class GroupResponse(BaseModel):
 
     id: str
     name: str
-    description: Optional[str]
+    description: str | None
     profile_count: int
     created_at: datetime
 
@@ -47,5 +49,5 @@ class GroupResponse(BaseModel):
 class GroupListResponse(BaseModel):
     """List of groups."""
 
-    groups: List[GroupResponse]
+    groups: list[GroupResponse]
     total: int

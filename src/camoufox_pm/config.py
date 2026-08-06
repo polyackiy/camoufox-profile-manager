@@ -10,9 +10,7 @@ from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 class Settings(BaseSettings):
     """Runtime configuration. Values come from the environment or a ``.env`` file."""
 
-    model_config = SettingsConfigDict(
-        env_prefix="CPM_", env_file=".env", extra="ignore"
-    )
+    model_config = SettingsConfigDict(env_prefix="CPM_", env_file=".env", extra="ignore")
 
     host: str = "127.0.0.1"
     port: int = 8000
