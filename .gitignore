@@ -242,17 +242,17 @@ Thumbs.db
 *.sqlite
 *.sqlite3
 
-# Profile data (содержит пользовательские данные)
-CamoufoxProfileManager/data/profiles/*/
-CamoufoxProfileManager/demo_data/profiles/*/
+# Profile data & runtime databases (contain user data)
+data/
+demo_data/
+**/profile_*/
 
-# Временные файлы браузера
+# Temporary browser launch scripts
 launch_*.py
 
-# Логи
-CamoufoxProfileManager/data/logs/
-*.log
-
-# Конфигурационные файлы с секретами
+# Secrets & local config
 config.ini
-.env 
+.env
+*.env
+!.env.example
+ 
