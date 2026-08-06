@@ -34,7 +34,7 @@ def kill_camoufox_processes() -> int:
         logger.info("No Camoufox processes found")
         return 0
 
-    logger.info("Found %d Camoufox processes" % len(processes))
+    logger.info(f"Found {len(processes)} Camoufox processes")
     killed = 0
     for proc in processes:
         try:
@@ -52,7 +52,7 @@ def kill_camoufox_processes() -> int:
         except psutil.NoSuchProcess:
             continue
 
-    logger.info("Terminated %d Camoufox processes" % killed)
+    logger.info(f"Terminated {killed} Camoufox processes")
     return killed
 
 
