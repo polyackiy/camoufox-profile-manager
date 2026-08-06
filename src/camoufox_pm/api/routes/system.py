@@ -11,7 +11,7 @@ from loguru import logger
 
 from camoufox_pm.api.models.system import SystemStatusResponse, ApiResponse, ProfileDiagnosticResponse, ProfileCleanupResponse
 from camoufox_pm.api.dependencies import get_profile_manager
-from cleanup_profiles import ProfileCleanupManager
+from camoufox_pm.core.cleanup import ProfileCleanupManager
 
 
 router = APIRouter()

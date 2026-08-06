@@ -1,0 +1,85 @@
+[project]
+name = "camoufox-profile-manager"
+version = "0.1.0"
+description = "Self-hosted, open-source antidetect browser profile manager built on Camoufox"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Camoufox Profile Manager Contributors" }]
+keywords = [
+    "camoufox",
+    "antidetect",
+    "browser-fingerprint",
+    "playwright",
+    "fastapi",
+    "firefox",
+]
+classifiers = [
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Framework :: FastAPI",
+    "Topic :: Internet :: WWW/HTTP :: Browsers",
+]
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "pydantic>=2.10",
+    "pydantic-settings>=2.6",
+    "sqlalchemy>=2.0",
+    "camoufox[geoip]>=0.5.4",
+    "playwright>=1.50,<1.61",
+    "python-dotenv>=1.0",
+    "python-multipart>=0.0.18",
+    "aiofiles>=24.1",
+    "openpyxl>=3.1",
+    "cryptography>=44.0",
+    "loguru>=0.7",
+    "psutil>=6.1",
+]
+
+[project.optional-dependencies]
+chrome-migration = ["pycryptodome>=3.19", "pyyaml>=6.0"]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "pytest-cov>=6.0",
+    "httpx>=0.28",
+    "ruff>=0.8",
+    "mypy>=1.13",
+]
+
+[project.urls]
+Homepage = "https://github.com/polyackiy/camoufox-profile-manager"
+Repository = "https://github.com/polyackiy/camoufox-profile-manager"
+Issues = "https://github.com/polyackiy/camoufox-profile-manager/issues"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/camoufox_pm"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "W", "C4"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+markers = [
+    "browser: real Camoufox launch (opt-in, slow, requires 'camoufox fetch')",
+]
+
+[tool.mypy]
+python_version = "3.10"
+packages = ["camoufox_pm"]
+ignore_missing_imports = true
+
+[tool.coverage.run]
+source = ["src/camoufox_pm"]
