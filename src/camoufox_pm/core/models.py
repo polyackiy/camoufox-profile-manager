@@ -120,6 +120,12 @@ class BrowserSettings(BaseModel):
     device_memory: int | None = None
     max_touch_points: int = 0
 
+    # Fingerprint noise preferences. Camoufox applies canvas/WebGL/audio spoofing
+    # itself; these flags are stored intent and are not forwarded as config keys.
+    canvas_noise: bool = True
+    webgl_noise: bool = True
+    audio_noise: bool = True
+
     # Fonts
     fonts: list[str] | None = None
 
