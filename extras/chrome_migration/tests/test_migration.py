@@ -16,7 +16,7 @@ async def test_chrome_detection():
     logger.info("🧪 Тест обнаружения профилей Chrome")
     
     try:
-        from core.chrome_importer import ChromeProfileImporter
+        from .importer import ChromeProfileImporter
         
         importer = ChromeProfileImporter()
         
@@ -60,9 +60,9 @@ async def test_basic_migration():
     logger.info("🧪 Тест базовой миграции")
     
     try:
-        from core.database import StorageManager
-        from core.profile_manager import ProfileManager
-        from core.chrome_migration_manager import ChromeMigrationManager
+        from camoufox_pm.core.database import StorageManager
+        from camoufox_pm.core.profile_manager import ProfileManager
+        from .migration_manager import ChromeMigrationManager
         
         # Инициализация
         storage = StorageManager()
@@ -115,9 +115,9 @@ async def test_config_generation():
     
     try:
         # Тестируем загрузку дефолтной конфигурации
-        from core.chrome_migration_manager import ChromeMigrationManager
-        from core.profile_manager import ProfileManager
-        from core.database import StorageManager
+        from .migration_manager import ChromeMigrationManager
+        from camoufox_pm.core.profile_manager import ProfileManager
+        from camoufox_pm.core.database import StorageManager
         
         storage = StorageManager()
         await storage.initialize()
@@ -174,7 +174,7 @@ def test_chrome_paths():
     logger.info("🧪 Тест определения путей Chrome")
     
     try:
-        from core.chrome_importer import ChromeProfileImporter
+        from .importer import ChromeProfileImporter
         
         importer = ChromeProfileImporter()
         

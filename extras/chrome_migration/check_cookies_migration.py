@@ -12,9 +12,9 @@ from typing import Dict, List, Any, Optional
 from datetime import datetime
 import argparse
 
-from core.chrome_cookie_decryptor import ChromeCookieDecryptor
-from core.profile_manager import ProfileManager
-from core.database import DatabaseManager
+from .cookie_decryptor import ChromeCookieDecryptor
+from camoufox_pm.core.profile_manager import ProfileManager
+from camoufox_pm.core.database import DatabaseManager
 from loguru import logger
 
 

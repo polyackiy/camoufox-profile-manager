@@ -13,8 +13,8 @@ from datetime import datetime, timezone, timedelta
 from loguru import logger
 import tempfile
 
-from .models import Profile, BrowserSettings
-from .chrome_cookie_decryptor import ChromeCookieDecryptor
+from camoufox_pm.core.models import Profile, BrowserSettings
+from .cookie_decryptor import ChromeCookieDecryptor
 
 
 class ChromeProfileImporter:

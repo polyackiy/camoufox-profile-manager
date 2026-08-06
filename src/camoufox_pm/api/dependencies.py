@@ -5,8 +5,8 @@
 from typing import Optional
 from fastapi import HTTPException
 
-from core.profile_manager import ProfileManager
-from core.database import StorageManager
+from camoufox_pm.core.profile_manager import ProfileManager
+from camoufox_pm.core.database import StorageManager
 
 # Глобальные переменные для хранения экземпляров
 _storage_manager: Optional[StorageManager] = None

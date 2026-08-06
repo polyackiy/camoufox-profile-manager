@@ -10,9 +10,9 @@ from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime
 from loguru import logger
 
-from .chrome_importer import ChromeProfileImporter
+from .importer import ChromeProfileImporter
 from .profile_manager import ProfileManager
-from .models import Profile, BrowserSettings
+from camoufox_pm.core.models import Profile, BrowserSettings
 
 
 class ChromeMigrationManager:

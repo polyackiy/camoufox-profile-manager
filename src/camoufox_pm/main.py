@@ -13,11 +13,11 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import RedirectResponse
 from loguru import logger
 
-from core.profile_manager import ProfileManager
-from core.database import StorageManager
-from api.dependencies import set_storage_manager, set_profile_manager
-from api.routes import profiles, groups, system, websocket
-from api.middleware.logging import LoggingMiddleware
+from camoufox_pm.core.profile_manager import ProfileManager
+from camoufox_pm.core.database import StorageManager
+from camoufox_pm.api.dependencies import set_storage_manager, set_profile_manager
+from camoufox_pm.api.routes import profiles, groups, system, websocket
+from camoufox_pm.api.middleware.logging import LoggingMiddleware
 
 
 @asynccontextmanager
@@ -115,7 +115,7 @@ async def root():
 @app.get("/health", tags=["System"])
 async def health_check():
     """Проверка состояния API"""
-    from api.dependencies import get_storage_manager, get_profile_manager
+    from camoufox_pm.api.dependencies import get_storage_manager, get_profile_manager
     
     try:
         storage_mgr = get_storage_manager()
@@ -140,12 +140,10 @@ async def health_check():
 if __name__ == "__main__":
     import uvicorn
     
-    logger.info("🚀 Запуск CamoufoxProfileManager API сервера...")
     uvicorn.run(
-        "main:app",
+        "camoufox_pm.main:app",
         host="0.0.0.0",
         port=8000,
         reload=True,
-        reload_dirs=["core", "api"],
-        log_level="info"
-    ) 
+        log_level="info",
+    )

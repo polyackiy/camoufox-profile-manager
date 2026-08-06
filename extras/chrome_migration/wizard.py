@@ -10,9 +10,9 @@ from loguru import logger
 # Добавляем путь к модулям
 sys.path.append(str(Path(__file__).parent))
 
-from core.database import StorageManager
-from core.profile_manager import ProfileManager
-from core.chrome_migration_manager import ChromeMigrationManager
+from camoufox_pm.core.database import StorageManager
+from camoufox_pm.core.profile_manager import ProfileManager
+from .migration_manager import ChromeMigrationManager
 
 
 async def run_chrome_migration_wizard():
@@ -227,7 +227,7 @@ async def show_excel_integration():
 
 def show_chrome_paths():
     """Показать пути к данным Chrome для текущей ОС"""
-    from core.chrome_importer import ChromeProfileImporter
+    from .importer import ChromeProfileImporter
     
     importer = ChromeProfileImporter()
     

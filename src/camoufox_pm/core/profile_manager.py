@@ -186,14 +186,14 @@ class ProfileManager:
                 # Специальная обработка для proxy - преобразуем в ProxyConfig
                 elif key == "proxy" and value is not None:
                     if isinstance(value, dict):
-                        from core.models import ProxyConfig
+                        from camoufox_pm.core.models import ProxyConfig
                         value = ProxyConfig(**value)
                 elif key == "proxy" and value is None:
                     value = None
                 # Специальная обработка для browser_settings
                 elif key == "browser_settings" and value is not None:
                     if isinstance(value, dict):
-                        from core.models import BrowserSettings, WebRTCMode
+                        from camoufox_pm.core.models import BrowserSettings, WebRTCMode
                         # Преобразуем webrtc_mode в enum если это строка
                         if 'webrtc_mode' in value and isinstance(value['webrtc_mode'], str):
                             try:

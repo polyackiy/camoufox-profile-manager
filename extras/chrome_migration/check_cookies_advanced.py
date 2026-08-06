@@ -13,7 +13,7 @@ from typing import Dict, List, Any, Optional
 from datetime import datetime
 import argparse
 
-from core.chrome_cookie_decryptor import ChromeCookieDecryptor
+from .cookie_decryptor import ChromeCookieDecryptor
 from loguru import logger
 
 

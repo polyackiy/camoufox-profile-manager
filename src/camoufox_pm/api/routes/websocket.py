@@ -9,8 +9,8 @@ from typing import Dict, Set
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from loguru import logger
 
-from api.models.system import WebSocketMessage
-from api.dependencies import get_profile_manager
+from camoufox_pm.api.models.system import WebSocketMessage
+from camoufox_pm.api.dependencies import get_profile_manager
 
 
 router = APIRouter()

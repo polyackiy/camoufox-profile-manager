@@ -10,8 +10,8 @@ from pathlib import Path
 # Добавляем путь к модулям
 sys.path.append(str(Path(__file__).parent))
 
-from core.database import StorageManager
-from core.profile_manager import ProfileManager
+from camoufox_pm.core.database import StorageManager
+from camoufox_pm.core.profile_manager import ProfileManager
 from loguru import logger
 
 

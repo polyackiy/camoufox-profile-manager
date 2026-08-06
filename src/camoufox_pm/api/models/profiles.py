@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Optional, Dict, Any, List
 from pydantic import BaseModel, Field, validator
 
-from core.models import ProfileStatus, BrowserSettings, ProxyConfig
+from camoufox_pm.core.models import ProfileStatus, BrowserSettings, ProxyConfig
 
 
 class ProfileCreateRequest(BaseModel):

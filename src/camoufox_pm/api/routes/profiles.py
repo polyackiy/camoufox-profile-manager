@@ -8,11 +8,11 @@ from fastapi import APIRouter, HTTPException, Query, Depends, status, UploadFile
 from fastapi.responses import Response
 from loguru import logger
 
-from api.models.profiles import *
-from api.models.system import ApiResponse, ErrorResponse
-from core.models import ProfileStatus
-from core.excel_manager import ExcelManager
-from api.dependencies import get_profile_manager
+from camoufox_pm.api.models.profiles import *
+from camoufox_pm.api.models.system import ApiResponse, ErrorResponse
+from camoufox_pm.core.models import ProfileStatus
+from camoufox_pm.core.excel_manager import ExcelManager
+from camoufox_pm.api.dependencies import get_profile_manager
 
 
 router = APIRouter()

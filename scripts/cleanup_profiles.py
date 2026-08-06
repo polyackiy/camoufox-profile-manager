@@ -10,8 +10,8 @@ from pathlib import Path
 from typing import List, Dict, Set
 from loguru import logger
 
-from core.database import StorageManager
-from core.models import Profile
+from camoufox_pm.core.database import StorageManager
+from camoufox_pm.core.models import Profile
 
 
 class ProfileCleanupManager:

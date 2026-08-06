@@ -147,7 +147,7 @@ def test_cookie_conversion():
     
     # Используем функцию из chrome_importer
     try:
-        from core.chrome_importer import ChromeProfileImporter
+        from .importer import ChromeProfileImporter
         importer = ChromeProfileImporter()
         firefox_cookie = importer._convert_chrome_cookie_to_firefox(chrome_cookie)
         

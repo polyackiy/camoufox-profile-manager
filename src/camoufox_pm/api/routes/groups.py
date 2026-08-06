@@ -6,9 +6,9 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, status
 from loguru import logger
 
-from api.models.groups import *
-from api.models.system import ApiResponse
-from api.dependencies import get_profile_manager
+from camoufox_pm.api.models.groups import *
+from camoufox_pm.api.models.system import ApiResponse
+from camoufox_pm.api.dependencies import get_profile_manager
 
 
 router = APIRouter()

@@ -9,8 +9,8 @@ from datetime import datetime
 from fastapi import APIRouter, HTTPException
 from loguru import logger
 
-from api.models.system import SystemStatusResponse, ApiResponse, ProfileDiagnosticResponse, ProfileCleanupResponse
-from api.dependencies import get_profile_manager
+from camoufox_pm.api.models.system import SystemStatusResponse, ApiResponse, ProfileDiagnosticResponse, ProfileCleanupResponse
+from camoufox_pm.api.dependencies import get_profile_manager
 from cleanup_profiles import ProfileCleanupManager
 
 

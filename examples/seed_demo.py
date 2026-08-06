@@ -13,10 +13,10 @@ import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from core.models import Profile, ProxyConfig, ProxyType, ProfileGroup
-from core.profile_manager import ProfileManager
-from core.database import StorageManager
-from core.fingerprint_generator import FingerprintGenerator
+from camoufox_pm.core.models import Profile, ProxyConfig, ProxyType, ProfileGroup
+from camoufox_pm.core.profile_manager import ProfileManager
+from camoufox_pm.core.database import StorageManager
+from camoufox_pm.core.fingerprint_generator import FingerprintGenerator
 
 
 async def demo_database_operations():
