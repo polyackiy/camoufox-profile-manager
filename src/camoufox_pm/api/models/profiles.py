@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from camoufox_pm.core.models import ProfileStatus
 
@@ -20,8 +20,8 @@ class ProfileCreateRequest(BaseModel):
     notes: str | None = Field(None, max_length=1000, description="Notes")
     generate_fingerprint: bool = Field(True, description="Generate a fingerprint")
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "name": "Facebook Profile 1",
                 "group": "social_media_group_id",
@@ -40,6 +40,7 @@ class ProfileCreateRequest(BaseModel):
                 "generate_fingerprint": True,
             }
         }
+    )
 
 
 class ProfileUpdateRequest(BaseModel):
@@ -75,8 +76,8 @@ class ProfileUpdateRequest(BaseModel):
         None, ge=600, le=2160, description="Browser window height"
     )
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "status": "inactive",
                 "notes": "Updated notes",
@@ -87,6 +88,7 @@ class ProfileUpdateRequest(BaseModel):
                 "browser_webgl_noise": True,
             }
         }
+    )
 
 
 class ProfileResponse(BaseModel):
@@ -104,9 +106,7 @@ class ProfileResponse(BaseModel):
     updated_at: datetime
     last_used: datetime | None
 
-    class Config:
-        from_attributes = True
-        json_encoders = {datetime: lambda v: v.isoformat()}
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ProfileListResponse(BaseModel):
@@ -130,9 +130,6 @@ class ProfileStatsResponse(BaseModel):
     success_rate: float
     actions: list[dict[str, Any]]
 
-    class Config:
-        json_encoders = {datetime: lambda v: v.isoformat()}
-
 
 class ProfileCloneRequest(BaseModel):
     """Request body for cloning a profile."""
@@ -140,10 +137,11 @@ class ProfileCloneRequest(BaseModel):
     new_name: str = Field(..., min_length=1, max_length=255)
     regenerate_fingerprint: bool = Field(True, description="Generate a new fingerprint")
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {"new_name": "Facebook Profile 1 (copy)", "regenerate_fingerprint": True}
         }
+    )
 
 
 class ProfileLaunchRequest(BaseModel):
@@ -155,14 +153,15 @@ class ProfileLaunchRequest(BaseModel):
         None, description="Additional Camoufox options"
     )
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "headless": False,
                 "window_size": "1920x1080",
                 "additional_options": {"geoip": True, "humanize": True},
             }
         }
+    )
 
 
 class ProfileLaunchResponse(BaseModel):

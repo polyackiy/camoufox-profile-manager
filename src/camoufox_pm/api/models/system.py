@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Any, Generic, TypeVar
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 T = TypeVar("T")
 
@@ -24,8 +24,8 @@ class ErrorResponse(BaseModel):
     message: str = Field(..., description="Error description")
     details: dict[str, Any] | None = Field(None, description="Additional details")
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "success": False,
                 "error": "PROFILE_NOT_FOUND",
@@ -33,6 +33,7 @@ class ErrorResponse(BaseModel):
                 "details": {"profile_id": "invalid_id"},
             }
         }
+    )
 
 
 class PaginationResponse(BaseModel):
@@ -87,6 +88,3 @@ class WebSocketMessage(BaseModel):
     type: str = Field(..., description="Message type")
     timestamp: datetime = Field(..., description="Message timestamp")
     data: dict[str, Any] = Field(..., description="Message payload")
-
-    class Config:
-        json_encoders = {datetime: lambda v: v.isoformat()}

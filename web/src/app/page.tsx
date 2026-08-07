@@ -8,7 +8,7 @@ export default function HomePage() {
 
   useEffect(() => {
     // Automatic redirect to the profiles page
-    router.push('/dashboard')
+    router.replace('/profiles')
   }, [router])
 
   return (
