@@ -22,13 +22,28 @@ def main() -> None:
     parser.add_argument("--host", default=settings.host, help="Bind address")
     parser.add_argument("--port", type=int, default=settings.port, help="Port")
     parser.add_argument("--no-browser", action="store_true", help="Do not open a browser")
+    parser.add_argument(
+        "--desktop",
+        action="store_true",
+        help="Open a native desktop window instead of a browser tab (needs the 'desktop' extra)",
+    )
     args = parser.parse_args()
+
+    if args.desktop:
+        from camoufox_pm.desktop import run_desktop
+
+        run_desktop(host=args.host, port=args.port)
+        return
 
     if not args.no_browser:
         url = f"http://{'localhost' if args.host in ('0.0.0.0', '127.0.0.1') else args.host}:{args.port}/"
         threading.Timer(1.5, lambda: webbrowser.open(url)).start()
 
-    uvicorn.run("camoufox_pm.main:app", host=args.host, port=args.port, log_level="info")
+    # Import the app object (not an import string) so this works inside a frozen
+    # PyInstaller bundle where uvicorn cannot resolve the module by name.
+    from camoufox_pm.main import app
+
+    uvicorn.run(app, host=args.host, port=args.port, log_level="info")
 
 
 if __name__ == "__main__":

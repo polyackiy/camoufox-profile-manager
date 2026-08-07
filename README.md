@@ -61,7 +61,10 @@ uv run camoufox-pm                # serves API + UI at http://localhost:8000
 ```
 
 `camoufox-pm` opens your browser automatically. The UI is served from the same
-origin as the API, so there is no proxy or CORS to configure.
+origin as the API, so there is no proxy or CORS to configure. To open a **native
+window** instead of a browser tab, install the `desktop` extra and run
+`camoufox-pm --desktop`. A standalone desktop app can be built with
+`python scripts/build_desktop.py` (see [docs/accessibility-roadmap.md](docs/accessibility-roadmap.md)).
 
 Prefer a prebuilt package? Each [release](https://github.com/polyackiy/camoufox-profile-manager/releases)
 attaches a wheel with the UI already bundled, so you can skip the Node build step:

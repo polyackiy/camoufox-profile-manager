@@ -6,6 +6,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Desktop mode**: `camoufox-pm --desktop` runs the server and opens a native
+  window (pywebview; the `desktop` extra).
+- **Standalone desktop app**: `scripts/build_desktop.py` +
+  `packaging/camoufox-pm.spec` produce a PyInstaller bundle (and a macOS `.app`)
+  that runs with no Python or Node installed. `desktop.yml` builds macOS/Windows/
+  Linux bundles on demand. Signing, installers, and auto-update are documented
+  follow-ups (see `docs/accessibility-roadmap.md`).
+
 ## [0.1.1] - 2026-08-07
 
 ### Added

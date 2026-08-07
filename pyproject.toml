@@ -39,6 +39,8 @@ dependencies = [
 
 [project.optional-dependencies]
 chrome-migration = ["pycryptodome>=3.19", "pyyaml>=6.0"]
+desktop = ["pywebview>=5.0"]
+build = ["pywebview>=5.0", "pyinstaller>=6.0"]
 dev = [
     "pytest>=8.3",
     "pytest-asyncio>=0.24",

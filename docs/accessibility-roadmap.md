@@ -68,11 +68,30 @@ built UI into the published wheel so `pip install` needs no Node.js (see below).
 
 ---
 
-## Level 3 — Double-click desktop app (non-technical users)
+## Level 3 — Double-click desktop app (non-technical users) 🚧 foundation shipped
 
 **Audience:** no terminal, no Docker — just an installer.
 **Deliverable:** signed installers for macOS (`.dmg`), Windows (`.exe`), Linux
 (`.AppImage`).
+
+Status: the foundation is in place and verified on macOS.
+
+- **Native window** — `camoufox-pm --desktop` runs the server and opens a native
+  window (pywebview; the `desktop` extra).
+- **Standalone binary** — `scripts/build_desktop.py` + `packaging/camoufox-pm.spec`
+  produce a PyInstaller bundle (and a macOS `.app`) that runs with no Python or
+  Node installed. The macOS `.app` is verified to serve the UI and API.
+- **CI** — `.github/workflows/desktop.yml` builds macOS/Windows/Linux bundles on
+  demand and can attach them to a release.
+
+Remaining (need maintainer resources, so not automated here):
+- **Code signing & notarization** — Apple Developer ID + notarization for macOS,
+  an Authenticode certificate for Windows; without these the OS warns users.
+- **Installers** — wrap the bundles as `.dmg` / `.exe` (NSIS) / `.AppImage`, and
+  verify the Windows/Linux builds on real hardware.
+- **Auto-update** — Sparkle (macOS) / a Windows updater, or a simple version check.
+- **Camoufox binary** — fetch it on first run with a visible progress UI (it is
+  intentionally not bundled).
 
 Two viable approaches:
 

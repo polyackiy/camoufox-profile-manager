@@ -264,3 +264,6 @@ config.ini
 
 # Generated web UI bundle (built by scripts/build_webui.py)
 src/camoufox_pm/webui/
+
+# Keep the committed PyInstaller spec
+!packaging/*.spec

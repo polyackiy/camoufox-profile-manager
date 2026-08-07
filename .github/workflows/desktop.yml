@@ -1,0 +1,64 @@
+name: Desktop builds
+
+# Desktop builds are heavy (PyInstaller, ~200 MB each), so they run on demand
+# rather than on every release. Trigger from the Actions tab; the built apps are
+# uploaded as workflow artifacts. Optionally pass a tag to attach them to that
+# GitHub Release.
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Attach the builds to this existing release tag (optional)"
+        required: false
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest, ubuntu-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+      - name: Install dependencies
+        run: uv sync --extra build
+      - name: Build desktop app
+        run: uv run python scripts/build_desktop.py
+      - name: Package (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          cd dist
+          zip -ry "camoufox-pm-macos.zip" "Camoufox Profile Manager.app"
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        run: Compress-Archive -Path dist/camoufox-pm/* -DestinationPath dist/camoufox-pm-windows.zip
+      - name: Package (Linux)
+        if: runner.os == 'Linux'
+        run: tar -C dist -czf dist/camoufox-pm-linux.tar.gz camoufox-pm
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: camoufox-pm-${{ runner.os }}
+          path: |
+            dist/*.zip
+            dist/*.tar.gz
+      - name: Attach to release
+        if: ${{ inputs.release_tag != '' }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.release_tag }}
+          files: |
+            dist/*.zip
+            dist/*.tar.gz
