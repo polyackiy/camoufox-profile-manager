@@ -261,3 +261,6 @@ config.ini
 
 # Ruff cache
 .ruff_cache/
+
+# Generated web UI bundle (built by scripts/build_webui.py)
+src/camoufox_pm/webui/

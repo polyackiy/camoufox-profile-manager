@@ -76,16 +76,6 @@ app.include_router(groups.router, prefix="/api", tags=["Groups"], dependencies=p
 app.include_router(system.router, prefix="/api", tags=["System"], dependencies=protected)
 app.include_router(websocket.router, prefix="/ws", tags=["WebSocket"])
 
-web_dir = Path("web/static")
-if web_dir.exists():
-    app.mount("/static", StaticFiles(directory=str(web_dir)), name="static")
-
-
-@app.get("/", include_in_schema=False)
-async def root():
-    """Redirect to the API documentation."""
-    return RedirectResponse(url="/docs")
-
 
 @app.get("/health", tags=["System"])
 async def health_check():
@@ -108,6 +98,38 @@ async def health_check():
             "database": "disconnected",
             "profiles_count": 0,
         }
+
+
+def _webui_dir() -> Path | None:
+    """Locate the bundled static web UI, if present.
+
+    Looks at ``CPM_WEBUI_DIR``, then the package's ``webui/`` directory (populated
+    by ``scripts/build_webui.py``), then ``web/out`` for running from source.
+    """
+    candidates = [
+        settings.webui_dir,
+        str(Path(__file__).parent / "webui"),
+        "web/out",
+    ]
+    for candidate in candidates:
+        if candidate and Path(candidate).is_dir():
+            return Path(candidate)
+    return None
+
+
+# Serve the web UI on the same origin as the API when a build is available;
+# otherwise redirect the root to the API docs. Mounted last so /api, /ws, /health
+# and /docs take precedence over the catch-all static mount.
+_webui = _webui_dir()
+if _webui is not None:
+    app.mount("/", StaticFiles(directory=str(_webui), html=True), name="webui")
+    logger.info(f"Serving web UI from {_webui}")
+else:
+
+    @app.get("/", include_in_schema=False)
+    async def root():
+        """Redirect to the API documentation when no web UI is bundled."""
+        return RedirectResponse(url="/docs")
 
 
 if __name__ == "__main__":

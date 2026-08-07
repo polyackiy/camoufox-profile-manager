@@ -48,6 +48,9 @@ dev = [
     "mypy>=1.13",
 ]
 
+[project.scripts]
+camoufox-pm = "camoufox_pm.cli:main"
+
 [project.urls]
 Homepage = "https://github.com/polyackiy/camoufox-profile-manager"
 Repository = "https://github.com/polyackiy/camoufox-profile-manager"
@@ -59,6 +62,9 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/camoufox_pm"]
+# The bundled web UI is generated (scripts/build_webui.py) and git-ignored, so
+# include it explicitly when building a wheel.
+artifacts = ["src/camoufox_pm/webui/**"]
 
 [tool.ruff]
 line-length = 100

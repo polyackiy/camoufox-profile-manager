@@ -49,6 +49,20 @@ Then open **http://localhost:3000**. Profile data persists in a Docker volume.
 [docs/accessibility-roadmap.md](docs/accessibility-roadmap.md); profile
 management and the UI work out of the box.)
 
+### Single command (`camoufox-pm`)
+
+Run the API **and** the web UI as one process on one port — no separate Node
+server at runtime. Build the UI once (needs Node), then launch:
+
+```bash
+uv sync
+python scripts/build_webui.py     # builds the UI into the package (once)
+uv run camoufox-pm                # serves API + UI at http://localhost:8000
+```
+
+`camoufox-pm` opens your browser automatically. The UI is served from the same
+origin as the API, so there is no proxy or CORS to configure.
+
 ### Backend (API)
 
 ```bash

@@ -44,10 +44,15 @@ require the host (or an X server) depending on the platform.
 
 ---
 
-## Level 2 — One process, no separate web server (developers → prosumers)
+## Level 2 — One process, no separate web server (developers → prosumers) ✅ shipped
 
 **Audience:** anyone who can run a single command or launcher script.
 **Deliverable:** the app is a single service that serves both the API and the UI.
+
+Status: the `camoufox-pm` console script runs the API and a Next.js **static
+export** on one port from FastAPI (same origin — no proxy/CORS). Build the UI into
+the package with `python scripts/build_webui.py`. Remaining follow-up: bundle the
+built UI into the published wheel so `pip install` needs no Node.js (see below).
 
 - Build the web UI as static export (or a bundled build) and serve it from FastAPI
   under `/`, so there is only **one** server on one port.

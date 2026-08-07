@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     api_key: str | None = None
     db_path: str = "data/profiles.db"
     secret_key: str | None = None
+    webui_dir: str | None = None
 
     @field_validator("cors_origins", mode="before")
     @classmethod

@@ -9,6 +9,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Added
 - Docker support: `docker compose up` runs the API + web UI with a persistent
   data volume.
+- **Single-process mode**: `camoufox-pm` serves the API and the web UI (a Next.js
+  static export) on one port from FastAPI — no separate Node server, proxy, or
+  CORS at runtime. Build the UI into the package with `scripts/build_webui.py`.
 - A web UI screenshot in the README, from a full end-to-end run.
 - `docs/accessibility-roadmap.md` — a plan for reaching non-technical users.
 
