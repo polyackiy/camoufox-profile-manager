@@ -119,11 +119,25 @@ the costume without the memory.
 
 These are properties of Camoufox and Firefox, not of this manager:
 
-- **The canvas hash still varies.** Camoufox randomises canvas noise per browsing
-  context to defeat cross-site tracking, and pinning `canvas:seed` does not stop
-  it: two tabs on the same site produce different hashes, as does each launch. A
-  real browser is stable here, so this remains a detectable difference. It cannot
-  be fixed from this side — it is a deliberate part of how Camoufox works.
+- **The canvas hash changes between sessions.** Measured on Camoufox 152:
+
+  | Scope | Canvas hash |
+  | ----- | ----------- |
+  | Two tabs, same site, one session | **the same** |
+  | Different sites, one session | different — deliberate, and what stops sites correlating you across the web |
+  | Same site, same profile, next launch | **different every time** |
+
+  The first two are what a privacy browser should do. The third is the problem: a
+  real browser returns the same canvas to a site for years, so a site that records
+  it sees a new machine every session.
+
+  `canvas:seed` is listed as a supported property but is **not honoured** for 2D
+  canvas readback in this build — pinning it changes nothing, and neither does
+  turning off Firefox's own anti-fingerprinting preferences. Camoufox's newer
+  per-context patches add a `window.setCanvasSeed()` call that would fix this, but
+  it is not exposed in the current release. Nothing in this project can change
+  that; it needs the browser. See
+  [roadmap.md](roadmap.md#known-limitation-we-cannot-fix-here).
 - **`max_touch_points` has no effect.** Camoufox 152 lists
   `navigator.maxTouchPoints` as a supported property but does not apply it; the
   page keeps reporting `0` on every OS, with or without the touch-events pref.

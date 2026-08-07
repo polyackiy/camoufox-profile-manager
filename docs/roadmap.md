@@ -51,7 +51,16 @@ Track progress in [GitHub Issues](https://github.com/polyackiy/camoufox-profile-
 
 ## Known limitation we cannot fix here
 
-Camoufox randomises the canvas hash per browsing context to defeat cross-site
-tracking. That is the opposite of what a long-lived profile wants, and pinning
-`canvas:seed` does not stop it. It would take a change in Camoufox itself. See
-[profile-settings.md](profile-settings.md#known-limitations).
+A site sees a different canvas hash each time a profile is launched. Within one
+session it is stable per site; the problem is only across sessions, where a real
+browser would be unchanging.
+
+The fix belongs in Camoufox, and the machinery is already there: its per-context
+patches add `window.setCanvasSeed()`, which the current release does not expose,
+and the `canvas:seed` config property is advertised but not honoured for 2D
+canvas readback. The useful next step is an upstream issue carrying the
+measurements — not a fork, which would mean building and hosting Firefox for
+every platform and rebasing on every Camoufox release, all for one seed value.
+
+See [profile-settings.md](profile-settings.md#known-limitations) for the measured
+behaviour.
