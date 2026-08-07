@@ -1,8 +1,11 @@
 'use client'
 
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { Layers, Settings, Users } from 'lucide-react'
+
+import { systemAPI } from '@/lib/api'
 
 const NAV = [
   { href: '/', label: 'Profiles', icon: Users },
@@ -15,6 +18,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   // trailingSlash is on for the static export, so normalise before comparing.
   const current = pathname.replace(/\/+$/, '') || '/'
+  const [address, setAddress] = useState<string | null>(null)
+
+  useEffect(() => {
+    // Report where the server actually is rather than assuming loopback.
+    systemAPI
+      .config()
+      .then((config) => setAddress(`${config.host}:${config.port}`))
+      .catch(() => setAddress(null))
+  }, [])
 
   return (
     <div className="flex h-screen">
@@ -45,8 +57,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           })}
         </nav>
 
-        <div className="mt-auto px-4 py-3 text-[11px] text-ink-faint">
-          Local instance · 127.0.0.1
+        <div className="mt-auto px-4 py-3 font-mono text-[11px] text-ink-faint">
+          {address ?? '—'}
         </div>
       </aside>
 

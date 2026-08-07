@@ -4,26 +4,14 @@ import { useEffect, useState } from 'react'
 import { AlertTriangle, Check, Minus, Settings as SettingsIcon } from 'lucide-react'
 
 import { EmptyState } from '@/components/empty-state'
-
-interface Config {
-  version: string
-  host: string
-  port: number
-  database_path: string
-  api_key_set: boolean
-  encryption_enabled: boolean
-  cors_origins: string[]
-  camoufox_available: boolean
-  uptime_seconds: number
-}
-
-interface Status {
-  total_profiles: number
-  running_browsers: number
-  total_groups: number
-  memory_usage: number
-  disk_usage: number
-}
+import { useToast } from '@/components/toast'
+import {
+  getApiKey,
+  setApiKey,
+  systemAPI,
+  type SystemConfig,
+  type SystemStatus,
+} from '@/lib/api'
 
 function formatUptime(seconds: number): string {
   if (seconds < 60) return `${seconds}s`
@@ -33,27 +21,34 @@ function formatUptime(seconds: number): string {
 }
 
 export default function SettingsPage() {
-  const [config, setConfig] = useState<Config | null>(null)
-  const [status, setStatus] = useState<Status | null>(null)
+  const [config, setConfig] = useState<SystemConfig | null>(null)
+  const [status, setStatus] = useState<SystemStatus | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [key, setKey] = useState('')
+  const toast = useToast()
 
   useEffect(() => {
+    setKey(getApiKey())
     async function load() {
       try {
-        const [configResponse, statusResponse] = await Promise.all([
-          fetch('/api/system/config'),
-          fetch('/api/system/status'),
-        ])
-        if (!configResponse.ok) throw new Error(configResponse.statusText)
-        const configBody = await configResponse.json()
-        setConfig(configBody.data)
-        if (statusResponse.ok) setStatus(await statusResponse.json())
+        setConfig(await systemAPI.config())
+        setStatus(await systemAPI.status().catch(() => null))
       } catch (err) {
         setError(String(err instanceof Error ? err.message : err))
       }
     }
     load()
   }, [])
+
+  function saveKey(event: React.FormEvent) {
+    event.preventDefault()
+    setApiKey(key.trim())
+    toast(
+      'ok',
+      key.trim() ? 'API key saved' : 'API key cleared',
+      'Stored in this browser only, and sent as X-API-Key.',
+    )
+  }
 
   return (
     <>
@@ -86,6 +81,25 @@ export default function SettingsPage() {
               offText="No API key is set. Anyone who can reach this port can use the API."
               warnWhenOff={config.host !== '127.0.0.1'}
             />
+            {config.api_key_set && (
+              <form onSubmit={saveKey} className="flex items-start gap-4 px-4 py-2.5">
+                <span className="w-[150px] shrink-0 text-ink-dim">This browser&apos;s key</span>
+                <span className="flex flex-1 gap-2">
+                  <input
+                    type="password"
+                    className="field font-mono"
+                    value={key}
+                    onChange={(event) => setKey(event.target.value)}
+                    placeholder="Paste CPM_API_KEY to keep using this UI"
+                    aria-label="API key for this browser"
+                    autoComplete="off"
+                  />
+                  <button type="submit" className="btn btn-default shrink-0">
+                    Save
+                  </button>
+                </span>
+              </form>
+            )}
             <Row label="Bound to">
               <span className="font-mono">
                 {config.host}:{config.port}

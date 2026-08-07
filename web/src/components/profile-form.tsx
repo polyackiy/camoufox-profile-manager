@@ -100,25 +100,42 @@ export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) 
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) =>
     setForm((current) => ({ ...current, [key]: value }))
 
+  /**
+   * A key we send is authoritative and a null clears the value, so a blank
+   * optional field has to mean different things in the two modes: on create it
+   * means "let the backend generate this", so the key is omitted; on edit the
+   * user is looking at the stored value and blanking it means "remove it", so
+   * an explicit null goes out. Sending null on create produced profiles with a
+   * missing timezone and geolocation — a fingerprint with holes in it.
+   */
   function buildBrowserSettings() {
     const languages = form.languages
       .split(',')
       .map((item) => item.trim())
       .filter(Boolean)
 
-    return {
+    const settings: Record<string, unknown> = {
       os: form.os,
-      timezone: form.timezone.trim() || null,
-      languages: languages.length ? languages : undefined,
-      hardware_concurrency: form.hardwareConcurrency ? Number(form.hardwareConcurrency) : null,
       window_width: Number(form.windowWidth) || 1280,
       window_height: Number(form.windowHeight) || 720,
       webrtc_mode: form.webrtcMode,
+      // Always explicit: "from the proxy IP" must clear any stored coordinates,
+      // otherwise geoip stays disabled and the old position keeps applying.
       geolocation:
         form.geoMode === 'manual' && form.latitude && form.longitude
           ? { lat: Number(form.latitude), lon: Number(form.longitude) }
           : null,
     }
+
+    const optional: [string, unknown][] = [
+      ['timezone', form.timezone.trim() || null],
+      ['languages', languages.length ? languages : null],
+      ['hardware_concurrency', form.hardwareConcurrency ? Number(form.hardwareConcurrency) : null],
+    ]
+    for (const [key, value] of optional) {
+      if (value !== null || isEdit) settings[key] = value
+    }
+    return settings
   }
 
   function buildProxy() {
@@ -270,6 +287,12 @@ export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) 
               <option value="macos">macOS</option>
               <option value="linux">Linux</option>
             </select>
+            {isEdit && form.os !== (profile.browser_settings?.os ?? 'windows') && (
+              <p className="mt-1.5 text-ink-faint">
+                Screen size, locale and fonts stay as they were. Use Regenerate fingerprint for a
+                set that matches the new OS.
+              </p>
+            )}
           </div>
 
           {isEdit && (
@@ -365,6 +388,17 @@ export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) 
               autoComplete="new-password"
             />
           </div>
+
+          {/* Firefox refuses SOCKS credentials outright, so the browser would
+              fail to start rather than fall back — say so before that happens. */}
+          {form.proxyType.startsWith('socks') &&
+            (form.proxyUsername.trim() || form.proxyPassword.trim()) && (
+              <p className="col-span-2 text-danger">
+                Firefox cannot authenticate to a SOCKS proxy, so this profile will fail to launch.
+                Use an HTTP or HTTPS proxy for credentials, or a SOCKS proxy that allows this IP
+                without them.
+              </p>
+            )}
         </Section>
 
         <Section

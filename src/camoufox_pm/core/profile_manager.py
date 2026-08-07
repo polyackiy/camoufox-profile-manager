@@ -41,30 +41,33 @@ class ProfileManager:
         browser_settings: dict[str, Any] | BrowserSettings | None = None,
         proxy_config: dict[str, Any] | None = None,
         generate_fingerprint: bool = True,
+        notes: str | None = None,
     ) -> Profile:
         """Create a new profile."""
         logger.info(f"Creating new profile: {name}")
 
-        # Create the base profile
-        profile = Profile(
-            name=name, group=group, notes=f"Created {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-        )
+        # Notes belong to the user; the creation time is already in created_at,
+        # so it is not stamped into the field the user types into.
+        profile = Profile(name=name, group=group, notes=notes)
 
         # Generate a browser fingerprint if requested
         if generate_fingerprint:
             fingerprint = await self.fingerprint_generator.generate_fingerprint(browser_settings)
             profile.browser_settings = fingerprint
 
-        # Apply user-provided browser settings
+        # Apply user-provided browser settings over the generated fingerprint.
         if browser_settings:
-            # If browser_settings is a BrowserSettings object, use it directly
             if isinstance(browser_settings, BrowserSettings):
                 profile.browser_settings = browser_settings
-            # If it is a dict, apply the fields
             elif isinstance(browser_settings, dict):
-                for key, value in browser_settings.items():
-                    if hasattr(profile.browser_settings, key):
-                        setattr(profile.browser_settings, key, value)
+                # Rebuild through the model rather than setattr, so values are
+                # validated and enums coerced (a raw "webrtc_mode" string would
+                # otherwise survive as str and trip serialization). Keys the
+                # caller omitted keep their generated value; an explicit null
+                # clears one, which is how "geolocation from the proxy IP" works.
+                merged = profile.browser_settings.model_dump()
+                merged.update(browser_settings)
+                profile.browser_settings = BrowserSettings(**merged)
 
         # Configure the proxy if provided
         if proxy_config:

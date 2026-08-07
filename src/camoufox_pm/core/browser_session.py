@@ -75,12 +75,16 @@ class BrowserSession:
         self._terminated = True
         logger.info(f"Terminating browser session for profile {self.profile_id}")
 
-        if self.monitor_task and not self.monitor_task.done():
-            self.monitor_task.cancel()
-            try:
-                await self.monitor_task
-            except asyncio.CancelledError:
-                pass
+        # The monitor can be the caller here (_monitor -> _handle_exit -> terminate),
+        # and a task cannot await itself; cancelling is enough in that case.
+        monitor = self.monitor_task
+        if monitor and not monitor.done():
+            monitor.cancel()
+            if asyncio.current_task() is not monitor:
+                try:
+                    await monitor
+                except asyncio.CancelledError:
+                    pass
 
         if self.camoufox is not None:
             try:
@@ -116,20 +120,23 @@ class BrowserSessionManager:
 
     def __init__(self) -> None:
         self.active_sessions: dict[str, BrowserSession] = {}
+        # The event loop only holds weak references to tasks, so a teardown
+        # suspended inside camoufox.__aexit__ could be garbage-collected and take
+        # the primary cleanup path with it. Hold a strong reference until done.
+        self._exit_tasks: set[asyncio.Task[None]] = set()
 
     def is_running(self, profile_id: str) -> bool:
         """Return whether a browser is currently tracked for the profile."""
         return profile_id in self.active_sessions
 
     def list_active(self) -> list[dict[str, Any]]:
-        """Return summaries of active sessions, pruning dead driver processes."""
-        dead = [
-            pid
-            for pid, s in self.active_sessions.items()
-            if s.process_id and not psutil.pid_exists(s.process_id)
-        ]
-        for profile_id in dead:
-            self.active_sessions.pop(profile_id, None)
+        """Return summaries of the active sessions.
+
+        A pure read: it used to drop sessions whose driver process had gone,
+        which skipped ``terminate()`` and the exit handler and so leaked the
+        Camoufox context. Teardown belongs to the close event and, failing that,
+        to :meth:`_monitor`; both route through ``_handle_exit``.
+        """
         return [session.info() for session in self.active_sessions.values()]
 
     async def launch(
@@ -171,7 +178,9 @@ class BrowserSessionManager:
         loop = asyncio.get_running_loop()
 
         def _on_close(*_: Any) -> None:
-            loop.create_task(self._handle_exit(profile_id))
+            task = loop.create_task(self._handle_exit(profile_id))
+            self._exit_tasks.add(task)
+            task.add_done_callback(self._exit_tasks.discard)
 
         for event in ("close", "disconnected"):
             try:
@@ -209,9 +218,6 @@ class BrowserSessionManager:
 
     async def _monitor(self, profile_id: str, process_id: int) -> None:
         """Fallback watchdog: clean up if the driver process disappears."""
-        try:
-            while psutil.pid_exists(process_id):
-                await asyncio.sleep(10)
-        except asyncio.CancelledError:
-            raise
+        while psutil.pid_exists(process_id):
+            await asyncio.sleep(10)
         await self._handle_exit(profile_id)

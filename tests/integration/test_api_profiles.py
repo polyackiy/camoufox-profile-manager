@@ -82,6 +82,116 @@ async def test_partial_browser_settings_update_keeps_the_rest(client):
 
 
 @pytest.mark.asyncio
+async def test_create_keeps_generated_values_for_omitted_fields(client):
+    """Omitting an optional field must leave the generated fingerprint intact.
+
+    The web form omits blanks on create; sending nulls instead produced profiles
+    with no timezone and no geolocation.
+    """
+    created = await client.post(
+        "/api/profiles",
+        json={
+            "name": "generated",
+            "generate_fingerprint": True,
+            "browser_settings": {"os": "windows", "window_width": 1280, "window_height": 720},
+        },
+    )
+    assert created.status_code == 201
+    settings = created.json()["browser_settings"]
+
+    assert settings["os"] == "windows"
+    assert settings["timezone"], "timezone should have been generated"
+    assert settings["hardware_concurrency"], "hardware_concurrency should have been generated"
+
+
+@pytest.mark.asyncio
+async def test_create_keeps_the_notes_it_was_given(client):
+    """Notes were accepted by the schema, then overwritten with a timestamp."""
+    created = await client.post("/api/profiles", json={"name": "noted", "notes": "keep me"})
+    assert created.json()["notes"] == "keep me"
+
+    blank = await client.post("/api/profiles", json={"name": "unnoted"})
+    assert blank.json()["notes"] is None
+
+
+@pytest.mark.asyncio
+async def test_explicit_null_clears_a_generated_value(client):
+    """An explicit null is a deliberate 'none' — used by the geolocation switch."""
+    created = await client.post(
+        "/api/profiles",
+        json={"name": "no-geo", "browser_settings": {"os": "windows", "geolocation": None}},
+    )
+    assert created.json()["browser_settings"]["geolocation"] is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "field,payload", [("notes", None), ("group", None), ("proxy_config", None)]
+)
+async def test_explicit_null_clears_the_field(client, field, payload):
+    """Clearing a field must persist rather than silently report success."""
+    created = await client.post(
+        "/api/profiles",
+        json={
+            "name": "clearable",
+            "notes": "keep me",
+            "proxy_config": {"type": "http", "server": "1.2.3.4:8080"},
+        },
+    )
+    profile_id = created.json()["id"]
+    await client.put(f"/api/profiles/{profile_id}", json={"group": "g1"})
+
+    updated = await client.put(f"/api/profiles/{profile_id}", json={field: payload})
+    assert updated.status_code == 200
+    assert updated.json()[field] is None
+
+
+@pytest.mark.asyncio
+async def test_omitted_fields_are_left_alone(client):
+    """The flip side: not sending a field must not clear it."""
+    created = await client.post(
+        "/api/profiles",
+        json={
+            "name": "untouched",
+            "notes": "keep me",
+            "proxy_config": {"type": "http", "server": "1.2.3.4:8080"},
+        },
+    )
+    profile_id = created.json()["id"]
+
+    updated = await client.put(f"/api/profiles/{profile_id}", json={"name": "renamed"})
+    assert updated.status_code == 200
+    body = updated.json()
+    assert body["name"] == "renamed"
+    assert body["notes"] == "keep me"
+    assert body["proxy_config"]["server"] == "1.2.3.4:8080"
+
+
+@pytest.mark.asyncio
+async def test_invalid_browser_settings_are_rejected_not_500(client):
+    """browser_settings is a free-form dict, so bad values must read as 422."""
+    created = await client.post("/api/profiles", json={"name": "bad"})
+    profile_id = created.json()["id"]
+
+    response = await client.put(
+        f"/api/profiles/{profile_id}",
+        json={"browser_settings": {"hardware_concurrency": "many"}},
+    )
+    assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_webrtc_mode_is_coerced_to_the_enum(client):
+    """A raw string used to survive as str and trip response serialization."""
+    created = await client.post(
+        "/api/profiles",
+        json={"name": "rtc", "browser_settings": {"os": "windows", "webrtc_mode": "none"}},
+    )
+    assert created.status_code == 201
+    assert created.json()["browser_settings"]["webrtc_mode"] == "none"
+
+
+@pytest.mark.asyncio
 async def test_flattened_browser_fields_still_apply(client):
     """The browser_* form of the update request keeps working alongside the nested one."""
     created = await client.post("/api/profiles", json={"name": "flat"})

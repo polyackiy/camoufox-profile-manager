@@ -23,18 +23,48 @@ export function Modal({ open, title, subtitle, onClose, children, footer, width 
   useEffect(() => {
     if (!open) return
 
+    const panel = panelRef.current
+    const previouslyFocused = document.activeElement as HTMLElement | null
+
+    const focusable = () =>
+      Array.from(
+        panel?.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ) ?? [],
+      ).filter((element) => element.offsetParent !== null)
+
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose()
+      if (event.key === 'Escape') {
+        onClose()
+        return
+      }
+      // aria-modal alone does not stop Tab walking into the page behind the
+      // overlay, so the cycle is kept inside the dialog by hand.
+      if (event.key !== 'Tab') return
+      const items = focusable()
+      if (items.length === 0) return
+      const first = items[0]
+      const last = items[items.length - 1]
+      const active = document.activeElement
+      if (event.shiftKey && (active === first || active === panel)) {
+        event.preventDefault()
+        last.focus()
+      } else if (!event.shiftKey && active === last) {
+        event.preventDefault()
+        first.focus()
+      }
     }
     document.addEventListener('keydown', onKeyDown)
 
     const previousOverflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
-    panelRef.current?.focus()
+    // Let autoFocus inside the dialog win; only fall back to the panel itself.
+    if (!panel?.contains(document.activeElement)) panel?.focus()
 
     return () => {
       document.removeEventListener('keydown', onKeyDown)
       document.body.style.overflow = previousOverflow
+      previouslyFocused?.focus?.()
     }
   }, [open, onClose])
 

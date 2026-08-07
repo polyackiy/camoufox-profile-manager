@@ -1,8 +1,7 @@
 """Data models for the Camoufox profile management system."""
 
-import random
+import secrets
 import string
-import time
 from datetime import datetime
 from enum import Enum
 from typing import Any
@@ -16,17 +15,17 @@ _ID_ALPHABET = "".join(c for c in (string.ascii_lowercase + string.digits) if c 
 def generate_short_id(length: int = 8) -> str:
     """Generate a short, readable ID.
 
-    Uses a microsecond timestamp for ordering and uniqueness, padded with random
-    characters. Excludes visually confusing characters for readability.
+    Every character is random, drawn from an alphabet without visually confusing
+    characters (0/o, 1/l/i), which gives 31**8 ≈ 8.5e11 possible IDs at the
+    default length.
+
+    This used to derive most of the ID from a microsecond timestamp and leave
+    only two random characters. IDs minted in the same microsecond — which is
+    what a bulk Excel import does — then had just 961 possible values, and
+    because profiles are stored with INSERT OR REPLACE keyed on the ID, a
+    collision silently overwrote an existing profile.
     """
-    timestamp = int(time.time() * 1_000_000)
-    encoded = ""
-    while timestamp > 0 and len(encoded) < length - 2:
-        encoded = _ID_ALPHABET[timestamp % len(_ID_ALPHABET)] + encoded
-        timestamp //= len(_ID_ALPHABET)
-    while len(encoded) < length:
-        encoded += random.choice(_ID_ALPHABET)
-    return encoded[:length]
+    return "".join(secrets.choice(_ID_ALPHABET) for _ in range(length))
 
 
 def generate_profile_id() -> str:

@@ -81,10 +81,35 @@ export interface SystemStatus {
   uptime_seconds: number
 }
 
+const API_KEY_STORAGE = 'camoufox-pm.api-key'
+
+/** The key CPM_API_KEY expects, if the user has stored one. */
+export function getApiKey(): string {
+  if (typeof window === 'undefined') return ''
+  return window.localStorage.getItem(API_KEY_STORAGE) ?? ''
+}
+
+export function setApiKey(key: string): void {
+  if (typeof window === 'undefined') return
+  if (key) window.localStorage.setItem(API_KEY_STORAGE, key)
+  else window.localStorage.removeItem(API_KEY_STORAGE)
+}
+
+export function authHeaders(): Record<string, string> {
+  const key = getApiKey()
+  return key ? { 'X-API-Key': key } : {}
+}
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
-    headers: { 'Content-Type': 'application/json', ...(options?.headers ?? {}) },
+    // Spread options first: putting it last let a caller's `headers` replace the
+    // merged object, silently dropping Content-Type and the API key.
     ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...authHeaders(),
+      ...(options?.headers ?? {}),
+    },
   })
   if (!response.ok) {
     let detail = response.statusText
@@ -153,6 +178,32 @@ export const profilesAPI = {
   resetFingerprint(id: string): Promise<Profile> {
     return request<Profile>(`/api/profiles/${id}/reset-fingerprint`, { method: 'POST' })
   },
+
+  async exportExcel(): Promise<Blob> {
+    const response = await fetch(`${API_BASE_URL}/api/profiles/export/excel`, {
+      headers: authHeaders(),
+    })
+    if (!response.ok) throw new Error(response.statusText)
+    return response.blob()
+  },
+
+  async importExcel(file: File): Promise<ImportResult> {
+    const body = new FormData()
+    body.append('file', file)
+    // No Content-Type: the browser has to set the multipart boundary itself.
+    const response = await fetch(`${API_BASE_URL}/api/profiles/import/excel`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body,
+    })
+    return response.json() as Promise<ImportResult>
+  },
+}
+
+export interface ImportResult {
+  success: boolean
+  message: string
+  data?: { created_count?: number; errors?: string[] }
 }
 
 export const browsersAPI = {
@@ -183,9 +234,26 @@ export const groupsAPI = {
   },
 }
 
+export interface SystemConfig {
+  version: string
+  host: string
+  port: number
+  database_path: string
+  api_key_set: boolean
+  encryption_enabled: boolean
+  cors_origins: string[]
+  camoufox_available: boolean
+  uptime_seconds: number
+}
+
 export const systemAPI = {
   status(): Promise<SystemStatus> {
     return request<SystemStatus>('/api/system/status')
+  },
+
+  async config(): Promise<SystemConfig> {
+    const body = await request<{ data: SystemConfig }>('/api/system/config')
+    return body.data
   },
 }
 

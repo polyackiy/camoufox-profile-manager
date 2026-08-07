@@ -7,6 +7,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Create a profile from the web UI.** The interface had no way to create one —
+  the product's core action was reachable only by calling the API directly. One
+  form now serves create and edit, covering identity, proxy and the fingerprint
+  overrides Camoufox does not derive itself.
+- **Groups screen**: create, rename, describe and delete groups, and assign a
+  profile to one from the profile form. The backend already supported groups;
+  nothing in the UI did.
+- **Settings screen**, backed by a new `GET /api/system/config`. It reports the
+  effective configuration — never secret values — and warns when proxy passwords
+  are stored unencrypted or the API is unauthenticated.
+- The web UI can authenticate: it sends `X-API-Key` from a key stored per
+  browser, so setting `CPM_API_KEY` no longer locks the bundled UI out.
+- Empty states for a fresh install and for a search with no matches.
 - **Desktop mode**: `camoufox-pm --desktop` runs the server and opens a native
   window (pywebview; the `desktop` extra).
 - **Standalone desktop app**: `scripts/build_desktop.py` +
@@ -14,6 +27,56 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   that runs with no Python or Node installed. `desktop.yml` builds macOS/Windows/
   Linux bundles on demand. Signing, installers, and auto-update are documented
   follow-ups (see `docs/accessibility-roadmap.md`).
+
+### Changed
+- The interface was rebuilt as a control panel: a single accent colour marks the
+  primary action and a running browser, so a running profile is the only thing
+  that draws the eye. Hairline rules replace nested cards, machine values are
+  monospaced, and `window.alert`/`confirm` gave way to toasts and dialogs.
+- Fonts are self-hosted by `next/font`. The stylesheet used to fetch Google
+  Fonts at runtime, so the desktop bundle could not render offline.
+- Dropped the unused shadcn/Radix/Headless UI/heroicons/tanstack kit: 15 runtime
+  dependencies down to 4.
+- `camoufox-pm` aligns its settings with the address it actually binds, so
+  `--port` is no longer misreported as the configured default.
+- Removed the `/ws/monitor` WebSocket route: no client used it, it had no tests,
+  and it was mounted without the API-key guard.
+
+### Fixed
+- **Profiles created from the UI had an incomplete fingerprint.** Blank optional
+  fields were sent as explicit nulls, which cleared the generated timezone,
+  geolocation and CPU count — leaving exactly the kind of inconsistency this
+  tool exists to avoid. Blank now means "generate" on create and "clear" on edit.
+- **Clearing a proxy, group or note silently did nothing** while reporting
+  success: the update route treated null as "unchanged". A field that is sent is
+  now authoritative, including null; a field that is omitted is left alone. For a
+  proxy this mattered — traffic kept routing through a proxy the user believed
+  they had detached.
+- **A partial update reset the rest of the fingerprint.** Editing only the
+  timezone discarded the generated screen resolution, locale and device memory.
+- **ID collisions could overwrite a profile.** IDs derived all but two characters
+  from a microsecond timestamp, so profiles minted in the same instant — a bulk
+  Excel import — had 961 possible values, and storage is keyed on the ID with
+  INSERT OR REPLACE. IDs are now fully random over the readable alphabet.
+- Notes given at creation were accepted, then overwritten with a timestamp.
+- The app opened on a 404: the root page redirected to a route that does not
+  exist in the static export.
+- Browser sessions are cleaned up when the user closes the window, driven by
+  Playwright's close event rather than by polling a pid that belongs to the
+  driver process.
+- `webrtc_mode: "none"` now actually disables WebRTC, and a profile's local IPs
+  no longer overwrite the public one.
+- `window_size` reached Camoufox as a "1280x720" string and was rejected; it is
+  parsed into the expected tuple.
+- Invalid `browser_settings` values return 422 instead of 500.
+- Dialogs close on Escape and on a backdrop click, trap focus, restore it on
+  close, and keep their header and footer reachable in a tall form.
+- Docker publishes its ports on loopback only.
+
+### Security
+- Constant-time API-key comparison; `allow_credentials=False` for CORS.
+- The Excel export warns, before downloading, that the file carries proxy
+  passwords in clear text.
 
 ## [0.1.1] - 2026-08-07
 

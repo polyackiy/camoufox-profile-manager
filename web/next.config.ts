@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
 // Two build modes:
-//  - default (server): dev and `next start`. Proxies /api and /ws to the backend
+//  - default (server): dev and `next start`. Proxies /api to the backend
 //    so the browser talks to the same origin (no CORS). Target: API_PROXY_TARGET.
 //  - static export (NEXT_EXPORT=1): emits a static `out/` that FastAPI serves on
 //    the same origin as the API, so no rewrites are needed. Used by the
@@ -15,7 +15,6 @@ const nextConfig: NextConfig = isExport
       async rewrites() {
         return [
           { source: "/api/:path*", destination: `${apiTarget}/api/:path*` },
-          { source: "/ws/:path*", destination: `${apiTarget}/ws/:path*` },
         ];
       },
     };

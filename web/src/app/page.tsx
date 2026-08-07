@@ -121,7 +121,15 @@ export default function ProfilesPage() {
   }, [loadProfiles, loadGroups, loadRunning])
 
   useEffect(() => {
-    const close = () => setMenuFor(null)
+    // Close on any click that is not on a trigger or inside an open menu.
+    // Relying on stopPropagation in the trigger's React handler is not enough:
+    // React delegates to its root container, so the document listener could
+    // still fire and shut the menu in the same click that opened it.
+    const close = (event: MouseEvent) => {
+      const target = event.target as Element | null
+      if (target?.closest('[data-menu-trigger], [role="menu"]')) return
+      setMenuFor(null)
+    }
     document.addEventListener('click', close)
     return () => document.removeEventListener('click', close)
   }, [])
@@ -167,8 +175,20 @@ export default function ProfilesPage() {
   }, [profiles, search, statusFilter, sortKey, sortDir, groupNames])
 
   const totalPages = Math.max(1, Math.ceil(visible.length / perPage))
-  const pageRows = visible.slice((page - 1) * perPage, page * perPage)
+  // Deleting the last rows of a page must not strand the user on an empty one.
+  const currentPage = Math.min(page, totalPages)
+  const pageRows = visible.slice((currentPage - 1) * perPage, currentPage * perPage)
   const allOnPageSelected = pageRows.length > 0 && pageRows.every((row) => selected.has(row.id))
+
+  /** Close the row menu and hand focus back to the button that opened it.
+   *
+   * Focus moves first: removing the menu while one of its items still has focus
+   * drops focus to <body>, and a refocus queued after the close races that reset.
+   */
+  function closeMenu(profileId: string) {
+    document.querySelector<HTMLButtonElement>(`[data-menu-trigger="${profileId}"]`)?.focus()
+    setMenuFor(null)
+  }
 
   function toggleSort(key: SortKey) {
     if (sortKey === key) setSortDir(sortDir === 'asc' ? 'desc' : 'asc')
@@ -283,9 +303,7 @@ export default function ProfilesPage() {
   async function exportExcel() {
     setExportOpen(false)
     try {
-      const response = await fetch('/api/profiles/export/excel')
-      if (!response.ok) throw new Error(response.statusText)
-      const blob = await response.blob()
+      const blob = await profilesAPI.exportExcel()
       const url = URL.createObjectURL(blob)
       const link = document.createElement('a')
       link.href = url
@@ -305,15 +323,16 @@ export default function ProfilesPage() {
     event.target.value = ''
     if (!file) return
     try {
-      const body = new FormData()
-      body.append('file', file)
-      const response = await fetch('/api/profiles/import/excel', { method: 'POST', body })
-      const result = await response.json()
+      const result = await profilesAPI.importExcel(file)
       if (result.success) {
-        toast('ok', `Imported ${result.data.created_count} profiles`)
+        toast('ok', `Imported ${result.data?.created_count ?? 0} profiles`)
         loadProfiles()
       } else {
-        toast('error', 'Import finished with errors', (result.data?.errors ?? []).slice(0, 3).join('\n') || result.message)
+        toast(
+          'error',
+          'Import finished with errors',
+          (result.data?.errors ?? []).slice(0, 3).join('\n') || result.message,
+        )
       }
     } catch (err) {
       toast('error', 'Import failed', String(err))
@@ -538,7 +557,7 @@ export default function ProfilesPage() {
                   <td className="py-2.5 pr-5">
                     <div className="flex items-center justify-end gap-1">
                       <button
-                        className={isRunning ? 'btn btn-default h-7' : 'btn btn-default h-7'}
+                        className="btn btn-default h-7"
                         disabled={isBusy}
                         onClick={() => (isRunning ? stop(profile) : launch(profile))}
                       >
@@ -559,6 +578,9 @@ export default function ProfilesPage() {
                         <button
                           className="btn btn-ghost h-7 w-7 p-0"
                           aria-label={`Actions for ${profile.name}`}
+                          aria-haspopup="menu"
+                          aria-expanded={menuFor === profile.id}
+                          data-menu-trigger={profile.id}
                           onClick={(event) => {
                             event.stopPropagation()
                             setMenuFor(menuFor === profile.id ? null : profile.id)
@@ -569,16 +591,36 @@ export default function ProfilesPage() {
 
                         {menuFor === profile.id && (
                           <div
+                            role="menu"
                             className="dialog-in absolute right-0 top-8 z-30 w-[164px] overflow-hidden rounded-md border border-line bg-raised py-1 shadow-xl shadow-black/50"
                             onClick={(event) => event.stopPropagation()}
+                            onKeyDown={(event) => {
+                              const items = Array.from(
+                                event.currentTarget.querySelectorAll<HTMLButtonElement>(
+                                  '[role="menuitem"]',
+                                ),
+                              )
+                              const index = items.indexOf(document.activeElement as HTMLButtonElement)
+                              if (event.key === 'Escape') {
+                                event.stopPropagation()
+                                closeMenu(profile.id)
+                              } else if (event.key === 'ArrowDown') {
+                                event.preventDefault()
+                                items[(index + 1) % items.length]?.focus()
+                              } else if (event.key === 'ArrowUp') {
+                                event.preventDefault()
+                                items[(index - 1 + items.length) % items.length]?.focus()
+                              }
+                            }}
                           >
                             <MenuItem
                               icon={<Pencil size={13} />}
                               label="Edit"
+                              autoFocus
                               onClick={() => {
                                 setEditing(profile)
                                 setFormOpen(true)
-                                setMenuFor(null)
+                                closeMenu(profile.id)
                               }}
                             />
                             <MenuItem
@@ -586,7 +628,7 @@ export default function ProfilesPage() {
                               label="Duplicate"
                               onClick={() => {
                                 clone(profile)
-                                setMenuFor(null)
+                                closeMenu(profile.id)
                               }}
                             />
                             <MenuItem
@@ -595,7 +637,7 @@ export default function ProfilesPage() {
                               danger
                               onClick={() => {
                                 askDelete(profile)
-                                setMenuFor(null)
+                                closeMenu(profile.id)
                               }}
                             />
                           </div>
@@ -613,24 +655,25 @@ export default function ProfilesPage() {
       {totalPages > 1 && (
         <div className="flex items-center justify-between px-5 py-3 text-ink-dim">
           <span>
-            {(page - 1) * perPage + 1}–{Math.min(page * perPage, visible.length)} of {visible.length}
+            {(currentPage - 1) * perPage + 1}–{Math.min(currentPage * perPage, visible.length)} of{' '}
+            {visible.length}
           </span>
           <div className="flex items-center gap-1">
             <button
               className="btn btn-ghost h-7 w-7 p-0"
-              disabled={page === 1}
-              onClick={() => setPage((current) => current - 1)}
+              disabled={currentPage === 1}
+              onClick={() => setPage(currentPage - 1)}
               aria-label="Previous page"
             >
               <ChevronLeft size={15} />
             </button>
             <span className="px-2 font-mono">
-              {page} / {totalPages}
+              {currentPage} / {totalPages}
             </span>
             <button
               className="btn btn-ghost h-7 w-7 p-0"
-              disabled={page === totalPages}
-              onClick={() => setPage((current) => current + 1)}
+              disabled={currentPage === totalPages}
+              onClick={() => setPage(currentPage + 1)}
               aria-label="Next page"
             >
               <ChevronRight size={15} />
@@ -707,16 +750,20 @@ function MenuItem({
   label,
   onClick,
   danger,
+  autoFocus,
 }: {
   icon: React.ReactNode
   label: string
   onClick: () => void
   danger?: boolean
+  autoFocus?: boolean
 }) {
   return (
     <button
+      role="menuitem"
+      autoFocus={autoFocus}
       onClick={onClick}
-      className={`flex w-full items-center gap-2.5 px-3 py-1.5 text-left transition-colors hover:bg-line ${
+      className={`flex w-full items-center gap-2.5 px-3 py-1.5 text-left transition-colors hover:bg-line focus:bg-line ${
         danger ? 'text-danger' : 'text-ink'
       }`}
     >

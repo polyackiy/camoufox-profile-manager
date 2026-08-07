@@ -1,6 +1,5 @@
 """System-level API models."""
 
-from datetime import datetime
 from typing import Any, Generic, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -80,11 +79,3 @@ class ProfileCleanupResponse(BaseModel):
     freed_space_mb: float = Field(..., description="Freed space in MB")
     dry_run: bool = Field(..., description="Dry run")
     message: str = Field(..., description="Result message")
-
-
-class WebSocketMessage(BaseModel):
-    """WebSocket message."""
-
-    type: str = Field(..., description="Message type")
-    timestamp: datetime = Field(..., description="Message timestamp")
-    data: dict[str, Any] = Field(..., description="Message payload")
