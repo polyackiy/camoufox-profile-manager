@@ -6,12 +6,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-08-07
+
 ### Added
 - Docker support: `docker compose up` runs the API + web UI with a persistent
   data volume.
 - **Single-process mode**: `camoufox-pm` serves the API and the web UI (a Next.js
   static export) on one port from FastAPI — no separate Node server, proxy, or
   CORS at runtime. Build the UI into the package with `scripts/build_webui.py`.
+- **Installable wheel**: the release workflow builds a wheel with the web UI
+  bundled in and attaches it to the GitHub Release, so `pip install <wheel>` +
+  `camoufox-pm` works with **no Node.js**. Optional PyPI publishing via Trusted
+  Publishing (see `docs/releasing.md`).
 - A web UI screenshot in the README, from a full end-to-end run.
 - `docs/accessibility-roadmap.md` — a plan for reaching non-technical users.
 
@@ -54,5 +60,6 @@ First public release after a comprehensive revamp.
   Camoufox owns fingerprint generation for consistency.
 - Committed profile data, leaked proxy credentials, and duplicate/backup files.
 
-[Unreleased]: https://github.com/polyackiy/camoufox-profile-manager/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/polyackiy/camoufox-profile-manager/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/polyackiy/camoufox-profile-manager/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/polyackiy/camoufox-profile-manager/releases/tag/v0.1.0

@@ -63,6 +63,14 @@ uv run camoufox-pm                # serves API + UI at http://localhost:8000
 `camoufox-pm` opens your browser automatically. The UI is served from the same
 origin as the API, so there is no proxy or CORS to configure.
 
+Prefer a prebuilt package? Each [release](https://github.com/polyackiy/camoufox-profile-manager/releases)
+attaches a wheel with the UI already bundled, so you can skip the Node build step:
+
+```bash
+pip install <wheel-url-from-releases>
+camoufox-pm
+```
+
 ### Backend (API)
 
 ```bash

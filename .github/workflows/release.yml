@@ -8,12 +8,49 @@ permissions:
   contents: write
 
 jobs:
-  release:
-    name: Publish GitHub Release
+  build:
+    name: Build & attach wheel
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Create release
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+      - name: Install dependencies
+        run: uv sync
+      - name: Build the web UI into the package
+        run: uv run python scripts/build_webui.py
+      - name: Build wheel and sdist
+        run: uv build
+      - name: Attach artifacts to the GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          files: dist/*
           generate_release_notes: true
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/*
+
+  publish-pypi:
+    name: Publish to PyPI (opt-in)
+    needs: build
+    runs-on: ubuntu-latest
+    # Enable by setting the repository variable PUBLISH_TO_PYPI=true and
+    # configuring a Trusted Publisher on PyPI. See docs/releasing.md.
+    if: vars.PUBLISH_TO_PYPI == 'true'
+    environment: pypi
+    permissions:
+      id-token: write # OIDC for PyPI Trusted Publishing
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+      - uses: pypa/gh-action-pypi-publish@release/v1
