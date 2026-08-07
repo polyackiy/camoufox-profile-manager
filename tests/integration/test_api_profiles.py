@@ -58,3 +58,40 @@ async def test_delete_profile(client):
 async def test_unknown_profile_returns_404(client):
     response = await client.get("/api/profiles/does-not-exist")
     assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_partial_browser_settings_update_keeps_the_rest(client):
+    """Editing one field must not reset the rest of the generated fingerprint."""
+    created = await client.post("/api/profiles", json={"name": "fp"})
+    profile_id = created.json()["id"]
+    original = created.json()["browser_settings"]
+
+    updated = await client.put(
+        f"/api/profiles/{profile_id}",
+        json={"browser_settings": {"timezone": "Asia/Tokyo"}},
+    )
+    assert updated.status_code == 200
+    settings = updated.json()["browser_settings"]
+
+    assert settings["timezone"] == "Asia/Tokyo"
+    # Values the client never sent must survive untouched.
+    assert settings["screen"] == original["screen"]
+    assert settings["locale"] == original["locale"]
+    assert settings["device_memory"] == original["device_memory"]
+
+
+@pytest.mark.asyncio
+async def test_flattened_browser_fields_still_apply(client):
+    """The browser_* form of the update request keeps working alongside the nested one."""
+    created = await client.post("/api/profiles", json={"name": "flat"})
+    profile_id = created.json()["id"]
+
+    updated = await client.put(
+        f"/api/profiles/{profile_id}",
+        json={"browser_os": "linux", "browser_hardware_concurrency": 12},
+    )
+    assert updated.status_code == 200
+    settings = updated.json()["browser_settings"]
+    assert settings["os"] == "linux"
+    assert settings["hardware_concurrency"] == 12

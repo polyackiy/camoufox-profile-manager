@@ -200,15 +200,18 @@ async def update_profile(profile_id: str, request: ProfileUpdateRequest):
             updates["group"] = request.group
         if request.status is not None:
             updates["status"] = request.status
-        if request.browser_settings is not None:
-            updates["browser_settings"] = request.browser_settings
         if request.proxy_config is not None:
             updates["proxy_config"] = request.proxy_config
         if request.notes is not None:
             updates["notes"] = request.notes
 
-        # Handle individual browser settings
+        # Browser settings arrive either as a nested object or as flattened
+        # browser_* fields. Both are collected here and merged over the stored
+        # settings, so a client that sends only the fields it edits cannot wipe
+        # the rest of the generated fingerprint.
         browser_updates: dict[str, Any] = {}
+        if request.browser_settings is not None:
+            browser_updates.update(request.browser_settings)
         if request.browser_os is not None:
             browser_updates["os"] = request.browser_os
         if request.browser_screen is not None:
@@ -240,14 +243,14 @@ async def update_profile(profile_id: str, request: ProfileUpdateRequest):
         if request.browser_window_height is not None:
             browser_updates["window_height"] = request.browser_window_height
 
-        # Merge browser settings updates if any
         if browser_updates:
-            # Load the current profile to merge browser settings
             current_profile = await profile_manager.get_profile(profile_id)
             if current_profile and current_profile.browser_settings:
-                current_settings = current_profile.browser_settings.model_dump()
-                current_settings.update(browser_updates)
-                updates["browser_settings"] = current_settings
+                merged = current_profile.browser_settings.model_dump()
+                merged.update(browser_updates)
+                updates["browser_settings"] = merged
+            else:
+                updates["browser_settings"] = browser_updates
 
         # Apply the update
         updated_profile = await profile_manager.update_profile(profile_id, updates)
