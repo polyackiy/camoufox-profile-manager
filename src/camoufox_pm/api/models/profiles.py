@@ -5,7 +5,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from camoufox_pm.core.models import ProfileStatus
+from camoufox_pm.core.models import Profile, ProfileStatus
 
 
 class ProfileCreateRequest(BaseModel):
@@ -19,6 +19,13 @@ class ProfileCreateRequest(BaseModel):
     proxy_config: dict[str, Any] | None = Field(None, description="Proxy configuration")
     notes: str | None = Field(None, max_length=1000, description="Notes")
     generate_fingerprint: bool = Field(True, description="Generate a fingerprint")
+    fingerprint_preset: str | None = Field(
+        None,
+        description=(
+            "Pin the profile to a captured real device, using an id from "
+            "GET /api/fingerprints/presets. Omit to generate a fingerprint instead."
+        ),
+    )
 
     model_config = ConfigDict(
         json_schema_extra={
@@ -105,8 +112,33 @@ class ProfileResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     last_used: datetime | None
+    # A short description of the pinned machine, not the stored config itself:
+    # that is ~40 properties and tens of kilobytes, which nothing here needs.
+    fingerprint: dict[str, Any] | None = None
 
     model_config = ConfigDict(from_attributes=True)
+
+    @classmethod
+    def from_profile(cls, profile: "Profile") -> "ProfileResponse":
+        """Build the API view of a profile."""
+        from camoufox_pm.core import fingerprint_store
+
+        return cls(
+            id=profile.id,
+            name=profile.name,
+            group=profile.group,
+            status=profile.status,
+            browser_settings=(
+                profile.browser_settings.model_dump() if profile.browser_settings else {}
+            ),
+            proxy_config=profile.proxy.model_dump() if profile.proxy else None,
+            storage_path=profile.storage_path,
+            notes=profile.notes,
+            created_at=profile.created_at,
+            updated_at=profile.updated_at,
+            last_used=profile.last_used,
+            fingerprint=fingerprint_store.summarize(profile.fingerprint),
+        )
 
 
 class ProfileListResponse(BaseModel):

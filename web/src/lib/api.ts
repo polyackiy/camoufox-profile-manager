@@ -38,6 +38,17 @@ export interface ProxyConfig {
   country?: string | null
 }
 
+/** A short description of the machine a profile is pinned to. */
+export interface FingerprintSummary {
+  user_agent?: string | null
+  platform?: string | null
+  hardware_concurrency?: number | null
+  screen?: string | null
+  gpu?: string | null
+  font_count?: number | null
+  property_count?: number
+}
+
 export interface Profile {
   id: string
   name: string
@@ -51,6 +62,7 @@ export interface Profile {
   created_at: string
   updated_at?: string
   last_used?: string | null
+  fingerprint?: FingerprintSummary | null
 }
 
 export interface ProfilesResponse {
@@ -187,6 +199,33 @@ export const profilesAPI = {
     return response.blob()
   },
 
+  async exportArchive(id: string): Promise<Blob> {
+    const response = await fetch(`${API_BASE_URL}/api/profiles/${id}/export`, {
+      headers: authHeaders(),
+    })
+    if (!response.ok) {
+      const body = await response.json().catch(() => null)
+      throw new Error(body?.detail ?? response.statusText)
+    }
+    return response.blob()
+  },
+
+  async importArchive(file: File): Promise<Profile> {
+    const body = new FormData()
+    body.append('file', file)
+    // No Content-Type: the browser has to set the multipart boundary itself.
+    const response = await fetch(`${API_BASE_URL}/api/profiles/import`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body,
+    })
+    if (!response.ok) {
+      const detail = await response.json().catch(() => null)
+      throw new Error(detail?.detail ?? response.statusText)
+    }
+    return response.json() as Promise<Profile>
+  },
+
   async importExcel(file: File): Promise<ImportResult> {
     const body = new FormData()
     body.append('file', file)
@@ -244,6 +283,26 @@ export interface SystemConfig {
   cors_origins: string[]
   camoufox_available: boolean
   uptime_seconds: number
+}
+
+/** A fingerprint captured from a real machine, bundled with Camoufox. */
+export interface DevicePreset {
+  id: string
+  os: string
+  screen?: string | null
+  hardware_concurrency?: number | null
+  gpu?: string | null
+  vendor?: string | null
+  user_agent?: string | null
+}
+
+export const presetsAPI = {
+  async list(os?: string): Promise<DevicePreset[]> {
+    const body = await request<{ data: { presets: DevicePreset[] } }>(
+      `/api/fingerprints/presets${toQuery({ os })}`,
+    )
+    return body.data.presets
+  },
 }
 
 export const systemAPI = {

@@ -50,18 +50,19 @@ require the host (or an X server) depending on the platform.
 **Deliverable:** the app is a single service that serves both the API and the UI.
 
 Status: the `camoufox-pm` console script runs the API and a Next.js **static
-export** on one port from FastAPI (same origin — no proxy/CORS). Build the UI into
-the package with `python scripts/build_webui.py`. Remaining follow-up: bundle the
-built UI into the published wheel so `pip install` needs no Node.js (see below).
+export** on one port from FastAPI (same origin — no proxy/CORS), and each release
+attaches a wheel with the UI already built in, so `pip install` + one command
+works with no Node.js.
 
-- Build the web UI as static export (or a bundled build) and serve it from FastAPI
-  under `/`, so there is only **one** server on one port.
-- Add a console entry point (`camoufox-pm`) in `pyproject.toml` that starts the
-  server and opens the default browser automatically.
-- Ship the frontend build inside the Python package so `pip install` + one command
-  works without Node.js on the user's machine.
-- First-run experience: auto-create the data directory, prompt to run
-  `camoufox fetch` (or trigger it automatically) with a progress bar.
+- ✅ Build the web UI as a static export and serve it from FastAPI under `/`, so
+  there is only **one** server on one port.
+- ✅ A console entry point (`camoufox-pm`) that starts the server and opens the
+  browser automatically.
+- ✅ Ship the frontend build inside the published wheel.
+- Remaining: a first-run experience that creates the data directory and fetches
+  the browser with a progress bar, instead of leaving `camoufox fetch` as a
+  manual step. The Settings screen currently reports when the browser is
+  missing, which is a diagnosis rather than a fix.
 
 **Effort:** medium (build pipeline to embed the frontend; CI to produce the bundle).
 **Impact:** removes Node.js and the two-process dance for end users.

@@ -1,11 +1,18 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Loader2, RefreshCw } from 'lucide-react'
 
 import { Modal } from '@/components/modal'
 import { useToast } from '@/components/toast'
-import { profilesAPI, type Group, type Profile } from '@/lib/api'
+import {
+  presetsAPI,
+  profilesAPI,
+  type DevicePreset,
+  type FingerprintSummary,
+  type Group,
+  type Profile,
+} from '@/lib/api'
 
 interface FormState {
   name: string
@@ -91,11 +98,30 @@ export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) 
   const [form, setForm] = useState<FormState>(EMPTY)
   const [saving, setSaving] = useState(false)
   const [regenerating, setRegenerating] = useState(false)
+  const [presets, setPresets] = useState<DevicePreset[]>([])
+  const [presetId, setPresetId] = useState('')
   const toast = useToast()
 
   useEffect(() => {
-    if (open) setForm(profile ? fromProfile(profile) : EMPTY)
+    if (open) {
+      setForm(profile ? fromProfile(profile) : EMPTY)
+      setPresetId('')
+    }
   }, [open, profile])
+
+  // Presets only matter while creating: an existing profile is already pinned.
+  useEffect(() => {
+    if (!open || isEdit || presets.length) return
+    presetsAPI
+      .list()
+      .then(setPresets)
+      .catch(() => setPresets([]))
+  }, [open, isEdit, presets.length])
+
+  const presetsForOs = useMemo(
+    () => presets.filter((preset) => preset.os === form.os),
+    [presets, form.os],
+  )
 
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) =>
     setForm((current) => ({ ...current, [key]: value }))
@@ -176,8 +202,13 @@ export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) 
       } else {
         // The backend generates a consistent fingerprint, then applies these.
         payload.generate_fingerprint = true
+        if (presetId) payload.fingerprint_preset = presetId
         await profilesAPI.createProfile(payload)
-        toast('ok', 'Profile created', form.name.trim())
+        toast(
+          'ok',
+          'Profile created',
+          presetId ? `${form.name.trim()} · pinned to a real device` : form.name.trim(),
+        )
       }
       onSaved()
       onClose()
@@ -401,6 +432,40 @@ export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) 
             )}
         </Section>
 
+        {isEdit ? (
+          <PinnedMachine fingerprint={profile.fingerprint} />
+        ) : (
+          <fieldset>
+            <legend className="mb-0.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-faint">
+              Machine
+            </legend>
+            <p className="mb-2.5 text-ink-faint">
+              A generated fingerprint is internally consistent; a preset is a combination that
+              genuinely exists. Either way the profile keeps it for good.
+            </p>
+            <select
+              className="field"
+              value={presetId}
+              onChange={(event) => setPresetId(event.target.value)}
+              aria-label="Device preset"
+            >
+              <option value="">Generate one automatically</option>
+              {presetsForOs.map((preset) => (
+                <option key={preset.id} value={preset.id}>
+                  {[preset.screen, `${preset.hardware_concurrency} cores`, shortGpu(preset.gpu)]
+                    .filter(Boolean)
+                    .join(' · ')}
+                </option>
+              ))}
+            </select>
+            {presetsForOs.length > 0 && (
+              <p className="mt-1.5 text-ink-faint">
+                {presetsForOs.length} real {form.os} devices available.
+              </p>
+            )}
+          </fieldset>
+        )}
+
         <Section
           title="Fingerprint"
           hint="Camoufox keeps the fingerprint internally consistent; only override what you need."
@@ -536,6 +601,75 @@ export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) 
         </Section>
       </form>
     </Modal>
+  )
+}
+
+/**
+ * Reduce a renderer string to the card name.
+ *
+ *   "ANGLE (NVIDIA, NVIDIA GeForce GTX 980 Direct3D11 vs_5_0 ps_5_0)" -> "NVIDIA GeForce GTX 980"
+ *   "Apple M1, or similar"                                           -> "Apple M1"
+ *
+ * Unwrapping ANGLE first matters: vendor names contain their own brackets
+ * ("Intel(R) HD Graphics"), so cutting at the first one truncates the name.
+ */
+function shortGpu(gpu?: string | null): string {
+  if (!gpu) return ''
+  // Drop Camoufox's ", or similar" suffix before unwrapping, or the closing
+  // bracket of the ANGLE wrapper is no longer at the end of the string.
+  const base = gpu.replace(/,\s*or similar\s*$/i, '')
+  const angle = base.match(/^ANGLE \([^,]+,\s*(.*)\)$/)
+  const name = angle ? angle[1] : base
+  return name.split(/\s+Direct3D|\s+vs_/)[0].trim()
+}
+
+/**
+ * The machine a profile is pinned to. Without this the profile would look like
+ * different hardware every session, so it is worth showing that it does not.
+ */
+function PinnedMachine({ fingerprint }: { fingerprint?: FingerprintSummary | null }) {
+  if (!fingerprint) {
+    return (
+      <fieldset>
+        <legend className="mb-0.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-faint">
+          Machine
+        </legend>
+        <p className="text-ink-faint">
+          Assigned on the first launch, then reused every time so this profile stays the same
+          computer.
+        </p>
+      </fieldset>
+    )
+  }
+
+  const rows: [string, string | number | null | undefined][] = [
+    ['User agent', fingerprint.user_agent],
+    ['Screen', fingerprint.screen],
+    ['CPU cores', fingerprint.hardware_concurrency],
+    ['GPU', fingerprint.gpu],
+    ['Fonts', fingerprint.font_count],
+  ]
+
+  return (
+    <fieldset>
+      <legend className="mb-0.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-faint">
+        Machine
+      </legend>
+      <p className="mb-2.5 text-ink-faint">
+        Pinned across launches — {fingerprint.property_count} properties. Regenerate the
+        fingerprint to move this profile to different hardware.
+      </p>
+      <div className="panel divide-y divide-line">
+        {rows
+          .filter(([, value]) => value !== null && value !== undefined && value !== '')
+          .map(([label, value]) => (
+            <div key={label} className="flex gap-3 px-3 py-1.5">
+              <span className="w-[92px] shrink-0 text-ink-dim">{label}</span>
+              <span className="min-w-0 flex-1 break-all font-mono text-ink">{value}</span>
+            </div>
+          ))}
+      </div>
+    </fieldset>
   )
 }
 

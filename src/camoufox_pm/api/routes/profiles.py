@@ -2,13 +2,19 @@
 API routes for managing profiles.
 """
 
+import re
+import shutil
+import tempfile
 import uuid
+import zipfile
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile, status
-from fastapi.responses import Response
+from fastapi.responses import FileResponse, Response
 from loguru import logger
 from pydantic import ValidationError
+from starlette.background import BackgroundTask
 
 from camoufox_pm.api.dependencies import get_profile_manager
 from camoufox_pm.api.models.profiles import (
@@ -66,23 +72,7 @@ async def list_profiles(
         # Convert to API models
         profile_responses = []
         for profile in paginated_profiles:
-            profile_responses.append(
-                ProfileResponse(
-                    id=profile.id,
-                    name=profile.name,
-                    group=profile.group,
-                    status=profile.status,
-                    browser_settings=profile.browser_settings.model_dump()
-                    if profile.browser_settings
-                    else {},
-                    proxy_config=profile.proxy.model_dump() if profile.proxy else None,
-                    storage_path=profile.storage_path,
-                    notes=profile.notes,
-                    created_at=profile.created_at,
-                    updated_at=profile.updated_at,
-                    last_used=profile.last_used,
-                )
-            )
+            profile_responses.append(ProfileResponse.from_profile(profile))
 
         return ProfileListResponse(
             profiles=profile_responses,
@@ -118,25 +108,12 @@ async def create_profile(request: ProfileCreateRequest):
             proxy_config=request.proxy_config,
             generate_fingerprint=request.generate_fingerprint,
             notes=request.notes,
+            fingerprint_preset=request.fingerprint_preset,
         )
 
         logger.info(f"Created profile: {profile.name} (ID: {profile.id})")
 
-        return ProfileResponse(
-            id=profile.id,
-            name=profile.name,
-            group=profile.group,
-            status=profile.status,
-            browser_settings=profile.browser_settings.model_dump()
-            if profile.browser_settings
-            else {},
-            proxy_config=profile.proxy.model_dump() if profile.proxy else None,
-            storage_path=profile.storage_path,
-            notes=profile.notes,
-            created_at=profile.created_at,
-            updated_at=profile.updated_at,
-            last_used=profile.last_used,
-        )
+        return ProfileResponse.from_profile(profile)
 
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
@@ -160,21 +137,7 @@ async def get_profile(profile_id: str):
         if not profile:
             raise HTTPException(status_code=404, detail=f"Profile with ID {profile_id} not found")
 
-        return ProfileResponse(
-            id=profile.id,
-            name=profile.name,
-            group=profile.group,
-            status=profile.status,
-            browser_settings=profile.browser_settings.model_dump()
-            if profile.browser_settings
-            else {},
-            proxy_config=profile.proxy.model_dump() if profile.proxy else None,
-            storage_path=profile.storage_path,
-            notes=profile.notes,
-            created_at=profile.created_at,
-            updated_at=profile.updated_at,
-            last_used=profile.last_used,
-        )
+        return ProfileResponse.from_profile(profile)
 
     except HTTPException:
         raise
@@ -267,21 +230,7 @@ async def update_profile(profile_id: str, request: ProfileUpdateRequest):
 
         logger.info(f"Updated profile: {updated_profile.name} (ID: {profile_id})")
 
-        return ProfileResponse(
-            id=updated_profile.id,
-            name=updated_profile.name,
-            group=updated_profile.group,
-            status=updated_profile.status,
-            browser_settings=updated_profile.browser_settings.model_dump()
-            if updated_profile.browser_settings
-            else {},
-            proxy_config=updated_profile.proxy.model_dump() if updated_profile.proxy else None,
-            storage_path=updated_profile.storage_path,
-            notes=updated_profile.notes,
-            created_at=updated_profile.created_at,
-            updated_at=updated_profile.updated_at,
-            last_used=updated_profile.last_used,
-        )
+        return ProfileResponse.from_profile(updated_profile)
 
     except HTTPException:
         raise
@@ -385,21 +334,7 @@ async def clone_profile(profile_id: str, request: ProfileCloneRequest):
 
         logger.info(f"Cloned profile: {profile_id} -> {cloned_profile.id}")
 
-        return ProfileResponse(
-            id=cloned_profile.id,
-            name=cloned_profile.name,
-            group=cloned_profile.group,
-            status=cloned_profile.status,
-            browser_settings=cloned_profile.browser_settings.model_dump()
-            if cloned_profile.browser_settings
-            else {},
-            proxy_config=cloned_profile.proxy.model_dump() if cloned_profile.proxy else None,
-            storage_path=cloned_profile.storage_path,
-            notes=cloned_profile.notes,
-            created_at=cloned_profile.created_at,
-            updated_at=cloned_profile.updated_at,
-            last_used=cloned_profile.last_used,
-        )
+        return ProfileResponse.from_profile(cloned_profile)
 
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
@@ -443,6 +378,75 @@ async def get_profile_stats(profile_id: str):
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
+@router.get(
+    "/profiles/{profile_id}/export",
+    summary="Export a profile",
+    description=(
+        "Download the profile and its browser data (cookies, storage, history) as a "
+        "single archive. Contains the proxy password and live session cookies."
+    ),
+)
+async def export_profile(profile_id: str):
+    """Stream a profile archive."""
+    profile_manager = get_profile_manager()
+    profile = await profile_manager.get_profile(profile_id)
+    if not profile:
+        raise HTTPException(status_code=404, detail=f"Profile with ID {profile_id} not found")
+
+    # Written to a temp file rather than memory: a warmed-up profile carries
+    # tens of megabytes of storage and history.
+    handle = tempfile.NamedTemporaryFile(suffix=".camoufox.zip", delete=False)
+    handle.close()
+    destination = Path(handle.name)
+
+    try:
+        await profile_manager.export_profile(profile_id, destination)
+    except ValueError as exc:
+        destination.unlink(missing_ok=True)
+        # A running browser is a state conflict, not a bad request.
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except Exception as exc:
+        destination.unlink(missing_ok=True)
+        logger.error(f"Failed to export profile {profile_id}: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    safe_name = re.sub(r"[^A-Za-z0-9_.-]+", "-", profile.name).strip("-") or profile_id
+    return FileResponse(
+        destination,
+        media_type="application/zip",
+        filename=f"{safe_name}.camoufox.zip",
+        background=BackgroundTask(destination.unlink, missing_ok=True),
+    )
+
+
+@router.post(
+    "/profiles/import",
+    response_model=ProfileResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Import a profile",
+    description="Create a profile from an archive produced by the export endpoint",
+)
+async def import_profile(file: UploadFile = File(...), name: str | None = None):
+    """Restore a profile from an uploaded archive."""
+    profile_manager = get_profile_manager()
+
+    handle = tempfile.NamedTemporaryFile(suffix=".zip", delete=False)
+    source = Path(handle.name)
+    try:
+        shutil.copyfileobj(file.file, handle)
+        handle.close()
+        profile = await profile_manager.import_profile(source, name=name)
+        return ProfileResponse.from_profile(profile)
+    except (ValueError, zipfile.BadZipFile) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.error(f"Failed to import profile: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    finally:
+        handle.close()
+        source.unlink(missing_ok=True)
+
+
 @router.post(
     "/profiles/{profile_id}/reset-fingerprint",
     response_model=ProfileResponse,
@@ -466,21 +470,7 @@ async def reset_profile_fingerprint(profile_id: str):
 
         logger.info(f"Reset fingerprint for profile: {updated_profile.name} (ID: {profile_id})")
 
-        return ProfileResponse(
-            id=updated_profile.id,
-            name=updated_profile.name,
-            group=updated_profile.group,
-            status=updated_profile.status,
-            browser_settings=updated_profile.browser_settings.model_dump()
-            if updated_profile.browser_settings
-            else {},
-            proxy_config=updated_profile.proxy.model_dump() if updated_profile.proxy else None,
-            storage_path=updated_profile.storage_path,
-            notes=updated_profile.notes,
-            created_at=updated_profile.created_at,
-            updated_at=updated_profile.updated_at,
-            last_used=updated_profile.last_used,
-        )
+        return ProfileResponse.from_profile(updated_profile)
 
     except HTTPException:
         raise

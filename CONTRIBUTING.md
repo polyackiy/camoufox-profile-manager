@@ -41,6 +41,32 @@ cd web && npm run lint && npm run build
 
 CI runs the same checks on Python 3.10–3.13.
 
+To work on the single-process mode (`camoufox-pm`), build the UI into the package
+first — otherwise the server has nothing to serve:
+
+```bash
+uv run python scripts/build_webui.py
+```
+
+## Testing conventions
+
+- **`-m browser` means the test needs the browser binary**, not merely that it is
+  slow. Anything that launches Camoufox *or* resolves a fingerprint belongs
+  there; CI does not run `camoufox fetch`, so an unmarked test that needs it will
+  fail there while passing on your machine.
+- **Check the no-browser path too.** Much of the app must work before
+  `camoufox fetch` has run. The quickest way to see what CI sees:
+
+  ```bash
+  HOME=$(mktemp -d) uv run pytest -m "not browser"
+  ```
+
+- **Prefer tests that observe real behaviour.** The fingerprint tests launch a
+  browser and read what a page would actually see, rather than asserting on the
+  options passed in. When a test guards a premise about Camoufox's behaviour, say
+  so — `test_unpinned_profiles_look_like_new_hardware` exists to fail loudly if
+  upstream ever changes.
+
 ## Project layout
 
 - `src/camoufox_pm/` — the Python package (core logic, REST API).

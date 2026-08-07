@@ -9,6 +9,7 @@ import {
   Copy,
   Download,
   MoreHorizontal,
+  PackageOpen,
   Pencil,
   Play,
   Plus,
@@ -74,6 +75,7 @@ export default function ProfilesPage() {
 
   const toast = useToast()
   const importRef = useRef<HTMLInputElement>(null)
+  const archiveRef = useRef<HTMLInputElement>(null)
 
   const loadProfiles = useCallback(async () => {
     try {
@@ -231,6 +233,46 @@ export default function ProfilesPage() {
         toast('error', 'Could not close browser', String(err))
       }
     })
+  }
+
+  function download(blob: Blob, filename: string) {
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = filename
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    URL.revokeObjectURL(url)
+  }
+
+  async function exportArchive(profile: Profile) {
+    toast('info', 'Packing the profile…', 'Cookies and history make this take a moment.')
+    try {
+      const blob = await profilesAPI.exportArchive(profile.id)
+      const safe = profile.name.replace(/[^A-Za-z0-9_.-]+/g, '-').replace(/^-|-$/g, '')
+      download(blob, `${safe || profile.id}.camoufox.zip`)
+      toast(
+        'ok',
+        'Profile exported',
+        'The archive holds session cookies and the proxy password — keep it like a password.',
+      )
+    } catch (err) {
+      toast('error', 'Could not export the profile', String(err))
+    }
+  }
+
+  async function importArchive(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) return
+    try {
+      const profile = await profilesAPI.importArchive(file)
+      toast('ok', 'Profile imported', profile.name)
+      loadProfiles()
+    } catch (err) {
+      toast('error', 'Could not import the profile', String(err))
+    }
   }
 
   async function clone(profile: Profile) {
@@ -394,6 +436,20 @@ export default function ProfilesPage() {
             type="file"
             accept=".xlsx,.xls"
             onChange={importExcel}
+            className="hidden"
+          />
+          <button
+            className="btn btn-ghost"
+            onClick={() => archiveRef.current?.click()}
+            title="Import a profile archive"
+          >
+            <PackageOpen size={14} />
+          </button>
+          <input
+            ref={archiveRef}
+            type="file"
+            accept=".zip"
+            onChange={importArchive}
             className="hidden"
           />
           <button
@@ -628,6 +684,14 @@ export default function ProfilesPage() {
                               label="Duplicate"
                               onClick={() => {
                                 clone(profile)
+                                closeMenu(profile.id)
+                              }}
+                            />
+                            <MenuItem
+                              icon={<PackageOpen size={13} />}
+                              label="Export…"
+                              onClick={() => {
+                                exportArchive(profile)
                                 closeMenu(profile.id)
                               }}
                             />

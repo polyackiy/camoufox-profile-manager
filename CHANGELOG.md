@@ -7,6 +7,29 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Profiles keep the same machine across launches.** Camoufox resolves a new
+  fingerprint every time it starts, so the same profile used to report different
+  hardware each session — different screen, CPU count and GPU — which is exactly
+  what a long-lived account must never do. The first launch now resolves the
+  fingerprint once and stores it, and every later launch replays it. Location,
+  timezone, locale and WebRTC are deliberately left dynamic so they keep
+  following the proxy. The profile form shows the pinned machine, and
+  *Regenerate fingerprint* moves the profile to new hardware.
+- **Create a profile from a real device.** Camoufox bundles fingerprints captured
+  from actual machines (180 Windows, 67 macOS, 65 Linux) and nothing exposed
+  them. The profile form now lists them by screen, CPU count and GPU, and picking
+  one pins the profile to that device.
+- **Export and import a whole profile**, as one archive carrying the profile
+  record, its pinned fingerprint and its browser data — cookies, storage,
+  history, saved logins. A warmed-up account is mostly that directory, so this is
+  what makes backing one up or moving it between machines possible. Exporting a
+  running profile is refused rather than copying its databases mid-write, and
+  disposable caches are left out (a 51 MB profile packs to about 16 MB). The
+  archive is unencrypted and holds live session cookies and the proxy password;
+  the UI says so before the download.
+- First schema migration step: existing databases gain the `fingerprint` column
+  instead of silently keeping the old layout (tables were only ever created with
+  `CREATE TABLE IF NOT EXISTS`).
 - **Create a profile from the web UI.** The interface had no way to create one —
   the product's core action was reachable only by calling the API directly. One
   form now serves create and edit, covering identity, proxy and the fingerprint
@@ -27,6 +50,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   that runs with no Python or Node installed. `desktop.yml` builds macOS/Windows/
   Linux bundles on demand. Signing, installers, and auto-update are documented
   follow-ups (see `docs/accessibility-roadmap.md`).
+
+### Documentation
+- Rewrote the README around what the product actually is now — profiles that keep
+  one machine — and replaced the install instructions, which still described a
+  two-process setup and an old version.
+- Added `docs/cli.md` (every command and flag) and `docs/api.md` (the REST API,
+  endpoint by endpoint), both checked against a running instance.
+- Corrected `docs/excel.md`: it listed column names the export does not use, and
+  said nothing about the file carrying proxy passwords.
+- Updated the roadmap to record what shipped, and to state plainly what will not
+  be built — Chromium profiles and mobile profiles are out of reach for a
+  Camoufox manager.
+- CONTRIBUTING now explains what the `browser` test marker means and how to run
+  the suite as CI sees it, which is the mistake that broke a CI run.
 
 ### Changed
 - The interface was rebuilt as a control panel: a single accent colour marks the

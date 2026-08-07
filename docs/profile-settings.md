@@ -49,10 +49,81 @@ instead of being derived from the proxy's IP.
 Camoufox owns canvas/WebGL/audio spoofing and the user agent, so those are not
 set per-field here.
 
+## The pinned machine
+
+Camoufox resolves a fresh fingerprint on every launch. That suits a privacy tool,
+but a profile manager needs the opposite: an account opened from a machine with
+12 cores and an NVIDIA GPU must not come back tomorrow with 32 cores and an AMD
+one. Without pinning, the same profile is measurably different hardware each
+session — verified, and guarded by `tests/browser/test_fingerprint_stability.py`.
+
+So the **first launch resolves the fingerprint once and stores it** on the
+profile (the `fingerprint` column). Every later launch replays it. Camoufox fills
+a config key only when it is absent, so a stored value always wins over a freshly
+generated one, and the profile's own overrides still win over both.
+
+Only the machine is frozen:
+
+| Frozen — the identity | Dynamic — follows the proxy and the profile |
+| --------------------- | ------------------------------------------- |
+| `navigator.*` (user agent, platform, CPU cores, oscpu) | `geolocation:*`, `timezone`, `locale:*` |
+| `screen.*`, `window.*` geometry | `webrtc:*` |
+| `webGl*` (vendor, renderer, parameters, extensions) | `navigator.language`, `navigator.languages` |
+| `canvas:seed`, `audio:seed`, `fonts`, `fonts:spacing_seed` | `headers.*` |
+| `mediaDevices:*`, `voices` | `window.history.length` |
+
+Location and locale are deliberately left out: freezing them would pin a Berlin
+timezone onto a profile that later moves to a Tokyo proxy, and a timezone that
+contradicts the exit IP is easier to spot than no spoofing at all.
+
+*Regenerate fingerprint* clears the pin, so the next launch assigns new hardware.
+The pinned values are shown read-only in the profile form.
+
+## Real device presets
+
+Camoufox bundles fingerprints captured from actual machines — 180 Windows, 67
+macOS and 65 Linux at the time of writing. A generated fingerprint is internally
+consistent but still an assembly of parts; a preset is a combination that
+genuinely exists.
+
+Pick one when creating a profile (the form lists them by screen, CPU count and
+GPU) and the profile is pinned to that device immediately. `GET
+/api/fingerprints/presets` returns the catalogue; ids look like `windows:42` and
+are only a selector — the resolved fingerprint is stored, so a Camoufox update
+that reshuffles the catalogue cannot move an existing profile.
+
+A preset defines the hardware, so values the profile would otherwise generate
+(CPU count, screen) are cleared when one is chosen. Values you set explicitly
+still win.
+
+## Moving a profile
+
+`GET /api/profiles/{id}/export` packs the profile record, its pinned fingerprint
+and its browser data directory into a single zip; `POST /api/profiles/import`
+restores it under a new id. In the UI: *Export…* in a profile's row menu, and the
+import button in the toolbar.
+
+This is the only way to move an account without losing it. A warmed-up profile is
+mostly its cookies, storage and history — exporting the settings alone would move
+the costume without the memory.
+
+- The browser must be closed. Exporting a running profile is refused (409),
+  because its databases would be copied mid-write.
+- Disposable caches are excluded, which is most of the size: a 51 MB profile
+  packs to about 16 MB.
+- **The archive is not encrypted.** It contains live session cookies, saved
+  logins and the proxy password, so it is exactly as sensitive as the account it
+  belongs to.
+
 ## Known limitations
 
 These are properties of Camoufox and Firefox, not of this manager:
 
+- **The canvas hash still varies.** Camoufox randomises canvas noise per browsing
+  context to defeat cross-site tracking, and pinning `canvas:seed` does not stop
+  it: two tabs on the same site produce different hashes, as does each launch. A
+  real browser is stable here, so this remains a detectable difference. It cannot
+  be fixed from this side — it is a deliberate part of how Camoufox works.
 - **`max_touch_points` has no effect.** Camoufox 152 lists
   `navigator.maxTouchPoints` as a supported property but does not apply it; the
   page keeps reporting `0` on every OS, with or without the touch-events pref.

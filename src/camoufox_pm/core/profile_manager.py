@@ -1,6 +1,5 @@
 """Browser profile manager."""
 
-import json
 import shutil
 from datetime import datetime
 from pathlib import Path
@@ -8,10 +7,18 @@ from typing import Any
 
 from loguru import logger
 
+from . import fingerprint_store, profile_archive
 from .browser_session import BrowserSessionManager
 from .database import StorageManager
 from .fingerprint_generator import FingerprintGenerator
-from .models import BrowserSettings, Profile, ProfileGroup, ProfileStatus, UsageStats
+from .models import (
+    BrowserSettings,
+    Profile,
+    ProfileGroup,
+    ProfileStatus,
+    UsageStats,
+    generate_profile_id,
+)
 
 
 class ProfileManager:
@@ -42,8 +49,14 @@ class ProfileManager:
         proxy_config: dict[str, Any] | None = None,
         generate_fingerprint: bool = True,
         notes: str | None = None,
+        fingerprint_preset: str | None = None,
     ) -> Profile:
-        """Create a new profile."""
+        """Create a new profile.
+
+        ``fingerprint_preset`` is an id from :func:`fingerprint_store.list_presets`.
+        When given, the profile is pinned to that captured real device instead of
+        waiting for its first launch to generate a synthetic one.
+        """
         logger.info(f"Creating new profile: {name}")
 
         # Notes belong to the user; the creation time is already in created_at,
@@ -74,6 +87,51 @@ class ProfileManager:
             from .models import ProxyConfig
 
             profile.proxy = ProxyConfig(**proxy_config)
+
+        # Pin a real device now, if one was chosen. Otherwise the first launch
+        # pins a generated fingerprint instead.
+        if fingerprint_preset:
+            preset = fingerprint_store.get_preset(fingerprint_preset)
+            if preset is None:
+                raise ValueError(f"Unknown fingerprint preset: {fingerprint_preset}")
+            # The catalogue can be read without the browser, but pinning a device
+            # cannot. Say so instead of quietly creating the profile and letting
+            # its first launch generate a different machine than the one chosen.
+            if not fingerprint_store.can_resolve():
+                raise ValueError(
+                    "The Camoufox browser is required to pin a device preset. "
+                    "Run 'camoufox fetch', then create the profile."
+                )
+
+            # A preset carries its own OS; keep the profile's setting in step so
+            # the two cannot describe different machines.
+            preset_os = fingerprint_preset.split(":", 1)[0]
+            if preset_os in ("windows", "macos", "linux"):
+                profile.browser_settings.os = preset_os
+
+            # The preset *is* the hardware, so generated values must not override
+            # it — an explicit hardware_concurrency wins over the preset's own and
+            # would give the profile a CPU count the real device never had. Values
+            # the caller asked for are still honoured.
+            asked_for = set(browser_settings) if isinstance(browser_settings, dict) else set()
+            described = fingerprint_store.describe_preset(preset)
+            if "hardware_concurrency" not in asked_for:
+                profile.browser_settings.hardware_concurrency = None
+            if "screen" not in asked_for and described.get("screen"):
+                profile.browser_settings.screen = described["screen"]
+
+            profile.fingerprint = fingerprint_store.resolve(
+                profile.to_camoufox_launch_options(), preset=preset
+            )
+            # can_resolve() only rules out a missing browser; resolution can still
+            # fail for other reasons. Check the result, not a proxy for it —
+            # otherwise the profile is created unpinned and its first launch
+            # quietly assigns a generated machine instead of the chosen device.
+            if not profile.fingerprint:
+                raise ValueError(
+                    f"Could not pin the device for preset {fingerprint_preset}. "
+                    "The profile was not created; see the server log for the cause."
+                )
 
         # Create the profile data directory
         profile_dir = Path(profile.get_storage_path(str(self.profiles_dir)))
@@ -280,6 +338,10 @@ class ProfileManager:
         # Generate a new fingerprint
         new_fingerprint = await self.fingerprint_generator.generate_fingerprint()
         profile.browser_settings = new_fingerprint
+        # Drop the pinned machine too, otherwise the profile would keep the old
+        # hardware forever and only its high-level settings would change. The
+        # next launch resolves and pins a new one.
+        profile.fingerprint = None
         profile.updated_at = datetime.now()
 
         # Persist the change
@@ -300,54 +362,6 @@ class ProfileManager:
 
         logger.info(f"Fingerprint for profile {profile_id} rotated")
         return profile
-
-    async def export_profile(self, profile_id: str) -> bytes | None:
-        """Export a profile to JSON."""
-        profile = await self.get_profile(profile_id)
-        if not profile:
-            return None
-
-        # Serialize the profile, converting datetimes to ISO strings
-        profile_dict = profile.model_dump()
-        for key, value in profile_dict.items():
-            if isinstance(value, datetime):
-                profile_dict[key] = value.isoformat()
-
-        export_data = {
-            "profile": profile_dict,
-            "exported_at": datetime.now().isoformat(),
-            "version": "1.0",
-        }
-
-        logger.info(f"Exporting profile {profile_id}")
-        return json.dumps(export_data, indent=2, ensure_ascii=False).encode("utf-8")
-
-    async def import_profile(self, data: bytes, new_name: str | None = None) -> Profile | None:
-        """Import a profile from JSON."""
-        try:
-            import_data = json.loads(data.decode("utf-8"))
-            profile_data = import_data["profile"]
-
-            # Assign a fresh ID to the imported profile
-            profile_data.pop("id", None)
-            if new_name:
-                profile_data["name"] = new_name
-
-            profile = Profile(**profile_data)
-
-            # Create the directory
-            profile_dir = Path(profile.get_storage_path(str(self.profiles_dir)))
-            profile_dir.mkdir(parents=True, exist_ok=True)
-
-            # Save the profile
-            await self.storage.save_profile(profile)
-
-            logger.info(f"Profile imported: {profile.id}")
-            return profile
-
-        except Exception as e:
-            logger.error(f"Failed to import profile: {e}")
-            return None
 
     async def get_profile_stats(self, profile_id: str) -> dict[str, Any]:
         """Get usage statistics for a profile."""
@@ -493,6 +507,61 @@ class ProfileManager:
 
         return success
 
+    # -- Portability --------------------------------------------------------
+
+    async def export_profile(self, profile_id: str, destination: Path) -> Path:
+        """Write a profile and its browser data to an archive.
+
+        Refuses while the browser is open: the databases would be copied
+        mid-write and the restored profile could come back corrupted.
+        """
+        profile = await self.get_profile(profile_id)
+        if not profile:
+            raise ValueError(f"Profile with ID {profile_id} not found")
+        if self.browser_sessions.is_running(profile_id):
+            raise ValueError("Close the browser before exporting this profile")
+
+        data_dir = Path(profile.get_storage_path(str(self.profiles_dir)))
+        profile_archive.export_profile(profile, data_dir, destination)
+
+        await self.storage.log_usage(
+            UsageStats(profile_id=profile_id, action="export_profile", details={})
+        )
+        return destination
+
+    async def import_profile(self, source: Path, name: str | None = None) -> Profile:
+        """Create a profile from an archive, with a new id of its own."""
+        record = profile_archive.read_archive(source)
+
+        profile = Profile(**{**record, "name": name or record.get("name") or "Imported profile"})
+        # A fresh id and storage path: the archive may well be restored next to
+        # the profile it came from.
+        profile.id = generate_profile_id()
+        profile.storage_path = None
+        # The group id belongs to the source instance and would dangle here; the
+        # user can reassign the profile to a local group.
+        profile.group = None
+        data_dir = Path(profile.get_storage_path(str(self.profiles_dir)))
+
+        # Extraction writes into the directory before it can fail, and a profile
+        # is only real once it is in the database. Without this, every refused
+        # import (a bomb, a bad zip, an I/O error) would strand a directory that
+        # nothing references and nothing ever deletes.
+        try:
+            profile_archive.extract_data(source, data_dir)
+            await self.storage.save_profile(profile)
+        except Exception:
+            shutil.rmtree(data_dir, ignore_errors=True)
+            raise
+
+        await self.storage.log_usage(
+            UsageStats(
+                profile_id=profile.id, action="import_profile", details={"name": profile.name}
+            )
+        )
+        logger.info(f"Imported profile '{profile.name}' as {profile.id}")
+        return profile
+
     # -- Browser control (delegated to BrowserSessionManager) ---------------
 
     async def launch_browser(
@@ -516,8 +585,6 @@ class ProfileManager:
                 "process_id": session.process_id,
             }
 
-        await self.update_profile(profile_id, {"last_used": datetime.now()})
-
         options = profile.to_camoufox_launch_options()
         options["headless"] = headless
         if window_size:
@@ -528,6 +595,31 @@ class ProfileManager:
             except ValueError:
                 logger.warning(f"Ignoring invalid window_size {window_size!r} (expected WxH)")
         options.update(kwargs)
+
+        # Pin the machine on the first launch and replay it on every one after,
+        # so the profile is the same computer each session instead of new
+        # hardware every time. The profile's own overrides still win, and geo,
+        # timezone and WebRTC stay dynamic so they follow the proxy.
+        pinned = profile.fingerprint
+        if not pinned:
+            # Deliberately synchronous. There is no await between reading the
+            # profile above and writing it below, which is what makes this
+            # read-modify-write atomic: save_profile rewrites the whole row, so
+            # an await here would let a concurrent rename be silently reverted.
+            # resolve() can do network I/O (it fetches the uBlock addon on a
+            # fresh install), so offloading it to a thread is tempting — do that
+            # only together with row-level concurrency control.
+            pinned = fingerprint_store.resolve(options)
+            if pinned:
+                profile.fingerprint = pinned
+        if pinned:
+            options["config"] = {**pinned, **options.get("config", {})}
+
+        # One write for both the pin and the timestamp, after the options are
+        # built, so neither can be clobbered by a stale copy of the profile.
+        profile.last_used = datetime.now()
+        profile.updated_at = datetime.now()
+        await self.storage.update_profile(profile)
 
         await self.storage.log_usage(
             UsageStats(
