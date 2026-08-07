@@ -1,5 +1,7 @@
 """API dependencies (dependency injection and auth guard)."""
 
+import hmac
+
 from fastapi import Header, HTTPException
 
 from camoufox_pm.config import get_settings
@@ -39,5 +41,8 @@ def get_profile_manager() -> ProfileManager:
 async def require_api_key(x_api_key: str | None = Header(default=None)) -> None:
     """Enforce the API key when ``CPM_API_KEY`` is set; a no-op otherwise."""
     configured = get_settings().api_key
-    if configured and x_api_key != configured:
+    if not configured:
+        return
+    # Constant-time comparison to avoid leaking the key via response timing.
+    if x_api_key is None or not hmac.compare_digest(x_api_key, configured):
         raise HTTPException(status_code=401, detail="Invalid or missing API key")

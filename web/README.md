@@ -1,227 +1,66 @@
-# Camoufox Profile Manager - Web Interface
+# Web UI
 
-Современный веб-интерфейс для управления профилями антидетект браузера, созданный в стиле AdsPower.
+The Camoufox Profile Manager front end: a Next.js 15 app that FastAPI serves as a
+static export, so the whole product runs as one process on one port.
 
-## 🎨 Дизайн и Функциональность
+## Running it
 
-### Вдохновение
-Интерфейс создан по образцу популярного антидетект браузера **AdsPower** с современными улучшениями:
+Most of the time you do not need this directory at all — `camoufox-pm` serves a
+prebuilt UI. Work here only when changing the interface.
 
-- **Темная тема** с оранжевыми акцентами
-- **Адаптивный дизайн** для всех устройств
-- **Интуитивная навигация** с боковым меню
-- **Профессиональная таблица профилей** с сортировкой и фильтрацией
-- **Статистические карточки** и дашборд
-- **Плавные анимации** и переходы
-
-### Основные компоненты
-
-#### 🏠 Dashboard
-- Общая статистика профилей
-- Активность в реальном времени
-- Системная информация (CPU, память, диск)
-- Быстрые действия
-
-#### 👥 Profiles Manager
-- Таблица всех профилей с полной информацией
-- Массовые операции (запуск, остановка, удаление)
-- Фильтрация по группам, статусу, платформе
-- Поиск по имени, ID, заметкам
-- Действия с профилями (запуск, редактирование, клонирование)
-
-#### 🔧 Features
-- **Responsive Design**: Адаптивный дизайн для desktop, tablet, mobile
-- **Dark Theme**: Профессиональная темная тема
-- **Table Management**: Продвинутая таблица с сортировкой и изменением размера колонок
-- **Bulk Operations**: Массовые операции над выбранными профилями
-- **Real-time Updates**: Обновление статусов в реальном времени
-- **Search & Filter**: Мощные возможности поиска и фильтрации
-- **Export/Import**: Экспорт и импорт профилей
-
-## 🚀 Технологический стек
-
-- **Framework**: Next.js 14 (App Router)
-- **Language**: TypeScript
-- **Styling**: Tailwind CSS
-- **Icons**: Heroicons
-- **UI Components**: Headless UI
-- **State Management**: React Hooks
-- **API Client**: Fetch API с типизацией
-
-## 📦 Установка и запуск
-
-### Предварительные требования
-- Node.js 18+ 
-- npm или yarn
-
-### Установка
 ```bash
-cd CamoufoxProfileManager/web-interface
 npm install
+npm run dev        # http://localhost:3000, proxies /api to http://localhost:8000
 ```
 
-### Переменные окружения
-Создайте файл `.env.local`:
-```env
-NEXT_PUBLIC_API_URL=http://localhost:8000
-```
-
-### Запуск в режиме разработки
-```bash
-npm run dev
-```
-
-Интерфейс будет доступен по адресу: http://localhost:3000
-
-### Сборка для продакшена
-```bash
-npm run build
-npm start
-```
-
-## 🎯 Структура проекта
-
-```
-web-interface/
-├── src/
-│   ├── app/                    # Next.js App Router
-│   │   ├── dashboard/          # Дашборд
-│   │   ├── profiles/           # Управление профилями
-│   │   ├── globals.css         # Глобальные стили
-│   │   └── layout.tsx          # Корневой layout
-│   ├── components/             # Компоненты UI
-│   │   ├── Layout.tsx          # Основной layout
-│   │   ├── Sidebar.tsx         # Боковое меню
-│   │   ├── TopBar.tsx          # Верхняя панель
-│   │   └── ProfilesTable.tsx   # Таблица профилей
-│   ├── lib/                    # Утилиты и API
-│   │   ├── utils.ts            # Общие утилиты
-│   │   └── api.ts              # API клиент
-│   └── types/                  # TypeScript типы
-│       └── index.ts            # Определения типов
-├── tailwind.config.ts          # Конфигурация Tailwind
-└── package.json
-```
-
-## 🎨 Цветовая схема AdsPower
-
-```css
-/* Основные цвета */
---primary: #ff6b35      /* Оранжевый акцент */
---dark-900: #1a1a1a     /* Основной фон */
---dark-800: #2d2d2d     /* Вторичный фон */
---dark-700: #404040     /* Границы */
---success: #10b981      /* Зеленый (активный) */
---error: #ef4444        /* Красный (ошибка) */
---warning: #f59e0b      /* Желтый (предупреждение) */
---info: #3b82f6         /* Синий (информация) */
-```
-
-## 🔗 API интеграция
-
-Интерфейс подключается к Python FastAPI backend через API клиент:
-
-### Основные endpoints:
-- `GET /api/profiles` - Получить все профили
-- `POST /api/profiles` - Создать профиль
-- `PUT /api/profiles/{id}` - Обновить профиль
-- `DELETE /api/profiles/{id}` - Удалить профиль
-- `POST /api/profiles/{id}/start` - Запустить профиль
-- `POST /api/profiles/{id}/stop` - Остановить профиль
-- `POST /api/profiles/{id}/clone` - Клонировать профиль
-
-### Обработка ошибок
-```typescript
-try {
-  const profiles = await profilesApi.getAll()
-} catch (error) {
-  if (isApiError(error)) {
-    console.error('API Error:', error.message, error.status)
-  }
-}
-```
-
-## 📱 Адаптивность
-
-Интерфейс полностью адаптивен и оптимизирован для:
-- **Desktop** (1920x1080+): Полная функциональность
-- **Laptop** (1366x768+): Адаптированная раскладка
-- **Tablet** (768px+): Скрытие второстепенных элементов
-- **Mobile** (320px+): Мобильное меню и упрощенная навигация
-
-## 🎯 Особенности интерфейса
-
-### Таблица профилей
-- **Сортировка**: По любой колонке (↑↓)
-- **Фильтрация**: По группам, статусу, платформе
-- **Поиск**: По имени, ID, заметкам
-- **Выбор**: Множественный выбор с чекboxами
-- **Действия**: Контекстные кнопки для каждого профиля
-- **Изменение размера**: Колонки можно расширять/сужать
-
-### Боковое меню
-- **Сворачивание**: Можно свернуть для экономии места
-- **Счетчики**: Показывает количество профилей и групп
-- **Индикатор хранилища**: Показывает использование диска
-
-### Верхняя панель
-- **Поиск**: Глобальный поиск по профилям
-- **Быстрые действия**: Создание, импорт, экспорт
-- **Уведомления**: Системные уведомления
-- **Профиль пользователя**: Настройки и выход
-
-## 🔄 Интеграция с Backend
-
-Для полной функциональности запустите Python backend:
+Point the dev proxy somewhere else with `API_PROXY_TARGET`:
 
 ```bash
-cd CamoufoxProfileManager
-python -m uvicorn api.main:app --reload --host 0.0.0.0 --port 8000
+API_PROXY_TARGET=http://localhost:8099 npm run dev
 ```
 
-Тогда веб-интерфейс сможет:
-- Загружать реальные профили из базы данных
-- Запускать браузеры через Camoufox
-- Синхронизировать статусы профилей
-- Выполнять все CRUD операции
+To produce the bundle the Python package ships:
 
-## 🎨 Кастомизация
-
-### Изменение цветовой схемы
-Отредактируйте `tailwind.config.ts`:
-```typescript
-colors: {
-  primary: {
-    500: '#your-color', // Основной акцентный цвет
-  }
-}
-```
-
-### Добавление новых компонентов
-Создайте компонент в `src/components/` и импортируйте в нужную страницу.
-
-## 📈 Производительность
-
-- **Lazy Loading**: Компоненты загружаются по требованию
-- **Code Splitting**: Автоматическое разделение кода Next.js
-- **Optimized Images**: Оптимизация изображений Next.js
-- **Tree Shaking**: Удаление неиспользуемого кода
-- **CSS Purging**: Tailwind CSS удаляет неиспользуемые стили
-
-## 🐛 Отладка
-
-### Development режим
 ```bash
-npm run dev
+python ../scripts/build_webui.py
 ```
-- Hot reloading
-- Подробные ошибки
-- React Developer Tools
 
-### Логирование
-- API ошибки логируются в консоль
-- Состояние компонентов доступно через React DevTools
+That runs the static export and copies `out/` into `src/camoufox_pm/webui/`.
 
-## 📄 Лицензия
+## Structure
 
-Часть проекта Camoufox Profile Manager - системы управления профилями антидетект браузера.
+```
+src/
+  app/
+    page.tsx           Profiles — the main registry
+    groups/page.tsx    Groups
+    settings/page.tsx  Effective configuration and usage
+    layout.tsx         Fonts, shell and toasts
+    globals.css        Design tokens and component classes
+  components/
+    app-shell.tsx      Fixed rail + work area
+    profile-form.tsx   Create and edit a profile (one form, both modes)
+    modal.tsx          Dialog shell and confirm dialog
+    toast.tsx          Non-blocking notifications
+    empty-state.tsx    First-run and no-results states
+  lib/api.ts           Typed API client
+```
+
+## Design
+
+The UI is an instrument panel: a dense control surface where colour carries
+meaning instead of decoration.
+
+- **One signal colour.** Orange marks the primary action and a running browser —
+  nothing else. A running profile is the only thing on screen that draws the eye,
+  so the table reads as a status board.
+- **Hairlines, not boxes.** Rows and sections are separated by 1px rules rather
+  than nested cards.
+- **Monospace for machine values.** IDs, proxies and coordinates are mono so they
+  align and stay scannable; prose is IBM Plex Sans.
+- **Restraint in motion.** Rows stagger in once on load and the running dot
+  pulses. Everything respects `prefers-reduced-motion`.
+
+Tokens live in `@theme` in `globals.css`; there is no Tailwind config file
+(Tailwind v4 reads the CSS). Fonts are pulled in by `next/font`, which self-hosts
+them at build time so the desktop bundle works offline.

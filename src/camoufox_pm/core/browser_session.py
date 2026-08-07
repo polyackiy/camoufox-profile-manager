@@ -2,6 +2,12 @@
 
 Extracted from ``profile_manager`` so profile CRUD and browser control have
 clear, independently testable responsibilities.
+
+Cleanup is driven primarily by Playwright's ``close``/``disconnected`` events, so
+a user closing the browser window is detected and the session is torn down. OS
+process polling is only a best-effort fallback: with a persistent context the
+resolvable pid is Playwright's driver process, not Firefox, so it is not a
+reliable window-close signal on its own.
 """
 
 import asyncio
@@ -20,17 +26,20 @@ except ImportError:  # pragma: no cover - exercised only without camoufox instal
     AsyncCamoufox = None  # type: ignore[assignment, misc]
     CAMOUFOX_AVAILABLE = False
 
+ExitHandler = Callable[[str], Awaitable[None]]
+
 
 class BrowserLaunchError(RuntimeError):
     """Raised when a Camoufox browser fails to launch."""
 
 
-def _resolve_process_id(browser: Any) -> int | None:
-    """Best-effort resolution of the browser OS process id.
+def _resolve_process_id(obj: Any) -> int | None:
+    """Best-effort resolution of a driver/browser OS process id.
 
-    Playwright does not expose the process id through its public API, so this
-    walks known internal attributes and returns ``None`` if none are available.
-    Unlike the previous implementation it never fabricates a placeholder pid.
+    Playwright does not expose this publicly, so this walks known internal
+    attributes and returns ``None`` if none are available. It never fabricates a
+    placeholder pid. Note: for a persistent context this is the Playwright driver
+    process, used only as a forceful-kill fallback.
     """
     candidates = (
         lambda b: b._browser_process.pid,  # noqa: SLF001
@@ -39,7 +48,7 @@ def _resolve_process_id(browser: Any) -> int | None:
     )
     for getter in candidates:
         try:
-            pid = getter(browser)
+            pid = getter(obj)
             if pid:
                 return int(pid)
         except Exception:  # noqa: BLE001 - private attributes vary across versions
@@ -50,30 +59,40 @@ def _resolve_process_id(browser: Any) -> int | None:
 class BrowserSession:
     """A single running Camoufox browser tied to a profile."""
 
-    def __init__(self, profile_id: str, browser: Any, process_id: int | None = None):
+    def __init__(self, profile_id: str, camoufox: Any, process_id: int | None = None):
         self.profile_id = profile_id
-        self.browser = browser  # AsyncCamoufox context manager instance
+        self.camoufox = camoufox  # AsyncCamoufox context manager instance
         self.process_id = process_id
         self.started_at = datetime.now()
         self.monitor_task: asyncio.Task | None = None
+        self.on_exit: ExitHandler | None = None
+        self._terminated = False
 
     async def terminate(self) -> None:
-        """Close the browser and stop its monitor task."""
+        """Close the browser and stop its monitor task. Safe to call twice."""
+        if self._terminated:
+            return
+        self._terminated = True
         logger.info(f"Terminating browser session for profile {self.profile_id}")
 
-        if self.monitor_task and not self.monitor_task.done():
-            self.monitor_task.cancel()
-            try:
-                await self.monitor_task
-            except asyncio.CancelledError:
-                pass
+        # The monitor can be the caller here (_monitor -> _handle_exit -> terminate),
+        # and a task cannot await itself; cancelling is enough in that case.
+        monitor = self.monitor_task
+        if monitor and not monitor.done():
+            monitor.cancel()
+            if asyncio.current_task() is not monitor:
+                try:
+                    await monitor
+                except asyncio.CancelledError:
+                    pass
 
-        if self.browser is not None:
+        if self.camoufox is not None:
             try:
-                await self.browser.__aexit__(None, None, None)
+                await self.camoufox.__aexit__(None, None, None)
             except Exception as exc:  # noqa: BLE001
                 logger.warning(f"Error closing browser for {self.profile_id}: {exc}")
 
+        # Best-effort: make sure the driver process is gone.
         if self.process_id:
             try:
                 process = psutil.Process(self.process_id)
@@ -101,26 +120,30 @@ class BrowserSessionManager:
 
     def __init__(self) -> None:
         self.active_sessions: dict[str, BrowserSession] = {}
+        # The event loop only holds weak references to tasks, so a teardown
+        # suspended inside camoufox.__aexit__ could be garbage-collected and take
+        # the primary cleanup path with it. Hold a strong reference until done.
+        self._exit_tasks: set[asyncio.Task[None]] = set()
 
     def is_running(self, profile_id: str) -> bool:
         """Return whether a browser is currently tracked for the profile."""
         return profile_id in self.active_sessions
 
     def list_active(self) -> list[dict[str, Any]]:
-        """Return summaries of active sessions, pruning dead OS processes."""
-        dead: list[str] = []
-        for profile_id, session in self.active_sessions.items():
-            if session.process_id and not psutil.pid_exists(session.process_id):
-                dead.append(profile_id)
-        for profile_id in dead:
-            del self.active_sessions[profile_id]
+        """Return summaries of the active sessions.
+
+        A pure read: it used to drop sessions whose driver process had gone,
+        which skipped ``terminate()`` and the exit handler and so leaked the
+        Camoufox context. Teardown belongs to the close event and, failing that,
+        to :meth:`_monitor`; both route through ``_handle_exit``.
+        """
         return [session.info() for session in self.active_sessions.values()]
 
     async def launch(
         self,
         profile_id: str,
         launch_options: dict[str, Any],
-        on_exit: Callable[[str], Awaitable[None]] | None = None,
+        on_exit: ExitHandler | None = None,
     ) -> BrowserSession:
         """Launch a Camoufox browser and register a monitored session."""
         if not CAMOUFOX_AVAILABLE:
@@ -138,10 +161,44 @@ class BrowserSessionManager:
 
         process_id = _resolve_process_id(browser) or _resolve_process_id(camoufox)
         session = BrowserSession(profile_id, camoufox, process_id)
-        session.monitor_task = asyncio.create_task(self._monitor(profile_id, process_id, on_exit))
+        session.on_exit = on_exit
         self.active_sessions[profile_id] = session
+
+        # Primary signal: the browser/context closing (e.g. the user closes the window).
+        self._register_close_handler(browser, profile_id)
+        # Fallback: poll the driver pid, only if we could resolve one.
+        if process_id:
+            session.monitor_task = asyncio.create_task(self._monitor(profile_id, process_id))
+
         logger.info(f"Browser launched for profile {profile_id} (pid={process_id})")
         return session
+
+    def _register_close_handler(self, browser: Any, profile_id: str) -> None:
+        """Wire Playwright close/disconnect events to session cleanup."""
+        loop = asyncio.get_running_loop()
+
+        def _on_close(*_: Any) -> None:
+            task = loop.create_task(self._handle_exit(profile_id))
+            self._exit_tasks.add(task)
+            task.add_done_callback(self._exit_tasks.discard)
+
+        for event in ("close", "disconnected"):
+            try:
+                browser.on(event, _on_close)
+            except Exception:  # noqa: BLE001 - Browser vs BrowserContext expose different events
+                continue
+
+    async def _handle_exit(self, profile_id: str) -> None:
+        """Tear down a session exactly once and notify the exit handler."""
+        session = self.active_sessions.pop(profile_id, None)
+        if session is None:
+            return
+        await session.terminate()
+        if session.on_exit is not None:
+            try:
+                await session.on_exit(profile_id)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(f"on_exit handler failed for {profile_id}: {exc}")
 
     async def close(self, profile_id: str) -> bool:
         """Close a single browser. Returns ``False`` if it was not running."""
@@ -159,25 +216,8 @@ class BrowserSessionManager:
                 count += 1
         return count
 
-    async def _monitor(
-        self,
-        profile_id: str,
-        process_id: int | None,
-        on_exit: Callable[[str], Awaitable[None]] | None,
-    ) -> None:
-        """Watch the browser process and clean up when it exits."""
-        try:
-            while True:
-                await asyncio.sleep(10)
-                if process_id and not psutil.pid_exists(process_id):
-                    logger.info(f"Browser process {process_id} for {profile_id} ended")
-                    break
-        except asyncio.CancelledError:
-            raise
-        finally:
-            self.active_sessions.pop(profile_id, None)
-            if on_exit is not None:
-                try:
-                    await on_exit(profile_id)
-                except Exception as exc:  # noqa: BLE001
-                    logger.warning(f"on_exit handler failed for {profile_id}: {exc}")
+    async def _monitor(self, profile_id: str, process_id: int) -> None:
+        """Fallback watchdog: clean up if the driver process disappears."""
+        while psutil.pid_exists(process_id):
+            await asyncio.sleep(10)
+        await self._handle_exit(profile_id)

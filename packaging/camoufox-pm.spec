@@ -45,6 +45,10 @@ exe = EXE(
     [],
     exclude_binaries=True,
     name="camoufox-pm",
+    # Deliberate: the same binary is also the CLI (`camoufox-pm --port ...`), and
+    # a windowed build on Windows has no stdout, which loses the server log and
+    # can break writes to it. The cost is a console window next to the desktop
+    # app on Windows; revisit if the desktop build is ever split from the CLI.
     console=True,
 )
 coll = COLLECT(

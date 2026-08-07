@@ -1,6 +1,7 @@
 """API routes for system functions."""
 
 import time
+from pathlib import Path
 
 import psutil
 from fastapi import APIRouter, HTTPException
@@ -14,6 +15,8 @@ from camoufox_pm.api.models.system import (
     ProfileDiagnosticResponse,
     SystemStatusResponse,
 )
+from camoufox_pm.config import get_settings
+from camoufox_pm.core.browser_session import CAMOUFOX_AVAILABLE
 from camoufox_pm.core.cleanup import ProfileCleanupManager
 
 router = APIRouter()
@@ -141,6 +144,36 @@ async def restart_system():
     except Exception as exc:
         logger.error(f"Failed to restart system: {exc}")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.get(
+    "/system/config",
+    response_model=ApiResponse,
+    summary="Effective configuration",
+    description="Report how this instance is configured. Never returns secret values.",
+)
+async def get_system_config():
+    """Return the effective configuration, reporting secrets only as set/unset.
+
+    This backs the Settings screen so users can see whether encryption and the
+    API key are on without reading environment variables.
+    """
+    settings = get_settings()
+    return ApiResponse(
+        success=True,
+        message="Effective configuration",
+        data={
+            "version": __version__,
+            "host": settings.host,
+            "port": settings.port,
+            "database_path": str(Path(settings.db_path).resolve()),
+            "api_key_set": bool(settings.api_key),
+            "encryption_enabled": bool(settings.secret_key),
+            "cors_origins": settings.cors_origins,
+            "camoufox_available": CAMOUFOX_AVAILABLE,
+            "uptime_seconds": int(time.time() - startup_time),
+        },
+    )
 
 
 @router.get(

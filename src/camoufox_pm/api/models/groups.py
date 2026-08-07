@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class GroupCreateRequest(BaseModel):
@@ -11,10 +11,11 @@ class GroupCreateRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=255, description="Group name")
     description: str | None = Field(None, max_length=1000, description="Group description")
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {"name": "Social media", "description": "Profiles for social media"}
         }
+    )
 
 
 class GroupUpdateRequest(BaseModel):
@@ -23,13 +24,14 @@ class GroupUpdateRequest(BaseModel):
     name: str | None = Field(None, min_length=1, max_length=255)
     description: str | None = Field(None, max_length=1000)
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "name": "Social media (updated)",
                 "description": "Updated group description",
             }
         }
+    )
 
 
 class GroupResponse(BaseModel):
@@ -41,9 +43,7 @@ class GroupResponse(BaseModel):
     profile_count: int
     created_at: datetime
 
-    class Config:
-        from_attributes = True
-        json_encoders = {datetime: lambda v: v.isoformat()}
+    model_config = ConfigDict(from_attributes=True)
 
 
 class GroupListResponse(BaseModel):

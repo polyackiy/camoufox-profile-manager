@@ -16,7 +16,7 @@ from camoufox_pm.api.dependencies import (
     set_storage_manager,
 )
 from camoufox_pm.api.middleware.logging import LoggingMiddleware
-from camoufox_pm.api.routes import groups, profiles, system, websocket
+from camoufox_pm.api.routes import groups, profiles, system
 from camoufox_pm.config import get_settings
 from camoufox_pm.core.database import StorageManager
 from camoufox_pm.core.profile_manager import ProfileManager
@@ -63,7 +63,9 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
-    allow_credentials=True,
+    # Auth is via the X-API-Key header, not cookies; credentialed CORS would also
+    # be rejected by browsers when combined with the wildcard method/header lists.
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -74,7 +76,6 @@ protected = [Depends(require_api_key)]
 app.include_router(profiles.router, prefix="/api", tags=["Profiles"], dependencies=protected)
 app.include_router(groups.router, prefix="/api", tags=["Groups"], dependencies=protected)
 app.include_router(system.router, prefix="/api", tags=["System"], dependencies=protected)
-app.include_router(websocket.router, prefix="/ws", tags=["WebSocket"])
 
 
 @app.get("/health", tags=["System"])
@@ -118,7 +119,7 @@ def _webui_dir() -> Path | None:
 
 
 # Serve the web UI on the same origin as the API when a build is available;
-# otherwise redirect the root to the API docs. Mounted last so /api, /ws, /health
+# otherwise redirect the root to the API docs. Mounted last so /api and /health
 # and /docs take precedence over the catch-all static mount.
 _webui = _webui_dir()
 if _webui is not None:

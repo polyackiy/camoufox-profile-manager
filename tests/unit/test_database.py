@@ -1,7 +1,11 @@
 """Tests for the SQLite storage layer."""
 
-import pytest
+import json
 
+import pytest
+from cryptography.fernet import Fernet
+
+from camoufox_pm.config import get_settings
 from camoufox_pm.core.models import Profile, ProfileStatus, ProxyConfig, ProxyType
 
 
@@ -50,3 +54,30 @@ async def test_proxy_password_roundtrips_through_storage(storage):
     loaded = await storage.get_profile(profile.id)
     assert loaded.proxy is not None
     assert loaded.proxy.password == "secret"
+
+
+@pytest.mark.asyncio
+async def test_proxy_password_is_encrypted_at_rest(storage, monkeypatch):
+    """With a key configured, the password must be ciphertext on disk, not plaintext."""
+    monkeypatch.setenv("CPM_SECRET_KEY", Fernet.generate_key().decode())
+    get_settings.cache_clear()
+    try:
+        profile = Profile(
+            name="proxied",
+            proxy=ProxyConfig(
+                type=ProxyType.HTTP, server="1.2.3.4:8080", username="u", password="secret"
+            ),
+        )
+        await storage.save_profile(profile)
+
+        row = storage.db._connection.execute(
+            "SELECT proxy_config FROM profiles WHERE id = ?", (profile.id,)
+        ).fetchone()
+        stored = json.loads(row["proxy_config"])["password"]
+        assert stored.startswith("enc:")
+        assert "secret" not in stored
+
+        loaded = await storage.get_profile(profile.id)
+        assert loaded.proxy.password == "secret"
+    finally:
+        get_settings.cache_clear()

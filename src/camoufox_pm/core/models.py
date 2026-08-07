@@ -1,8 +1,7 @@
 """Data models for the Camoufox profile management system."""
 
-import random
+import secrets
 import string
-import time
 from datetime import datetime
 from enum import Enum
 from typing import Any
@@ -16,17 +15,17 @@ _ID_ALPHABET = "".join(c for c in (string.ascii_lowercase + string.digits) if c 
 def generate_short_id(length: int = 8) -> str:
     """Generate a short, readable ID.
 
-    Uses a microsecond timestamp for ordering and uniqueness, padded with random
-    characters. Excludes visually confusing characters for readability.
+    Every character is random, drawn from an alphabet without visually confusing
+    characters (0/o, 1/l/i), which gives 31**8 ≈ 8.5e11 possible IDs at the
+    default length.
+
+    This used to derive most of the ID from a microsecond timestamp and leave
+    only two random characters. IDs minted in the same microsecond — which is
+    what a bulk Excel import does — then had just 961 possible values, and
+    because profiles are stored with INSERT OR REPLACE keyed on the ID, a
+    collision silently overwrote an existing profile.
     """
-    timestamp = int(time.time() * 1_000_000)
-    encoded = ""
-    while timestamp > 0 and len(encoded) < length - 2:
-        encoded = _ID_ALPHABET[timestamp % len(_ID_ALPHABET)] + encoded
-        timestamp //= len(_ID_ALPHABET)
-    while len(encoded) < length:
-        encoded += random.choice(_ID_ALPHABET)
-    return encoded[:length]
+    return "".join(secrets.choice(_ID_ALPHABET) for _ in range(length))
 
 
 def generate_profile_id() -> str:
@@ -146,10 +145,10 @@ class BrowserSettings(BaseModel):
             config["navigator.hardwareConcurrency"] = self.hardware_concurrency
         if self.max_touch_points:
             config["navigator.maxTouchPoints"] = self.max_touch_points
+        # Camoufox only exposes the public ICE address (webrtc:ipv4/ipv6); there is
+        # no local-IP config key, so webrtc_local_ips is intentionally not emitted.
         if self.webrtc_public_ip:
             config["webrtc:ipv4"] = self.webrtc_public_ip
-        if self.webrtc_local_ips:
-            config["webrtc:ipv4"] = self.webrtc_local_ips[0]
         return config
 
 
@@ -196,6 +195,10 @@ class Profile(BaseModel):
             # Let Camoufox derive geo/timezone from the proxy IP unless we set coordinates.
             "geoip": not bool(bs.geolocation),
         }
+        # "none" fully disables WebRTC; other modes use Camoufox's default handling
+        # (which reports the proxy's public IP when a proxy is set).
+        if bs.webrtc_mode == WebRTCMode.NONE:
+            options["block_webrtc"] = True
         if bs.window_width and bs.window_height:
             options["window"] = (bs.window_width, bs.window_height)
         if bs.fonts:

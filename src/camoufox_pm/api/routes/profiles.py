@@ -8,6 +8,7 @@ from typing import Any
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile, status
 from fastapi.responses import Response
 from loguru import logger
+from pydantic import ValidationError
 
 from camoufox_pm.api.dependencies import get_profile_manager
 from camoufox_pm.api.models.profiles import (
@@ -116,6 +117,7 @@ async def create_profile(request: ProfileCreateRequest):
             browser_settings=request.browser_settings,
             proxy_config=request.proxy_config,
             generate_fingerprint=request.generate_fingerprint,
+            notes=request.notes,
         )
 
         logger.info(f"Created profile: {profile.name} (ID: {profile.id})")
@@ -192,23 +194,31 @@ async def update_profile(profile_id: str, request: ProfileUpdateRequest):
     try:
         profile_manager = get_profile_manager()
 
-        # Build the updates
+        # A field the client sent is authoritative, including an explicit null,
+        # which clears it. A field it omitted is left untouched. Testing for
+        # "is not None" instead would make clearing a proxy, a group or the
+        # notes silently do nothing while still reporting success.
+        sent = request.model_fields_set
+
         updates: dict[str, Any] = {}
         if request.name is not None:
             updates["name"] = request.name
-        if request.group is not None:
+        if "group" in sent:
             updates["group"] = request.group
         if request.status is not None:
             updates["status"] = request.status
-        if request.browser_settings is not None:
-            updates["browser_settings"] = request.browser_settings
-        if request.proxy_config is not None:
+        if "proxy_config" in sent:
             updates["proxy_config"] = request.proxy_config
-        if request.notes is not None:
+        if "notes" in sent:
             updates["notes"] = request.notes
 
-        # Handle individual browser settings
+        # Browser settings arrive either as a nested object or as flattened
+        # browser_* fields. Both are collected here and merged over the stored
+        # settings, so a client that sends only the fields it edits cannot wipe
+        # the rest of the generated fingerprint.
         browser_updates: dict[str, Any] = {}
+        if request.browser_settings is not None:
+            browser_updates.update(request.browser_settings)
         if request.browser_os is not None:
             browser_updates["os"] = request.browser_os
         if request.browser_screen is not None:
@@ -240,14 +250,14 @@ async def update_profile(profile_id: str, request: ProfileUpdateRequest):
         if request.browser_window_height is not None:
             browser_updates["window_height"] = request.browser_window_height
 
-        # Merge browser settings updates if any
         if browser_updates:
-            # Load the current profile to merge browser settings
             current_profile = await profile_manager.get_profile(profile_id)
             if current_profile and current_profile.browser_settings:
-                current_settings = current_profile.browser_settings.model_dump()
-                current_settings.update(browser_updates)
-                updates["browser_settings"] = current_settings
+                merged = current_profile.browser_settings.model_dump()
+                merged.update(browser_updates)
+                updates["browser_settings"] = merged
+            else:
+                updates["browser_settings"] = browser_updates
 
         # Apply the update
         updated_profile = await profile_manager.update_profile(profile_id, updates)
@@ -275,6 +285,12 @@ async def update_profile(profile_id: str, request: ProfileUpdateRequest):
 
     except HTTPException:
         raise
+    except ValidationError as e:
+        # browser_settings is a free-form dict on the way in, so bad values only
+        # fail when it is turned into a BrowserSettings. That is the client's
+        # mistake, not a server fault.
+        logger.warning(f"Rejected invalid update for profile {profile_id}: {e}")
+        raise HTTPException(status_code=422, detail=e.errors()) from e
     except Exception as e:
         logger.error(f"Failed to update profile {profile_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e)) from e

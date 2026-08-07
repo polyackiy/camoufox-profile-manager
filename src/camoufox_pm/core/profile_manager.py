@@ -41,30 +41,33 @@ class ProfileManager:
         browser_settings: dict[str, Any] | BrowserSettings | None = None,
         proxy_config: dict[str, Any] | None = None,
         generate_fingerprint: bool = True,
+        notes: str | None = None,
     ) -> Profile:
         """Create a new profile."""
         logger.info(f"Creating new profile: {name}")
 
-        # Create the base profile
-        profile = Profile(
-            name=name, group=group, notes=f"Created {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-        )
+        # Notes belong to the user; the creation time is already in created_at,
+        # so it is not stamped into the field the user types into.
+        profile = Profile(name=name, group=group, notes=notes)
 
         # Generate a browser fingerprint if requested
         if generate_fingerprint:
             fingerprint = await self.fingerprint_generator.generate_fingerprint(browser_settings)
             profile.browser_settings = fingerprint
 
-        # Apply user-provided browser settings
+        # Apply user-provided browser settings over the generated fingerprint.
         if browser_settings:
-            # If browser_settings is a BrowserSettings object, use it directly
             if isinstance(browser_settings, BrowserSettings):
                 profile.browser_settings = browser_settings
-            # If it is a dict, apply the fields
             elif isinstance(browser_settings, dict):
-                for key, value in browser_settings.items():
-                    if hasattr(profile.browser_settings, key):
-                        setattr(profile.browser_settings, key, value)
+                # Rebuild through the model rather than setattr, so values are
+                # validated and enums coerced (a raw "webrtc_mode" string would
+                # otherwise survive as str and trip serialization). Keys the
+                # caller omitted keep their generated value; an explicit null
+                # clears one, which is how "geolocation from the proxy IP" works.
+                merged = profile.browser_settings.model_dump()
+                merged.update(browser_settings)
+                profile.browser_settings = BrowserSettings(**merged)
 
         # Configure the proxy if provided
         if proxy_config:
@@ -518,7 +521,12 @@ class ProfileManager:
         options = profile.to_camoufox_launch_options()
         options["headless"] = headless
         if window_size:
-            options["window_size"] = window_size
+            # Camoufox expects a (width, height) tuple, not a "1280x720" string.
+            try:
+                width, height = (int(part) for part in window_size.lower().split("x"))
+                options["window"] = (width, height)
+            except ValueError:
+                logger.warning(f"Ignoring invalid window_size {window_size!r} (expected WxH)")
         options.update(kwargs)
 
         await self.storage.log_usage(
@@ -527,7 +535,9 @@ class ProfileManager:
             )
         )
 
-        session = await self.browser_sessions.launch(profile_id, options)
+        session = await self.browser_sessions.launch(
+            profile_id, options, on_exit=self._on_browser_exit
+        )
         return {
             "status": "launched",
             "profile_id": profile_id,
@@ -535,6 +545,15 @@ class ProfileManager:
             "process_id": session.process_id,
             "camoufox_options": {"process_id": session.process_id, "options": options},
         }
+
+    async def _on_browser_exit(self, profile_id: str) -> None:
+        """Record usage when a browser exits on its own (e.g. the user closes it)."""
+        try:
+            await self.storage.log_usage(
+                UsageStats(profile_id=profile_id, action="close_browser", details={"forced": False})
+            )
+        except Exception as exc:  # noqa: BLE001 - logging must never break teardown
+            logger.warning(f"Failed to log browser exit for {profile_id}: {exc}")
 
     async def close_browser(self, profile_id: str) -> dict[str, Any]:
         """Close the browser running for a profile."""
