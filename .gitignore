@@ -10,8 +10,8 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
-lib64/
+/lib/
+/lib64/
 parts/
 sdist/
 var/
@@ -200,11 +200,11 @@ out/
 
 # Nuxt.js build / generate output
 .nuxt
-dist
+/dist
 
 # Gatsby files
 .cache/
-public
+/public
 
 # Storybook build outputs
 .out
