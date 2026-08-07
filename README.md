@@ -1,241 +1,123 @@
-# Camoufox Profile Manager 🦊
+# Camoufox Profile Manager
 
-> **⚠️ In Development** - Project is in active development
+[![CI](https://github.com/polyackiy/camoufox-profile-manager/actions/workflows/ci.yml/badge.svg)](https://github.com/polyackiy/camoufox-profile-manager/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![Camoufox 0.5.4](https://img.shields.io/badge/camoufox-0.5.4-orange.svg)](https://github.com/daijro/camoufox)
 
-Antidetect browser profile management system based on [Camoufox](https://github.com/daijro/camoufox).
+A self-hosted, open-source manager for [Camoufox](https://github.com/daijro/camoufox)
+antidetect browser profiles. Create and organize browser profiles with realistic,
+consistent fingerprints, launch them on demand, and drive everything through a REST
+API or a web interface — a free alternative to commercial tools like AdsPower,
+Multilogin, or GoLogin.
 
-## 🎯 Project Goal
+> **Status:** early release (`v0.1.0`). The core works and is tested; expect the
+> occasional rough edge and API changes before `1.0`.
 
-Creating an open-source alternative to commercial antidetect browser profile management systems (AdsPower, Multilogin, GoLogin) using the Firefox-based Camoufox browser.
+<!-- Add a screenshot of the web UI here, e.g. docs/assets/screenshot-profiles.png -->
 
-## 🚀 Planned Features
+## Features
 
-### Profile Management
-- Create and manage unlimited number of profiles
-- Generate realistic browser fingerprints
-- Automatic device characteristics rotation
-- Save cookies, localStorage and sessions
-- Profile cloning and export/import
+- **Profiles & groups** — full CRUD, cloning, bulk operations, search, and pagination.
+- **Realistic fingerprints** — Camoufox generates consistent fingerprints; the
+  manager sets high-level constraints (OS, screen, region → locale/timezone/geo,
+  hardware) and lets the browser own the details.
+- **Browser control** — launch, monitor, and close Camoufox sessions per profile.
+- **Proxy support** — HTTP/HTTPS/SOCKS proxies; passwords encrypted at rest.
+- **Excel import/export** — manage profiles in bulk via `.xlsx`.
+- **REST API + web UI** — FastAPI backend with OpenAPI docs and a Next.js frontend.
+- **Optional Chrome migration** — import cookies/history from your own Chrome
+  profiles (see [`extras/chrome_migration`](extras/chrome_migration/README.md)).
 
-### Web Interface
-- Modern web interface for profile management
-- Dashboard with analytics and statistics
-- Bulk operations on profiles
-- Search and filtering
+## Requirements
 
-### API and Integration
-- REST API for automation
-- WebSocket for real-time updates
-- Integration with popular proxy services
-- Support for various export formats
+- Python 3.10+ and [uv](https://docs.astral.sh/uv/)
+- Node.js 20+ (for the web interface)
 
-## 🏗️ Architecture
+## Quick start
+
+### Backend (API)
+
+```bash
+# Install dependencies
+uv sync
+
+# Download the Camoufox browser binary (first run only)
+uv run camoufox fetch
+
+# (optional) seed some demo profiles
+uv run python examples/seed_demo.py
+
+# Start the API on http://127.0.0.1:8000 (docs at /docs)
+uv run python -m camoufox_pm.main
+```
+
+### Frontend (web UI)
+
+```bash
+cd web
+npm install
+npm run dev   # http://localhost:3000
+```
+
+The web UI proxies API calls to the backend, so no CORS setup is needed in
+development.
+
+## Configuration
+
+Settings come from environment variables (prefix `CPM_`). Copy `.env.example` to
+`.env` and edit as needed.
+
+| Variable           | Default                  | Description                                   |
+| ------------------ | ------------------------ | --------------------------------------------- |
+| `CPM_HOST`         | `127.0.0.1`              | API bind address                              |
+| `CPM_PORT`         | `8000`                   | API port                                      |
+| `CPM_CORS_ORIGINS` | `http://localhost:3000`  | Comma-separated allowed origins               |
+| `CPM_API_KEY`      | *(empty)*                | If set, required as the `X-API-Key` header    |
+| `CPM_DB_PATH`      | `data/profiles.db`       | SQLite database path                          |
+| `CPM_SECRET_KEY`   | *(empty)*                | Fernet key to encrypt proxy passwords at rest |
+
+## Architecture
 
 ```
-camoufox-profile-manager/
-├── backend/           # FastAPI server
-├── frontend/          # React/NextJS interface  
-├── core/             # Profile management logic
-├── database/         # SQLite database
-└── docs/             # Documentation
+src/camoufox_pm/
+├── main.py            # FastAPI app
+├── config.py          # environment-based settings
+├── core/              # models, database, profile & browser-session managers
+└── api/               # routes, request/response models, middleware
+web/                   # Next.js web interface
+extras/chrome_migration/  # optional Chrome → Camoufox migration
 ```
 
-## 🛠️ Technologies
+- **Backend:** Python, FastAPI, SQLite, Camoufox + Playwright.
+- **Frontend:** Next.js 15, React 19, TypeScript, Tailwind.
 
-- **Backend**: Python, FastAPI, SQLite
-- **Frontend**: React/NextJS, TypeScript
-- **Browser**: Camoufox (Firefox-based)
-- **Automation**: Playwright
+## Development
 
-## 📋 Roadmap
+See [CONTRIBUTING.md](CONTRIBUTING.md). In short:
 
-### Stage 1: Foundation (4-6 weeks)
-- [ ] Profile management system
-- [ ] Browser fingerprint generator
-- [ ] SQLite database
-- [ ] Basic Camoufox integration
+```bash
+uv sync --extra dev
+uv run ruff check src tests
+uv run mypy src/camoufox_pm
+uv run pytest -m "not browser"
+```
 
-### Stage 2: API (2-3 weeks)
-- [ ] REST API with FastAPI
-- [ ] WebSocket support
-- [ ] OpenAPI documentation
-- [ ] Authentication and authorization
+The roadmap lives in [docs/roadmap.md](docs/roadmap.md).
 
-### Stage 3: Web Interface (3-4 weeks)
-- [ ] React/NextJS frontend
-- [ ] Dashboard and analytics
-- [ ] Profile management through UI
-- [ ] Responsive design
+## Disclaimer
 
-### Stage 4: Advanced Features (2-3 weeks)
-- [ ] Task scheduler
-- [ ] Automatic profile rotation
-- [ ] Proxy service integration
-- [ ] Monitoring system
+This tool is for lawful use only — for example testing, privacy, and managing
+multiple accounts in accordance with each site's terms of service. You are
+responsible for how you use it. Antidetect browsing does not make any activity
+that would otherwise be against a service's rules acceptable.
 
-## 🎯 Advantages over Commercial Solutions
+## License
 
-| Parameter | Commercial | Camoufox PM |
-|-----------|------------|-------------|
-| Cost | $50-200/month | Free |
-| Source Code | Closed | Open |
-| Customization | Limited | Full |
-| Browser | Chromium | Firefox |
-| Profile Limits | Up to 1000 | Unlimited |
+[MIT](LICENSE) © Camoufox Profile Manager Contributors.
 
-## 🚦 Development Status
-
-- 🔄 **Planning**: Architecture and technical solutions
-- ⏳ **In Development**: Basic functionality
-- ❌ **Not Ready**: Public release
-
-## 🤝 Contributing
-
-Project is open for developer contributions:
-
-1. Fork the repository
-2. Create a feature branch
-3. Make changes
-4. Submit a Pull Request
-
-### Help needed with:
-- Backend development (Python/FastAPI)
-- Frontend development (React/TypeScript)
-- UI/UX design
-- Testing
-- Documentation
-
-## 📄 License
-
-MIT License
-
-## 📞 Contact
-
-- GitHub Issues for bugs and suggestions
-- GitHub Discussions for discussions
+Built on [Camoufox](https://github.com/daijro/camoufox) by daijro.
 
 ---
 
-> **Note**: Project is in active development. Not recommended for production use.
-
----
-
-# Camoufox Profile Manager 🦊 (Русский)
-
-> **⚠️ В разработке** - Проект находится в стадии активной разработки
-
-Система управления профилями антидетект браузера на базе [Camoufox](https://github.com/daijro/camoufox).
-
-## 🎯 Цель проекта
-
-Создание открытой альтернативы коммерческим системам управления профилями антидетект браузеров (AdsPower, Multilogin, GoLogin) с использованием Firefox-based браузера Camoufox.
-
-## 🚀 Планируемые возможности
-
-### Управление профилями
-- Создание и управление неограниченным количеством профилей
-- Генерация реалистичных отпечатков браузера
-- Автоматическая ротация характеристик устройства
-- Сохранение cookies, localStorage и сессий
-- Клонирование и экспорт/импорт профилей
-
-### Веб-интерфейс
-- Современный веб-интерфейс для управления профилями
-- Dashboard с аналитикой и статистикой
-- Массовые операции над профилями
-- Поиск и фильтрация
-
-### API и интеграция
-- REST API для автоматизации
-- WebSocket для real-time обновлений
-- Интеграция с популярными прокси-сервисами
-- Поддержка различных форматов экспорта
-
-## 🏗️ Архитектура
-
-```
-camoufox-profile-manager/
-├── backend/           # FastAPI сервер
-├── frontend/          # React/NextJS интерфейс  
-├── core/             # Логика управления профилями
-├── database/         # SQLite база данных
-└── docs/             # Документация
-```
-
-## 🛠️ Технологии
-
-- **Backend**: Python, FastAPI, SQLite
-- **Frontend**: React/NextJS, TypeScript
-- **Browser**: Camoufox (Firefox-based)
-- **Automation**: Playwright
-
-## 📋 Дорожная карта
-
-### Этап 1: Основа (4-6 недель)
-- [ ] Система управления профилями
-- [ ] Генератор отпечатков браузера
-- [ ] SQLite база данных
-- [ ] Базовая интеграция с Camoufox
-
-### Этап 2: API (2-3 недели)
-- [ ] REST API с FastAPI
-- [ ] WebSocket поддержка
-- [ ] OpenAPI документация
-- [ ] Аутентификация и авторизация
-
-### Этап 3: Веб-интерфейс (3-4 недели)
-- [ ] React/NextJS фронтенд
-- [ ] Dashboard и аналитика
-- [ ] Управление профилями через UI
-- [ ] Responsive дизайн
-
-### Этап 4: Расширенные функции (2-3 недели)
-- [ ] Планировщик задач
-- [ ] Автоматическая ротация профилей
-- [ ] Интеграция с прокси-сервисами
-- [ ] Система мониторинга
-
-## 🎯 Преимущества над коммерческими решениями
-
-| Параметр | Коммерческие | Camoufox PM |
-|----------|-------------|-------------|
-| Стоимость | $50-200/мес | Бесплатно |
-| Исходный код | Закрытый | Открытый |
-| Кастомизация | Ограниченная | Полная |
-| Браузер | Chromium | Firefox |
-| Лимиты профилей | До 1000 | Без лимитов |
-
-## 🚦 Статус разработки
-
-- 🔄 **Планирование**: Архитектура и технические решения
-- ⏳ **В разработке**: Базовая функциональность
-- ❌ **Не готово**: Публичный релиз
-
-## 🤝 Участие в разработке
-
-Проект открыт для участия разработчиков:
-
-1. Fork репозитория
-2. Создайте feature branch
-3. Внесите изменения
-4. Отправьте Pull Request
-
-### Нужна помощь с:
-- Backend разработка (Python/FastAPI)
-- Frontend разработка (React/TypeScript)
-- UI/UX дизайн
-- Тестирование
-- Документация
-
-## 📄 Лицензия
-
-MIT License
-
-## 📞 Связь
-
-- GitHub Issues для багов и предложений
-- GitHub Discussions для обсуждений
-
----
-
-> **Примечание**: Проект находится в активной разработке. Не рекомендуется для использования в продакшене. 
+Русская версия: [README.ru.md](README.ru.md).

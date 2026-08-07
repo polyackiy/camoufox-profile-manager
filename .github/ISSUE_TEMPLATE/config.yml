@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions & discussions
+    url: https://github.com/polyackiy/camoufox-profile-manager/discussions
+    about: Ask questions and share ideas in GitHub Discussions.
+  - name: Camoufox browser
+    url: https://github.com/daijro/camoufox
+    about: Issues with the Camoufox browser itself belong upstream.
