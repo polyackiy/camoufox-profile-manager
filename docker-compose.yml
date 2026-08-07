@@ -1,0 +1,25 @@
+# Run the whole stack with:  docker compose up
+# then open http://localhost:3000
+services:
+  api:
+    build: .
+    volumes:
+      - cpm-data:/data
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: web/Dockerfile
+      args:
+        API_PROXY_TARGET: http://api:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+    restart: unless-stopped
+
+volumes:
+  cpm-data:

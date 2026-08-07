@@ -36,6 +36,19 @@ Multilogin, or GoLogin.
 
 ## Quick start
 
+### Docker (easiest)
+
+If you have Docker, run the whole stack with one command:
+
+```bash
+docker compose up
+```
+
+Then open **http://localhost:3000**. Profile data persists in a Docker volume.
+(Launching real browsers inside a container needs a virtual display — see
+[docs/accessibility-roadmap.md](docs/accessibility-roadmap.md); profile
+management and the UI work out of the box.)
+
 ### Backend (API)
 
 ```bash

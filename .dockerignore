@@ -1,0 +1,15 @@
+.git
+.venv
+**/node_modules
+web/.next
+web/out
+data
+demo_data
+**/__pycache__
+.mypy_cache
+.pytest_cache
+.ruff_cache
+*.db
+*.sqlite
+.env
+docs/assets

@@ -6,6 +6,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- Docker support: `docker compose up` runs the API + web UI with a persistent
+  data volume.
+- A web UI screenshot in the README, from a full end-to-end run.
+- `docs/accessibility-roadmap.md` — a plan for reaching non-technical users.
+
+### Fixed
+- Committed the web API client (`web/src/lib/api.ts`, `utils.ts`) that the root
+  `.gitignore`'s Python `lib/` pattern was silently hiding, so the frontend now
+  builds in CI and in fresh clones.
+
 ## [0.1.0] - 2026-08-07
 
 First public release after a comprehensive revamp.
