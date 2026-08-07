@@ -50,7 +50,7 @@ async def list_profiles(
         if group:
             filters["group"] = group
         if search:
-            filters["name_contains"] = search
+            filters["name_like"] = search
 
         # Fetch the profiles
         profiles = await profile_manager.list_profiles(filters=filters)
@@ -70,10 +70,10 @@ async def list_profiles(
                     name=profile.name,
                     group=profile.group,
                     status=profile.status,
-                    browser_settings=profile.browser_settings.dict()
+                    browser_settings=profile.browser_settings.model_dump()
                     if profile.browser_settings
                     else {},
-                    proxy_config=profile.proxy.dict() if profile.proxy else None,
+                    proxy_config=profile.proxy.model_dump() if profile.proxy else None,
                     storage_path=profile.storage_path,
                     notes=profile.notes,
                     created_at=profile.created_at,
@@ -124,8 +124,8 @@ async def create_profile(request: ProfileCreateRequest):
             name=profile.name,
             group=profile.group,
             status=profile.status,
-            browser_settings=profile.browser_settings.dict() if profile.browser_settings else {},
-            proxy_config=profile.proxy.dict() if profile.proxy else None,
+            browser_settings=profile.browser_settings.model_dump() if profile.browser_settings else {},
+            proxy_config=profile.proxy.model_dump() if profile.proxy else None,
             storage_path=profile.storage_path,
             notes=profile.notes,
             created_at=profile.created_at,
@@ -160,8 +160,8 @@ async def get_profile(profile_id: str):
             name=profile.name,
             group=profile.group,
             status=profile.status,
-            browser_settings=profile.browser_settings.dict() if profile.browser_settings else {},
-            proxy_config=profile.proxy.dict() if profile.proxy else None,
+            browser_settings=profile.browser_settings.model_dump() if profile.browser_settings else {},
+            proxy_config=profile.proxy.model_dump() if profile.proxy else None,
             storage_path=profile.storage_path,
             notes=profile.notes,
             created_at=profile.created_at,
@@ -240,7 +240,7 @@ async def update_profile(profile_id: str, request: ProfileUpdateRequest):
             # Load the current profile to merge browser settings
             current_profile = await profile_manager.get_profile(profile_id)
             if current_profile and current_profile.browser_settings:
-                current_settings = current_profile.browser_settings.dict()
+                current_settings = current_profile.browser_settings.model_dump()
                 current_settings.update(browser_updates)
                 updates["browser_settings"] = current_settings
 
@@ -257,10 +257,10 @@ async def update_profile(profile_id: str, request: ProfileUpdateRequest):
             name=updated_profile.name,
             group=updated_profile.group,
             status=updated_profile.status,
-            browser_settings=updated_profile.browser_settings.dict()
+            browser_settings=updated_profile.browser_settings.model_dump()
             if updated_profile.browser_settings
             else {},
-            proxy_config=updated_profile.proxy.dict() if updated_profile.proxy else None,
+            proxy_config=updated_profile.proxy.model_dump() if updated_profile.proxy else None,
             storage_path=updated_profile.storage_path,
             notes=updated_profile.notes,
             created_at=updated_profile.created_at,
@@ -365,10 +365,10 @@ async def clone_profile(profile_id: str, request: ProfileCloneRequest):
             name=cloned_profile.name,
             group=cloned_profile.group,
             status=cloned_profile.status,
-            browser_settings=cloned_profile.browser_settings.dict()
+            browser_settings=cloned_profile.browser_settings.model_dump()
             if cloned_profile.browser_settings
             else {},
-            proxy_config=cloned_profile.proxy.dict() if cloned_profile.proxy else None,
+            proxy_config=cloned_profile.proxy.model_dump() if cloned_profile.proxy else None,
             storage_path=cloned_profile.storage_path,
             notes=cloned_profile.notes,
             created_at=cloned_profile.created_at,
@@ -444,10 +444,10 @@ async def reset_profile_fingerprint(profile_id: str):
             name=updated_profile.name,
             group=updated_profile.group,
             status=updated_profile.status,
-            browser_settings=updated_profile.browser_settings.dict()
+            browser_settings=updated_profile.browser_settings.model_dump()
             if updated_profile.browser_settings
             else {},
-            proxy_config=updated_profile.proxy.dict() if updated_profile.proxy else None,
+            proxy_config=updated_profile.proxy.model_dump() if updated_profile.proxy else None,
             storage_path=updated_profile.storage_path,
             notes=updated_profile.notes,
             created_at=updated_profile.created_at,
