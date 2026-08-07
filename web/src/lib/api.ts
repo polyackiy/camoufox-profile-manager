@@ -38,6 +38,17 @@ export interface ProxyConfig {
   country?: string | null
 }
 
+/** A short description of the machine a profile is pinned to. */
+export interface FingerprintSummary {
+  user_agent?: string | null
+  platform?: string | null
+  hardware_concurrency?: number | null
+  screen?: string | null
+  gpu?: string | null
+  font_count?: number | null
+  property_count?: number
+}
+
 export interface Profile {
   id: string
   name: string
@@ -51,6 +62,7 @@ export interface Profile {
   created_at: string
   updated_at?: string
   last_used?: string | null
+  fingerprint?: FingerprintSummary | null
 }
 
 export interface ProfilesResponse {

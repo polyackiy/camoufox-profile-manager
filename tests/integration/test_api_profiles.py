@@ -168,6 +168,36 @@ async def test_omitted_fields_are_left_alone(client):
 
 
 @pytest.mark.asyncio
+async def test_fingerprint_is_absent_until_the_first_launch(client):
+    """A profile has no pinned machine until it is opened for the first time."""
+    created = await client.post("/api/profiles", json={"name": "unlaunched"})
+    assert created.json()["fingerprint"] is None
+
+
+@pytest.mark.asyncio
+async def test_regenerating_drops_the_pinned_machine(client):
+    """Otherwise the profile would keep its old hardware forever."""
+    from camoufox_pm.api.dependencies import get_profile_manager
+
+    created = await client.post("/api/profiles", json={"name": "repin"})
+    profile_id = created.json()["id"]
+
+    # Pin a machine the way a first launch would, using the manager the client
+    # is wired to rather than a second one over a different database.
+    manager = get_profile_manager()
+    profile = await manager.get_profile(profile_id)
+    profile.fingerprint = {"navigator.userAgent": "pinned", "screen.width": 1920}
+    await manager.storage.update_profile(profile)
+
+    stored = await client.get(f"/api/profiles/{profile_id}")
+    assert stored.json()["fingerprint"]["user_agent"] == "pinned"
+
+    reset = await client.post(f"/api/profiles/{profile_id}/reset-fingerprint")
+    assert reset.status_code == 200
+    assert reset.json()["fingerprint"] is None
+
+
+@pytest.mark.asyncio
 async def test_invalid_browser_settings_are_rejected_not_500(client):
     """browser_settings is a free-form dict, so bad values must read as 422."""
     created = await client.post("/api/profiles", json={"name": "bad"})

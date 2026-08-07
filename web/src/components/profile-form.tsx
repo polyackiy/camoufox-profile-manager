@@ -5,7 +5,7 @@ import { Loader2, RefreshCw } from 'lucide-react'
 
 import { Modal } from '@/components/modal'
 import { useToast } from '@/components/toast'
-import { profilesAPI, type Group, type Profile } from '@/lib/api'
+import { profilesAPI, type FingerprintSummary, type Group, type Profile } from '@/lib/api'
 
 interface FormState {
   name: string
@@ -401,6 +401,8 @@ export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) 
             )}
         </Section>
 
+        {isEdit && <PinnedMachine fingerprint={profile.fingerprint} />}
+
         <Section
           title="Fingerprint"
           hint="Camoufox keeps the fingerprint internally consistent; only override what you need."
@@ -536,6 +538,56 @@ export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) 
         </Section>
       </form>
     </Modal>
+  )
+}
+
+/**
+ * The machine a profile is pinned to. Without this the profile would look like
+ * different hardware every session, so it is worth showing that it does not.
+ */
+function PinnedMachine({ fingerprint }: { fingerprint?: FingerprintSummary | null }) {
+  if (!fingerprint) {
+    return (
+      <fieldset>
+        <legend className="mb-0.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-faint">
+          Machine
+        </legend>
+        <p className="text-ink-faint">
+          Assigned on the first launch, then reused every time so this profile stays the same
+          computer.
+        </p>
+      </fieldset>
+    )
+  }
+
+  const rows: [string, string | number | null | undefined][] = [
+    ['User agent', fingerprint.user_agent],
+    ['Screen', fingerprint.screen],
+    ['CPU cores', fingerprint.hardware_concurrency],
+    ['GPU', fingerprint.gpu],
+    ['Fonts', fingerprint.font_count],
+  ]
+
+  return (
+    <fieldset>
+      <legend className="mb-0.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-faint">
+        Machine
+      </legend>
+      <p className="mb-2.5 text-ink-faint">
+        Pinned across launches — {fingerprint.property_count} properties. Regenerate the
+        fingerprint to move this profile to different hardware.
+      </p>
+      <div className="panel divide-y divide-line">
+        {rows
+          .filter(([, value]) => value !== null && value !== undefined && value !== '')
+          .map(([label, value]) => (
+            <div key={label} className="flex gap-3 px-3 py-1.5">
+              <span className="w-[92px] shrink-0 text-ink-dim">{label}</span>
+              <span className="min-w-0 flex-1 break-all font-mono text-ink">{value}</span>
+            </div>
+          ))}
+      </div>
+    </fieldset>
   )
 }
 

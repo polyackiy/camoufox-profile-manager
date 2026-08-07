@@ -8,6 +8,7 @@ from typing import Any
 
 from loguru import logger
 
+from . import fingerprint_store
 from .browser_session import BrowserSessionManager
 from .database import StorageManager
 from .fingerprint_generator import FingerprintGenerator
@@ -280,6 +281,10 @@ class ProfileManager:
         # Generate a new fingerprint
         new_fingerprint = await self.fingerprint_generator.generate_fingerprint()
         profile.browser_settings = new_fingerprint
+        # Drop the pinned machine too, otherwise the profile would keep the old
+        # hardware forever and only its high-level settings would change. The
+        # next launch resolves and pins a new one.
+        profile.fingerprint = None
         profile.updated_at = datetime.now()
 
         # Persist the change
@@ -516,8 +521,6 @@ class ProfileManager:
                 "process_id": session.process_id,
             }
 
-        await self.update_profile(profile_id, {"last_used": datetime.now()})
-
         options = profile.to_camoufox_launch_options()
         options["headless"] = headless
         if window_size:
@@ -528,6 +531,24 @@ class ProfileManager:
             except ValueError:
                 logger.warning(f"Ignoring invalid window_size {window_size!r} (expected WxH)")
         options.update(kwargs)
+
+        # Pin the machine on the first launch and replay it on every one after,
+        # so the profile is the same computer each session instead of new
+        # hardware every time. The profile's own overrides still win, and geo,
+        # timezone and WebRTC stay dynamic so they follow the proxy.
+        pinned = profile.fingerprint
+        if not pinned:
+            pinned = fingerprint_store.resolve(options)
+            if pinned:
+                profile.fingerprint = pinned
+        if pinned:
+            options["config"] = {**pinned, **options.get("config", {})}
+
+        # One write for both the pin and the timestamp, after the options are
+        # built, so neither can be clobbered by a stale copy of the profile.
+        profile.last_used = datetime.now()
+        profile.updated_at = datetime.now()
+        await self.storage.update_profile(profile)
 
         await self.storage.log_usage(
             UsageStats(

@@ -171,6 +171,11 @@ class Profile(BaseModel):
     storage_path: str | None = None
     notes: str | None = None
 
+    # The machine this profile pretends to be, resolved once on first launch and
+    # replayed from then on so the profile does not look like new hardware every
+    # session. See core/fingerprint_store.py for what is frozen and what is not.
+    fingerprint: dict[str, Any] | None = None
+
     def get_storage_path(self, base_path: str = "data/profiles") -> str:
         """Return (and lazily assign) the on-disk path for this profile's data."""
         if not self.storage_path:

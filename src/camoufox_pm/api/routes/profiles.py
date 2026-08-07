@@ -66,23 +66,7 @@ async def list_profiles(
         # Convert to API models
         profile_responses = []
         for profile in paginated_profiles:
-            profile_responses.append(
-                ProfileResponse(
-                    id=profile.id,
-                    name=profile.name,
-                    group=profile.group,
-                    status=profile.status,
-                    browser_settings=profile.browser_settings.model_dump()
-                    if profile.browser_settings
-                    else {},
-                    proxy_config=profile.proxy.model_dump() if profile.proxy else None,
-                    storage_path=profile.storage_path,
-                    notes=profile.notes,
-                    created_at=profile.created_at,
-                    updated_at=profile.updated_at,
-                    last_used=profile.last_used,
-                )
-            )
+            profile_responses.append(ProfileResponse.from_profile(profile))
 
         return ProfileListResponse(
             profiles=profile_responses,
@@ -122,21 +106,7 @@ async def create_profile(request: ProfileCreateRequest):
 
         logger.info(f"Created profile: {profile.name} (ID: {profile.id})")
 
-        return ProfileResponse(
-            id=profile.id,
-            name=profile.name,
-            group=profile.group,
-            status=profile.status,
-            browser_settings=profile.browser_settings.model_dump()
-            if profile.browser_settings
-            else {},
-            proxy_config=profile.proxy.model_dump() if profile.proxy else None,
-            storage_path=profile.storage_path,
-            notes=profile.notes,
-            created_at=profile.created_at,
-            updated_at=profile.updated_at,
-            last_used=profile.last_used,
-        )
+        return ProfileResponse.from_profile(profile)
 
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
@@ -160,21 +130,7 @@ async def get_profile(profile_id: str):
         if not profile:
             raise HTTPException(status_code=404, detail=f"Profile with ID {profile_id} not found")
 
-        return ProfileResponse(
-            id=profile.id,
-            name=profile.name,
-            group=profile.group,
-            status=profile.status,
-            browser_settings=profile.browser_settings.model_dump()
-            if profile.browser_settings
-            else {},
-            proxy_config=profile.proxy.model_dump() if profile.proxy else None,
-            storage_path=profile.storage_path,
-            notes=profile.notes,
-            created_at=profile.created_at,
-            updated_at=profile.updated_at,
-            last_used=profile.last_used,
-        )
+        return ProfileResponse.from_profile(profile)
 
     except HTTPException:
         raise
@@ -267,21 +223,7 @@ async def update_profile(profile_id: str, request: ProfileUpdateRequest):
 
         logger.info(f"Updated profile: {updated_profile.name} (ID: {profile_id})")
 
-        return ProfileResponse(
-            id=updated_profile.id,
-            name=updated_profile.name,
-            group=updated_profile.group,
-            status=updated_profile.status,
-            browser_settings=updated_profile.browser_settings.model_dump()
-            if updated_profile.browser_settings
-            else {},
-            proxy_config=updated_profile.proxy.model_dump() if updated_profile.proxy else None,
-            storage_path=updated_profile.storage_path,
-            notes=updated_profile.notes,
-            created_at=updated_profile.created_at,
-            updated_at=updated_profile.updated_at,
-            last_used=updated_profile.last_used,
-        )
+        return ProfileResponse.from_profile(updated_profile)
 
     except HTTPException:
         raise
@@ -385,21 +327,7 @@ async def clone_profile(profile_id: str, request: ProfileCloneRequest):
 
         logger.info(f"Cloned profile: {profile_id} -> {cloned_profile.id}")
 
-        return ProfileResponse(
-            id=cloned_profile.id,
-            name=cloned_profile.name,
-            group=cloned_profile.group,
-            status=cloned_profile.status,
-            browser_settings=cloned_profile.browser_settings.model_dump()
-            if cloned_profile.browser_settings
-            else {},
-            proxy_config=cloned_profile.proxy.model_dump() if cloned_profile.proxy else None,
-            storage_path=cloned_profile.storage_path,
-            notes=cloned_profile.notes,
-            created_at=cloned_profile.created_at,
-            updated_at=cloned_profile.updated_at,
-            last_used=cloned_profile.last_used,
-        )
+        return ProfileResponse.from_profile(cloned_profile)
 
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
@@ -466,21 +394,7 @@ async def reset_profile_fingerprint(profile_id: str):
 
         logger.info(f"Reset fingerprint for profile: {updated_profile.name} (ID: {profile_id})")
 
-        return ProfileResponse(
-            id=updated_profile.id,
-            name=updated_profile.name,
-            group=updated_profile.group,
-            status=updated_profile.status,
-            browser_settings=updated_profile.browser_settings.model_dump()
-            if updated_profile.browser_settings
-            else {},
-            proxy_config=updated_profile.proxy.model_dump() if updated_profile.proxy else None,
-            storage_path=updated_profile.storage_path,
-            notes=updated_profile.notes,
-            created_at=updated_profile.created_at,
-            updated_at=updated_profile.updated_at,
-            last_used=updated_profile.last_used,
-        )
+        return ProfileResponse.from_profile(updated_profile)
 
     except HTTPException:
         raise

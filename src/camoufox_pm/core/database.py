@@ -51,8 +51,30 @@ class DatabaseManager:
         self._connection.execute("PRAGMA journal_mode = WAL")
 
         await self._create_tables()
+        await self._migrate()
         await self._create_indexes()
         logger.info("Database initialized")
+
+    async def _migrate(self):
+        """Bring an existing database up to the current schema.
+
+        Tables are created with ``CREATE TABLE IF NOT EXISTS``, so a database made
+        by an older version keeps its original columns forever. Each entry here
+        adds one column when it is missing; adding a column is safe to re-run and
+        never touches existing rows.
+        """
+        added_columns = {
+            "profiles": [("fingerprint", "TEXT")],
+        }
+        for table, columns in added_columns.items():
+            cursor = self._connection.execute(f"PRAGMA table_info({table})")
+            existing = {row["name"] for row in cursor.fetchall()}
+            for name, column_type in columns:
+                if name in existing:
+                    continue
+                self._connection.execute(f"ALTER TABLE {table} ADD COLUMN {name} {column_type}")
+                logger.info(f"Migrated {table}: added column {name}")
+        self._connection.commit()
 
     async def _create_tables(self):
         """Create the database tables."""
@@ -123,8 +145,9 @@ class DatabaseManager:
             """
             INSERT OR REPLACE INTO profiles (
                 id, name, group_id, status, browser_settings, proxy_config,
-                extensions, storage_path, notes, created_at, updated_at, last_used
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                extensions, storage_path, notes, created_at, updated_at, last_used,
+                fingerprint
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
             (
                 profile.id,
@@ -139,6 +162,7 @@ class DatabaseManager:
                 profile.created_at.isoformat(),
                 profile.updated_at.isoformat(),
                 profile.last_used.isoformat() if profile.last_used else None,
+                json.dumps(profile.fingerprint) if profile.fingerprint else None,
             ),
         )
         self._connection.commit()
@@ -344,6 +368,13 @@ class DatabaseManager:
         # Parse extensions
         extensions = json.loads(row["extensions"]) if row["extensions"] else []
 
+        # Present only once the profile has been launched, and absent entirely on
+        # rows written before the column existed.
+        keys = row.keys()
+        fingerprint = (
+            json.loads(row["fingerprint"]) if "fingerprint" in keys and row["fingerprint"] else None
+        )
+
         return Profile(
             id=row["id"],
             name=row["name"],
@@ -357,6 +388,7 @@ class DatabaseManager:
             created_at=datetime.fromisoformat(row["created_at"]),
             updated_at=datetime.fromisoformat(row["updated_at"]),
             last_used=datetime.fromisoformat(row["last_used"]) if row["last_used"] else None,
+            fingerprint=fingerprint,
         )
 
     async def close(self):

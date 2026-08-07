@@ -7,6 +7,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Profiles keep the same machine across launches.** Camoufox resolves a new
+  fingerprint every time it starts, so the same profile used to report different
+  hardware each session — different screen, CPU count and GPU — which is exactly
+  what a long-lived account must never do. The first launch now resolves the
+  fingerprint once and stores it, and every later launch replays it. Location,
+  timezone, locale and WebRTC are deliberately left dynamic so they keep
+  following the proxy. The profile form shows the pinned machine, and
+  *Regenerate fingerprint* moves the profile to new hardware.
+- First schema migration step: existing databases gain the `fingerprint` column
+  instead of silently keeping the old layout (tables were only ever created with
+  `CREATE TABLE IF NOT EXISTS`).
 - **Create a profile from the web UI.** The interface had no way to create one —
   the product's core action was reachable only by calling the API directly. One
   form now serves create and edit, covering identity, proxy and the fingerprint
