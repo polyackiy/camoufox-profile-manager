@@ -82,7 +82,7 @@ Status: the foundation is in place and verified on macOS.
   produce a PyInstaller bundle (and a macOS `.app`) that runs with no Python or
   Node installed. The macOS `.app` is verified to serve the UI and API.
 - **CI** — `.github/workflows/desktop.yml` builds macOS/Windows/Linux bundles on
-  demand and can attach them to a release.
+  demand (all three are green) and can attach them to a release.
 
 Remaining (need maintainer resources, so not automated here):
 - **Code signing & notarization** — Apple Developer ID + notarization for macOS,
