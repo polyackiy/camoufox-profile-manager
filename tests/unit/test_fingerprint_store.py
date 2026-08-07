@@ -98,3 +98,12 @@ def test_summarize_reports_the_values_a_user_recognises():
 def test_summarize_without_a_pin():
     assert fingerprint_store.summarize(None) is None
     assert fingerprint_store.summarize({}) is None
+
+
+def test_get_preset_rejects_malformed_ids():
+    """Only ids that name a real preset resolve; a negative index is not one."""
+    # "<os>:-1" must not index from the end and resolve to the last preset.
+    assert fingerprint_store.get_preset("windows:-1") is None
+    assert fingerprint_store.get_preset("windows:") is None
+    assert fingerprint_store.get_preset("windows:notanumber") is None
+    assert fingerprint_store.get_preset("nosuchos:0") is None

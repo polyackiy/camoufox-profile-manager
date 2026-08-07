@@ -521,6 +521,9 @@ class ProfileManager:
         # the profile it came from.
         profile.id = generate_profile_id()
         profile.storage_path = None
+        # The group id belongs to the source instance and would dangle here; the
+        # user can reassign the profile to a local group.
+        profile.group = None
         data_dir = Path(profile.get_storage_path(str(self.profiles_dir)))
 
         profile_archive.extract_data(source, data_dir)

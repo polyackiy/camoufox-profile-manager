@@ -174,10 +174,16 @@ def get_preset(preset_id: str) -> dict[str, Any] | None:
     os_name, _, index = preset_id.partition(":")
     entries = _presets().get(os_name, [])
     try:
-        return entries[int(index)]
-    except (ValueError, IndexError):
+        position = int(index)
+    except ValueError:
         logger.warning(f"Unknown fingerprint preset {preset_id!r}")
         return None
+    # Reject negatives explicitly: "windows:-1" would otherwise index from the
+    # end and resolve to a real preset the id was never meant to name.
+    if 0 <= position < len(entries):
+        return entries[position]
+    logger.warning(f"Unknown fingerprint preset {preset_id!r}")
+    return None
 
 
 def summarize(fingerprint: dict[str, Any] | None) -> dict[str, Any] | None:

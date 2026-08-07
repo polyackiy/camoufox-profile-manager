@@ -92,7 +92,8 @@ class DatabaseManager:
                 notes TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                last_used TIMESTAMP
+                last_used TIMESTAMP,
+                fingerprint TEXT
             )
         """)
 

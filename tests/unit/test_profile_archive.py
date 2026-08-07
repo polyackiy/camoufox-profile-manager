@@ -113,6 +113,21 @@ def test_entries_cannot_escape_the_profile_directory(tmp_path):
     assert not (tmp_path / "escaped.txt").exists()
 
 
+def test_extract_refuses_an_oversized_archive(tmp_path, monkeypatch):
+    """A decompression bomb must not be allowed to fill the disk."""
+    monkeypatch.setattr(profile_archive, "_MAX_EXTRACTED_BYTES", 1000)
+
+    bomb = tmp_path / "bomb.zip"
+    with zipfile.ZipFile(bomb, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("manifest.json", json.dumps({"format_version": 1}))
+        archive.writestr("profile.json", json.dumps({"name": "bomb"}))
+        # Highly compressible, so the archive stays tiny while the payload is huge.
+        archive.writestr("data/huge.bin", b"\0" * 10_000)
+
+    with pytest.raises(ValueError, match="larger than the import limit"):
+        profile_archive.extract_data(bomb, tmp_path / "target")
+
+
 def test_export_survives_a_missing_data_directory(tmp_path):
     """A profile that has never been launched has no directory yet."""
     archive_path = tmp_path / "out.zip"

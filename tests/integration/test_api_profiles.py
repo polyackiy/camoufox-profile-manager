@@ -198,6 +198,8 @@ async def test_a_profile_round_trips_through_an_archive(client):
     assert restored["browser_settings"]["timezone"] == "Europe/Berlin"
     assert restored["proxy_config"]["server"] == "1.2.3.4:8080"
     assert restored["id"] != original["id"], "an import must not collide with its source"
+    # The source's group id is local to that instance; it must not dangle here.
+    assert restored["group"] is None
 
 
 @pytest.mark.asyncio
