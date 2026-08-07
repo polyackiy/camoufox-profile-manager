@@ -25,12 +25,16 @@ jobs:
         run: uv sync
       - name: Build the web UI into the package
         run: uv run python scripts/build_webui.py
-      - name: Build wheel and sdist
-        run: uv build
+      - name: Build wheel (from source, includes the bundled UI) and sdist
+        run: |
+          uv build --wheel
+          uv build --sdist
       - name: Attach artifacts to the GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/*
+          files: |
+            dist/*.whl
+            dist/*.tar.gz
           generate_release_notes: true
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4

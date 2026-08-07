@@ -66,6 +66,22 @@ packages = ["src/camoufox_pm"]
 # include it explicitly when building a wheel.
 artifacts = ["src/camoufox_pm/webui/**"]
 
+[tool.hatch.build.targets.sdist]
+# Ship source only — keep the huge web build artifacts out of the sdist.
+exclude = [
+    "/web/node_modules",
+    "/web/.next",
+    "/web/out",
+    "/src/camoufox_pm/webui",
+    "/dist",
+    "/.venv",
+    "/.mypy_cache",
+    "/.pytest_cache",
+    "/.ruff_cache",
+    "/data",
+    "/demo_data",
+]
+
 [tool.ruff]
 line-length = 100
 target-version = "py310"
