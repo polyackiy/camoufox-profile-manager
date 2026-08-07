@@ -1,225 +1,233 @@
 """
-Простой тест для проверки функциональности миграции Chrome
+Smoke tests for the Chrome migration module.
 """
 
 import asyncio
 import sys
 from pathlib import Path
+
 from loguru import logger
 
-# Добавляем путь к модулям
+# Add the module path
 sys.path.append(str(Path(__file__).parent))
 
 
 async def test_chrome_detection():
-    """Тест обнаружения профилей Chrome"""
-    logger.info("🧪 Тест обнаружения профилей Chrome")
-    
+    """Test Chrome profile discovery."""
+    logger.info("Test: Chrome profile discovery")
+
     try:
         from .importer import ChromeProfileImporter
-        
+
         importer = ChromeProfileImporter()
-        
-        # Показываем информацию о системе
-        logger.info(f"Операционная система: {importer.system}")
-        logger.info(f"Пути поиска Chrome: {importer.chrome_data_paths}")
-        
-        # Ищем профили
+
+        # Show system information
+        logger.info(f"Operating system: {importer.system}")
+        logger.info(f"Chrome search paths: {importer.chrome_data_paths}")
+
+        # Find profiles
         profiles = importer.find_chrome_profiles()
-        
+
         if profiles:
-            logger.success(f"✅ Найдено {len(profiles)} профилей Chrome:")
+            logger.info(f"Found {len(profiles)} Chrome profiles:")
             for i, profile in enumerate(profiles, 1):
                 logger.info(f"  {i}. {profile['display_name']} ({profile['name']})")
-                logger.info(f"     Путь: {profile['path']}")
-                logger.info(f"     Куки: {'✓' if profile['has_cookies'] else '✗'}")
-                
-                # Проверяем существование файлов
-                profile_path = Path(profile['path'])
-                cookies_path = Path(profile['cookies_path']) if profile['cookies_path'] else None
-                
-                logger.info(f"     Директория существует: {'✓' if profile_path.exists() else '✗'}")
+                logger.info(f"     Path: {profile['path']}")
+                logger.info(f"     Cookies: {'yes' if profile['has_cookies'] else 'no'}")
+
+                # Check that the files exist
+                profile_path = Path(profile["path"])
+                cookies_path = Path(profile["cookies_path"]) if profile["cookies_path"] else None
+
+                logger.info(f"     Directory exists: {'yes' if profile_path.exists() else 'no'}")
                 if cookies_path:
-                    logger.info(f"     Файл куков существует: {'✓' if cookies_path.exists() else '✗'}")
+                    logger.info(
+                        f"     Cookie file exists: {'yes' if cookies_path.exists() else 'no'}"
+                    )
         else:
-            logger.warning("❌ Профили Chrome не найдены")
-            logger.info("💡 Возможные причины:")
-            logger.info("   - Chrome не установлен")
-            logger.info("   - Профили находятся в другом месте")
-            logger.info("   - Нет прав доступа")
-        
+            logger.warning("No Chrome profiles found")
+            logger.info("Possible reasons:")
+            logger.info("   - Chrome is not installed")
+            logger.info("   - Profiles are stored elsewhere")
+            logger.info("   - No access permissions")
+
         return len(profiles) > 0
-        
+
     except Exception as e:
-        logger.error(f"❌ Ошибка теста обнаружения Chrome: {e}")
+        logger.error(f"Chrome discovery test error: {e}")
         return False
 
 
 async def test_basic_migration():
-    """Тест базовой функциональности миграции"""
-    logger.info("🧪 Тест базовой миграции")
-    
+    """Test basic migration functionality."""
+    logger.info("Test: basic migration")
+
     try:
         from camoufox_pm.core.database import StorageManager
         from camoufox_pm.core.profile_manager import ProfileManager
+
         from .migration_manager import ChromeMigrationManager
-        
-        # Инициализация
+
+        # Initialization
         storage = StorageManager()
         await storage.initialize()
-        
+
         profile_manager = ProfileManager(storage)
         await profile_manager.initialize()
-        
+
         migration_manager = ChromeMigrationManager(profile_manager)
-        
-        # Тест обнаружения профилей
+
+        # Test profile discovery
         chrome_profiles = await migration_manager.discover_chrome_profiles()
-        
+
         if not chrome_profiles:
-            logger.warning("⚠️ Профили Chrome не найдены, пропускаем тест миграции")
+            logger.warning("No Chrome profiles found; skipping the migration test")
             return True
-        
-        logger.info(f"Найдено {len(chrome_profiles)} профилей Chrome")
-        
-        # Тест генерации шаблона маппинга
+
+        logger.info(f"Found {len(chrome_profiles)} Chrome profiles")
+
+        # Test mapping-template generation
         template_path = await migration_manager.generate_mapping_template(
             output_path="test_chrome_mapping.yaml"
         )
-        logger.success(f"✅ Шаблон маппинга создан: {template_path}")
-        
-        # Тест статуса миграции
+        logger.info(f"Mapping template created: {template_path}")
+
+        # Test migration status
         status = await migration_manager.get_migration_status()
-        logger.info(f"Статус миграции:")
-        logger.info(f"  Chrome профилей: {status['chrome_profiles_found']}")
-        logger.info(f"  Camoufox профилей: {status['camoufox_profiles_total']}")
-        logger.info(f"  Уже мигрированных: {status['migrated_profiles']}")
-        
-        # Тест сухого прогона
+        logger.info("Migration status:")
+        logger.info(f"  Chrome profiles: {status['chrome_profiles_found']}")
+        logger.info(f"  Camoufox profiles: {status['camoufox_profiles_total']}")
+        logger.info(f"  Already migrated: {status['migrated_profiles']}")
+
+        # Test the dry run
         dry_run_result = await migration_manager.migrate_all_profiles(dry_run=True)
-        logger.info(f"Сухой прогон: будет обработано {dry_run_result['chrome_profiles_found']} профилей")
-        
-        logger.success("✅ Базовый тест миграции прошел успешно")
+        logger.info(
+            f"Dry run: {dry_run_result['chrome_profiles_found']} profiles would be processed"
+        )
+
+        logger.info("Basic migration test passed")
         return True
-        
+
     except Exception as e:
-        logger.error(f"❌ Ошибка базового теста миграции: {e}")
+        logger.error(f"Basic migration test error: {e}")
         import traceback
+
         logger.error(traceback.format_exc())
         return False
 
 
 async def test_config_generation():
-    """Тест генерации конфигурации"""
-    logger.info("🧪 Тест генерации конфигурации")
-    
+    """Test configuration generation."""
+    logger.info("Test: configuration generation")
+
     try:
-        # Тестируем загрузку дефолтной конфигурации
-        from .migration_manager import ChromeMigrationManager
-        from camoufox_pm.core.profile_manager import ProfileManager
+        # Test loading the default configuration
         from camoufox_pm.core.database import StorageManager
-        
+        from camoufox_pm.core.profile_manager import ProfileManager
+
+        from .migration_manager import ChromeMigrationManager
+
         storage = StorageManager()
         await storage.initialize()
         profile_manager = ProfileManager(storage)
         await profile_manager.initialize()
-        
-        # Создаем менеджер с несуществующим конфигом (должен использовать дефолтный)
+
+        # Create a manager with a missing config (should use the default)
         migration_manager = ChromeMigrationManager(
-            profile_manager, 
-            config_path="nonexistent_config.yaml"
+            profile_manager, config_path="nonexistent_config.yaml"
         )
-        
-        # Проверяем, что дефолтная конфигурация загружена
+
+        # Check that the default configuration is loaded
         assert migration_manager.config is not None
         assert "default_migration_settings" in migration_manager.config
-        
-        logger.success("✅ Дефолтная конфигурация загружена")
-        
-        # Тестируем сохранение конфигурации
+
+        logger.info("Default configuration loaded")
+
+        # Test saving the configuration
         test_config_path = "test_chrome_config.yaml"
         migration_manager.config_path = test_config_path
         migration_manager.save_config()
-        
-        # Проверяем, что файл создан
+
+        # Check that the file was created
         config_file = Path(test_config_path)
         if config_file.exists():
-            logger.success(f"✅ Конфигурация сохранена: {test_config_path}")
-            
-            # Читаем и проверяем содержимое
+            logger.info(f"Configuration saved: {test_config_path}")
+
+            # Read and verify the contents
             import yaml
-            with open(test_config_path, 'r', encoding='utf-8') as f:
+
+            with open(test_config_path, encoding="utf-8") as f:
                 saved_config = yaml.safe_load(f)
-            
+
             assert saved_config is not None
             assert "default_migration_settings" in saved_config
-            
-            logger.success("✅ Конфигурация корректно сохранена и загружена")
-            
-            # Убираем тестовый файл
+
+            logger.info("Configuration saved and reloaded correctly")
+
+            # Remove the test file
             config_file.unlink()
         else:
-            logger.error("❌ Файл конфигурации не создан")
+            logger.error("Configuration file was not created")
             return False
-        
+
         return True
-        
+
     except Exception as e:
-        logger.error(f"❌ Ошибка теста конфигурации: {e}")
+        logger.error(f"Configuration test error: {e}")
         return False
 
 
 def test_chrome_paths():
-    """Тест определения путей Chrome"""
-    logger.info("🧪 Тест определения путей Chrome")
-    
+    """Test Chrome path resolution."""
+    logger.info("Test: Chrome path resolution")
+
     try:
         from .importer import ChromeProfileImporter
-        
+
         importer = ChromeProfileImporter()
-        
-        # Проверяем, что пути определены
+
+        # Check that the paths are resolved
         assert importer.chrome_data_paths is not None
         assert "profiles" in importer.chrome_data_paths
-        
-        logger.info(f"Система: {importer.system}")
-        logger.info(f"Путь к профилям: {importer.chrome_data_paths['profiles']}")
-        
-        # Проверяем, что пуь корректный для текущей ОС
-        profiles_path = importer.chrome_data_paths['profiles']
+
+        logger.info(f"System: {importer.system}")
+        logger.info(f"Profiles path: {importer.chrome_data_paths['profiles']}")
+
+        # Check that the path is correct for the current OS
+        profiles_path = importer.chrome_data_paths["profiles"]
         assert profiles_path != ""
-        
+
         if importer.system == "windows":
             assert "AppData" in profiles_path
         elif importer.system == "darwin":
             assert "Library" in profiles_path
         elif importer.system == "linux":
             assert ".config" in profiles_path
-        
-        logger.success("✅ Пути Chrome корректно определены")
+
+        logger.info("Chrome paths resolved correctly")
         return True
-        
+
     except Exception as e:
-        logger.error(f"❌ Ошибка теста путей Chrome: {e}")
+        logger.error(f"Chrome paths test error: {e}")
         return False
 
 
 async def run_all_tests():
-    """Запуск всех тестов"""
-    logger.info("🚀 Запуск тестов миграции Chrome")
+    """Run all tests."""
+    logger.info("Running Chrome migration tests")
     logger.info("=" * 50)
-    
+
     tests = [
-        ("Определение путей Chrome", test_chrome_paths),
-        ("Обнаружение профилей Chrome", test_chrome_detection),
-        ("Генерация конфигурации", test_config_generation),
-        ("Базовая функциональность миграции", test_basic_migration),
+        ("Chrome path resolution", test_chrome_paths),
+        ("Chrome profile discovery", test_chrome_detection),
+        ("Configuration generation", test_config_generation),
+        ("Basic migration functionality", test_basic_migration),
     ]
-    
+
     results = []
-    
+
     for test_name, test_func in tests:
-        logger.info(f"\n🔍 Выполняется: {test_name}")
+        logger.info(f"\nRunning: {test_name}")
         try:
             if asyncio.iscoroutinefunction(test_func):
                 result = await test_func()
@@ -227,35 +235,35 @@ async def run_all_tests():
                 result = test_func()
             results.append((test_name, result))
         except Exception as e:
-            logger.error(f"❌ Критическая ошибка в тесте '{test_name}': {e}")
+            logger.error(f"Fatal error in test '{test_name}': {e}")
             results.append((test_name, False))
-    
-    # Выводим итоги
-    logger.info("\n📊 Результаты тестов:")
+
+    # Print the totals
+    logger.info("\nTest results:")
     logger.info("=" * 50)
-    
+
     passed = 0
     total = len(results)
-    
+
     for test_name, result in results:
         if result:
             logger.success(f"✅ {test_name}")
             passed += 1
         else:
             logger.error(f"❌ {test_name}")
-    
-    logger.info(f"\n📈 Итого: {passed}/{total} тестов прошли успешно")
-    
+
+    logger.info(f"\nTotal: {passed}/{total} tests passed")
+
     if passed == total:
-        logger.success("🎉 Все тесты прошли успешно!")
-        logger.info("💡 Система миграции Chrome готова к использованию")
-        logger.info("📖 Запустите chrome_migration_wizard.py для интерактивной миграции")
+        logger.info("All tests passed!")
+        logger.info("The Chrome migration system is ready to use")
+        logger.info("Run wizard.py for interactive migration")
     else:
-        logger.warning(f"⚠️ {total - passed} тестов не прошли")
-        logger.info("🔧 Проверьте логи выше для устранения проблем")
-    
+        logger.warning(f"{total - passed} tests failed")
+        logger.info("Check the logs above to troubleshoot")
+
     return passed == total
 
 
 if __name__ == "__main__":
-    asyncio.run(run_all_tests()) 
+    asyncio.run(run_all_tests())

@@ -48,7 +48,7 @@ print(f"Найдено {len(chrome_profiles)} профилей Chrome")
 # Выбираем первый найденный профиль
 if chrome_profiles:
     first_profile = chrome_profiles[0]
-    
+
     # Создаем маппинг для миграции
     mapping = {
         "create_new_profile": True,
@@ -57,13 +57,13 @@ if chrome_profiles:
         "migration_settings": {
             "include_cookies": True,
             "include_bookmarks": True,
-            "include_history": False
-        }
+            "include_history": False,
+        },
     }
-    
+
     # Выполняем миграцию
     result = await migration_manager.migrate_profile(first_profile, mapping)
-    
+
     if result["success"]:
         print(f"✅ Миграция успешна! Создан профиль: {result['camoufox_profile_name']}")
     else:
@@ -165,7 +165,7 @@ python chrome_migration_wizard.py
 # Поиск профиля по имени
 chrome_profile = None
 for profile in chrome_profiles:
-    if profile['display_name'] == 'Работа':
+    if profile["display_name"] == "Работа":
         chrome_profile = profile
         break
 
@@ -182,8 +182,10 @@ print(f"Будет мигрировано: {dry_run_result['chrome_profiles_foun
 
 # Реальная миграция
 migration_result = await migration_manager.migrate_all_profiles()
-print(f"Успешно: {migration_result['profiles_migrated']}, "
-      f"Ошибки: {migration_result['profiles_failed']}")
+print(
+    f"Успешно: {migration_result['profiles_migrated']}, "
+    f"Ошибки: {migration_result['profiles_failed']}"
+)
 ```
 
 ### 4. Миграция с кастомным путем к Chrome
@@ -320,6 +322,7 @@ file: [Excel файл с маппингом]
 ```python
 # Проверка пути к Chrome
 from core.chrome_importer import ChromeProfileImporter
+
 importer = ChromeProfileImporter()
 print(f"Поиск в: {importer.chrome_data_paths}")
 ```
@@ -370,7 +373,7 @@ status = await migration_manager.get_migration_status()
 print(f"Мигрированных профилей: {status['migrated_profiles']}")
 
 # Детали мигрированных профилей
-for profile in status['migrated_profile_details']:
+for profile in status["migrated_profile_details"]:
     print(f"- {profile['name']} (ID: {profile['id']})")
 ```
 
