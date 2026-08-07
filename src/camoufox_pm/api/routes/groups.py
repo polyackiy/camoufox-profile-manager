@@ -146,7 +146,7 @@ async def delete_group(group_id: str):
         if not success:
             raise HTTPException(status_code=404, detail=f"Group with ID {group_id} not found")
         logger.info(f"Deleted group: ID {group_id}")
-        return ApiResponse(success=True, message=f"Group {group_id} deleted successfully")
+        return ApiResponse(success=True, message=f"Group {group_id} deleted successfully", data=None)
     except HTTPException:
         raise
     except Exception as exc:

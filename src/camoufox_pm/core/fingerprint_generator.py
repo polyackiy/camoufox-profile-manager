@@ -84,11 +84,11 @@ class FingerprintGenerator:
         ]
 
     async def generate_fingerprint(
-        self, constraints: dict[str, Any] | None = None
+        self, constraints: dict[str, Any] | BrowserSettings | None = None
     ) -> BrowserSettings:
         """Generate a set of high-level browser constraints."""
-        if hasattr(constraints, "model_dump"):
-            constraints = constraints.model_dump()  # type: ignore[union-attr]
+        if isinstance(constraints, BrowserSettings):
+            constraints = constraints.model_dump()
 
         os_choice = (constraints or {}).get("os") or random.choice(["windows", "macos", "linux"])
         region = (constraints or {}).get("region") or random.choice(list(self.language_sets))

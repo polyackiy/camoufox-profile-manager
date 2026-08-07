@@ -93,9 +93,10 @@ markers = [
 ]
 
 [tool.mypy]
-python_version = "3.10"
 packages = ["camoufox_pm"]
 ignore_missing_imports = true
+# Check our code only; third-party stubs (numpy via camoufox) can use newer syntax.
+follow_imports = "silent"
 
 [tool.coverage.run]
 source = ["src/camoufox_pm"]

@@ -7,7 +7,6 @@ Run explicitly (downloads the Camoufox binary the first time):
 """
 
 import pytest
-
 from camoufox import AsyncCamoufox
 
 from camoufox_pm.core.models import BrowserSettings, Profile

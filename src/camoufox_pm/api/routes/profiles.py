@@ -3,6 +3,7 @@ API routes for managing profiles.
 """
 
 import uuid
+from typing import Any
 
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile, status
 from fastapi.responses import Response
@@ -44,7 +45,7 @@ async def list_profiles(
         profile_manager = get_profile_manager()
 
         # Build the filters
-        filters = {}
+        filters: dict[str, Any] = {}
         if status:
             filters["status"] = status
         if group:
@@ -188,7 +189,7 @@ async def update_profile(profile_id: str, request: ProfileUpdateRequest):
         profile_manager = get_profile_manager()
 
         # Build the updates
-        updates = {}
+        updates: dict[str, Any] = {}
         if request.name is not None:
             updates["name"] = request.name
         if request.group is not None:
@@ -203,7 +204,7 @@ async def update_profile(profile_id: str, request: ProfileUpdateRequest):
             updates["notes"] = request.notes
 
         # Handle individual browser settings
-        browser_updates = {}
+        browser_updates: dict[str, Any] = {}
         if request.browser_os is not None:
             browser_updates["os"] = request.browser_os
         if request.browser_screen is not None:
@@ -292,7 +293,7 @@ async def delete_profile(profile_id: str):
 
         logger.info(f"Deleted profile: ID {profile_id}")
 
-        return ApiResponse(success=True, message=f"Profile {profile_id} deleted successfully")
+        return ApiResponse(success=True, message=f"Profile {profile_id} deleted successfully", data=None)
 
     except HTTPException:
         raise
@@ -357,6 +358,8 @@ async def clone_profile(profile_id: str, request: ProfileCloneRequest):
         cloned_profile = await profile_manager.clone_profile(
             profile_id, request.new_name, regenerate_fingerprint=request.regenerate_fingerprint
         )
+        if not cloned_profile:
+            raise HTTPException(status_code=404, detail=f"Profile with ID {profile_id} not found")
 
         logger.info(f"Cloned profile: {profile_id} -> {cloned_profile.id}")
 
@@ -436,6 +439,8 @@ async def reset_profile_fingerprint(profile_id: str):
 
         # Regenerate the fingerprint
         updated_profile = await profile_manager.rotate_profile_fingerprint(profile_id)
+        if not updated_profile:
+            raise HTTPException(status_code=404, detail=f"Profile with ID {profile_id} not found")
 
         logger.info(f"Reset fingerprint for profile: {updated_profile.name} (ID: {profile_id})")
 
@@ -499,7 +504,7 @@ async def import_profiles_from_excel(file: UploadFile = File(...)):
     """Import profiles from an Excel file."""
     try:
         # Validate the file type
-        if not file.filename.endswith((".xlsx", ".xls")):
+        if not file.filename or not file.filename.endswith((".xlsx", ".xls")):
             raise HTTPException(
                 status_code=400, detail="Only Excel files (.xlsx, .xls) are supported"
             )

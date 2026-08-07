@@ -58,7 +58,7 @@ class ProfileManager:
         # Apply user-provided browser settings
         if browser_settings:
             # If browser_settings is a BrowserSettings object, use it directly
-            if hasattr(browser_settings, "model_dump"):
+            if isinstance(browser_settings, BrowserSettings):
                 profile.browser_settings = browser_settings
             # If it is a dict, apply the fields
             elif isinstance(browser_settings, dict):

@@ -40,7 +40,7 @@ class DatabaseManager:
     def __init__(self, db_path: str = "data/profiles.db"):
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._connection = None
+        self._connection: sqlite3.Connection = None  # type: ignore[assignment]
         logger.info(f"DatabaseManager initialized with database: {self.db_path}")
 
     async def initialize(self):
@@ -363,7 +363,7 @@ class DatabaseManager:
         """Close the database connection."""
         if self._connection:
             self._connection.close()
-            self._connection = None
+            self._connection: sqlite3.Connection = None  # type: ignore[assignment]
         logger.info("Database connection closed")
 
 

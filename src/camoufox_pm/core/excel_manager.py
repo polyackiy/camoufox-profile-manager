@@ -203,7 +203,7 @@ class ExcelManager:
         """Import profiles from an Excel file."""
         logger.info("Importing profiles from Excel")
 
-        result = {
+        result: dict[str, Any] = {
             "success": True,
             "created_count": 0,
             "updated_count": 0,  # Always 0: import only creates new profiles
@@ -289,7 +289,7 @@ class ExcelManager:
 
     def _prepare_profile_updates(self, row_data: dict[str, str]) -> dict[str, Any]:
         """Build the profile-update payload from a row."""
-        updates = {}
+        updates: dict[str, Any] = {}
 
         # Core profile fields
         if row_data["name"]:
@@ -302,7 +302,7 @@ class ExcelManager:
             updates["notes"] = row_data["notes"]
 
         # Browser settings
-        browser_updates = {}
+        browser_updates: dict[str, Any] = {}
         if row_data["os"]:
             browser_updates["os"] = row_data["os"]
         if row_data["screen"]:
