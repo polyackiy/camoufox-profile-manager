@@ -146,10 +146,10 @@ class BrowserSettings(BaseModel):
             config["navigator.hardwareConcurrency"] = self.hardware_concurrency
         if self.max_touch_points:
             config["navigator.maxTouchPoints"] = self.max_touch_points
+        # Camoufox only exposes the public ICE address (webrtc:ipv4/ipv6); there is
+        # no local-IP config key, so webrtc_local_ips is intentionally not emitted.
         if self.webrtc_public_ip:
             config["webrtc:ipv4"] = self.webrtc_public_ip
-        if self.webrtc_local_ips:
-            config["webrtc:ipv4"] = self.webrtc_local_ips[0]
         return config
 
 
@@ -196,6 +196,10 @@ class Profile(BaseModel):
             # Let Camoufox derive geo/timezone from the proxy IP unless we set coordinates.
             "geoip": not bool(bs.geolocation),
         }
+        # "none" fully disables WebRTC; other modes use Camoufox's default handling
+        # (which reports the proxy's public IP when a proxy is set).
+        if bs.webrtc_mode == WebRTCMode.NONE:
+            options["block_webrtc"] = True
         if bs.window_width and bs.window_height:
             options["window"] = (bs.window_width, bs.window_height)
         if bs.fonts:

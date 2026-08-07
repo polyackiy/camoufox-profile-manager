@@ -54,3 +54,9 @@ jobs:
         run: npm run lint
       - name: Build
         run: npm run build
+      - name: Build (static export)
+        run: npm run build:static
+        env:
+          NEXT_EXPORT: "1"
+      - name: Verify static export output
+        run: test -f out/index.html

@@ -6,6 +6,7 @@ tolerates plaintext values written before a key was configured, easing migration
 """
 
 from cryptography.fernet import Fernet, InvalidToken
+from loguru import logger
 
 from camoufox_pm.config import get_settings
 
@@ -30,10 +31,20 @@ def encrypt(value: str) -> str:
 
 def decrypt(value: str) -> str:
     """Decrypt ``value``. Plaintext and unkeyed values pass through unchanged."""
+    if not value.startswith(_PREFIX):
+        return value
     fernet = _fernet()
-    if fernet is None or not value.startswith(_PREFIX):
+    if fernet is None:
+        logger.warning(
+            "Found an encrypted value but CPM_SECRET_KEY is not set; returning it "
+            "undecrypted. Set CPM_SECRET_KEY to the key used to encrypt it."
+        )
         return value
     try:
         return fernet.decrypt(value[len(_PREFIX) :].encode()).decode()
     except InvalidToken:
+        logger.warning(
+            "Failed to decrypt a stored secret (wrong CPM_SECRET_KEY or corrupted "
+            "data); returning the raw value."
+        )
         return value

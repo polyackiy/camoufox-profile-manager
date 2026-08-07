@@ -1,12 +1,20 @@
 # Run the whole stack with:  docker compose up
 # then open http://localhost:3000
+#
+# Ports are published to loopback (127.0.0.1) only — the API has no auth by
+# default. To expose it beyond this host, set CPM_API_KEY (and CPM_SECRET_KEY to
+# encrypt proxy passwords) and change the bindings deliberately.
 services:
   api:
     build: .
+    environment:
+      # CPM_API_KEY: "change-me"
+      # CPM_SECRET_KEY: "generate-with-fernet"
+      CPM_CORS_ORIGINS: http://localhost:3000
     volumes:
       - cpm-data:/data
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     restart: unless-stopped
 
   web:
@@ -16,7 +24,7 @@ services:
       args:
         API_PROXY_TARGET: http://api:8000
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     depends_on:
       - api
     restart: unless-stopped

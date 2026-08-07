@@ -4,7 +4,13 @@ Guards the historic bug where ``BrowserSettings.to_camoufox_config()`` returned
 an empty dict, so geolocation/WebRTC/hardware settings never applied.
 """
 
-from camoufox_pm.core.models import BrowserSettings, Profile, ProxyConfig, ProxyType
+from camoufox_pm.core.models import (
+    BrowserSettings,
+    Profile,
+    ProxyConfig,
+    ProxyType,
+    WebRTCMode,
+)
 
 
 def test_config_carries_geolocation_and_hardware():
@@ -24,6 +30,34 @@ def test_config_carries_webrtc_public_ip():
     bs = BrowserSettings(os="linux", webrtc_public_ip="203.0.113.7")
     cfg = bs.to_camoufox_config()
     assert cfg["webrtc:ipv4"] == "203.0.113.7"
+
+
+def test_local_ips_do_not_clobber_public_ip():
+    """Regression: webrtc_local_ips used to overwrite the public ICE address."""
+    bs = BrowserSettings(
+        webrtc_public_ip="203.0.113.7",
+        webrtc_local_ips=["192.168.1.5"],
+    )
+    cfg = bs.to_camoufox_config()
+    assert cfg["webrtc:ipv4"] == "203.0.113.7"
+
+
+def test_webrtc_mode_none_blocks_webrtc():
+    p = Profile(name="t", browser_settings=BrowserSettings(webrtc_mode=WebRTCMode.NONE))
+    assert p.to_camoufox_launch_options()["block_webrtc"] is True
+
+
+def test_webrtc_mode_replace_does_not_block():
+    p = Profile(name="t", browser_settings=BrowserSettings(webrtc_mode=WebRTCMode.REPLACE))
+    assert "block_webrtc" not in p.to_camoufox_launch_options()
+
+
+def test_window_tuple_from_width_height():
+    p = Profile(
+        name="t",
+        browser_settings=BrowserSettings(window_width=1024, window_height=768),
+    )
+    assert p.to_camoufox_launch_options()["window"] == (1024, 768)
 
 
 def test_config_is_empty_when_nothing_set():

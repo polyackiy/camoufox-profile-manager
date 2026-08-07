@@ -518,7 +518,12 @@ class ProfileManager:
         options = profile.to_camoufox_launch_options()
         options["headless"] = headless
         if window_size:
-            options["window_size"] = window_size
+            # Camoufox expects a (width, height) tuple, not a "1280x720" string.
+            try:
+                width, height = (int(part) for part in window_size.lower().split("x"))
+                options["window"] = (width, height)
+            except ValueError:
+                logger.warning(f"Ignoring invalid window_size {window_size!r} (expected WxH)")
         options.update(kwargs)
 
         await self.storage.log_usage(
@@ -527,7 +532,9 @@ class ProfileManager:
             )
         )
 
-        session = await self.browser_sessions.launch(profile_id, options)
+        session = await self.browser_sessions.launch(
+            profile_id, options, on_exit=self._on_browser_exit
+        )
         return {
             "status": "launched",
             "profile_id": profile_id,
@@ -535,6 +542,15 @@ class ProfileManager:
             "process_id": session.process_id,
             "camoufox_options": {"process_id": session.process_id, "options": options},
         }
+
+    async def _on_browser_exit(self, profile_id: str) -> None:
+        """Record usage when a browser exits on its own (e.g. the user closes it)."""
+        try:
+            await self.storage.log_usage(
+                UsageStats(profile_id=profile_id, action="close_browser", details={"forced": False})
+            )
+        except Exception as exc:  # noqa: BLE001 - logging must never break teardown
+            logger.warning(f"Failed to log browser exit for {profile_id}: {exc}")
 
     async def close_browser(self, profile_id: str) -> dict[str, Any]:
         """Close the browser running for a profile."""

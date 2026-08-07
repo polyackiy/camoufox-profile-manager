@@ -63,7 +63,9 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
-    allow_credentials=True,
+    # Auth is via the X-API-Key header, not cookies; credentialed CORS would also
+    # be rejected by browsers when combined with the wildcard method/header lists.
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
