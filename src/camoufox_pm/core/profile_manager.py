@@ -1,6 +1,5 @@
 """Browser profile manager."""
 
-import json
 import shutil
 from datetime import datetime
 from pathlib import Path
@@ -8,11 +7,18 @@ from typing import Any
 
 from loguru import logger
 
-from . import fingerprint_store
+from . import fingerprint_store, profile_archive
 from .browser_session import BrowserSessionManager
 from .database import StorageManager
 from .fingerprint_generator import FingerprintGenerator
-from .models import BrowserSettings, Profile, ProfileGroup, ProfileStatus, UsageStats
+from .models import (
+    BrowserSettings,
+    Profile,
+    ProfileGroup,
+    ProfileStatus,
+    UsageStats,
+    generate_profile_id,
+)
 
 
 class ProfileManager:
@@ -340,54 +346,6 @@ class ProfileManager:
         logger.info(f"Fingerprint for profile {profile_id} rotated")
         return profile
 
-    async def export_profile(self, profile_id: str) -> bytes | None:
-        """Export a profile to JSON."""
-        profile = await self.get_profile(profile_id)
-        if not profile:
-            return None
-
-        # Serialize the profile, converting datetimes to ISO strings
-        profile_dict = profile.model_dump()
-        for key, value in profile_dict.items():
-            if isinstance(value, datetime):
-                profile_dict[key] = value.isoformat()
-
-        export_data = {
-            "profile": profile_dict,
-            "exported_at": datetime.now().isoformat(),
-            "version": "1.0",
-        }
-
-        logger.info(f"Exporting profile {profile_id}")
-        return json.dumps(export_data, indent=2, ensure_ascii=False).encode("utf-8")
-
-    async def import_profile(self, data: bytes, new_name: str | None = None) -> Profile | None:
-        """Import a profile from JSON."""
-        try:
-            import_data = json.loads(data.decode("utf-8"))
-            profile_data = import_data["profile"]
-
-            # Assign a fresh ID to the imported profile
-            profile_data.pop("id", None)
-            if new_name:
-                profile_data["name"] = new_name
-
-            profile = Profile(**profile_data)
-
-            # Create the directory
-            profile_dir = Path(profile.get_storage_path(str(self.profiles_dir)))
-            profile_dir.mkdir(parents=True, exist_ok=True)
-
-            # Save the profile
-            await self.storage.save_profile(profile)
-
-            logger.info(f"Profile imported: {profile.id}")
-            return profile
-
-        except Exception as e:
-            logger.error(f"Failed to import profile: {e}")
-            return None
-
     async def get_profile_stats(self, profile_id: str) -> dict[str, Any]:
         """Get usage statistics for a profile."""
         profile = await self.get_profile(profile_id)
@@ -531,6 +489,50 @@ class ProfileManager:
             logger.error(f"Failed to delete group {group_id}")
 
         return success
+
+    # -- Portability --------------------------------------------------------
+
+    async def export_profile(self, profile_id: str, destination: Path) -> Path:
+        """Write a profile and its browser data to an archive.
+
+        Refuses while the browser is open: the databases would be copied
+        mid-write and the restored profile could come back corrupted.
+        """
+        profile = await self.get_profile(profile_id)
+        if not profile:
+            raise ValueError(f"Profile with ID {profile_id} not found")
+        if self.browser_sessions.is_running(profile_id):
+            raise ValueError("Close the browser before exporting this profile")
+
+        data_dir = Path(profile.get_storage_path(str(self.profiles_dir)))
+        profile_archive.export_profile(profile, data_dir, destination)
+
+        await self.storage.log_usage(
+            UsageStats(profile_id=profile_id, action="export_profile", details={})
+        )
+        return destination
+
+    async def import_profile(self, source: Path, name: str | None = None) -> Profile:
+        """Create a profile from an archive, with a new id of its own."""
+        record = profile_archive.read_archive(source)
+
+        profile = Profile(**{**record, "name": name or record.get("name") or "Imported profile"})
+        # A fresh id and storage path: the archive may well be restored next to
+        # the profile it came from.
+        profile.id = generate_profile_id()
+        profile.storage_path = None
+        data_dir = Path(profile.get_storage_path(str(self.profiles_dir)))
+
+        profile_archive.extract_data(source, data_dir)
+        await self.storage.save_profile(profile)
+
+        await self.storage.log_usage(
+            UsageStats(
+                profile_id=profile.id, action="import_profile", details={"name": profile.name}
+            )
+        )
+        logger.info(f"Imported profile '{profile.name}' as {profile.id}")
+        return profile
 
     # -- Browser control (delegated to BrowserSessionManager) ---------------
 

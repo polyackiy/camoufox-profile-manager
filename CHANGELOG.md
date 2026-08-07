@@ -15,6 +15,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   timezone, locale and WebRTC are deliberately left dynamic so they keep
   following the proxy. The profile form shows the pinned machine, and
   *Regenerate fingerprint* moves the profile to new hardware.
+- **Create a profile from a real device.** Camoufox bundles fingerprints captured
+  from actual machines (180 Windows, 67 macOS, 65 Linux) and nothing exposed
+  them. The profile form now lists them by screen, CPU count and GPU, and picking
+  one pins the profile to that device.
+- **Export and import a whole profile**, as one archive carrying the profile
+  record, its pinned fingerprint and its browser data — cookies, storage,
+  history, saved logins. A warmed-up account is mostly that directory, so this is
+  what makes backing one up or moving it between machines possible. Exporting a
+  running profile is refused rather than copying its databases mid-write, and
+  disposable caches are left out (a 51 MB profile packs to about 16 MB). The
+  archive is unencrypted and holds live session cookies and the proxy password;
+  the UI says so before the download.
 - First schema migration step: existing databases gain the `fingerprint` column
   instead of silently keeping the old layout (tables were only ever created with
   `CREATE TABLE IF NOT EXISTS`).

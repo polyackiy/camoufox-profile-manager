@@ -168,6 +168,95 @@ async def test_omitted_fields_are_left_alone(client):
 
 
 @pytest.mark.asyncio
+async def test_a_profile_round_trips_through_an_archive(client):
+    """Export then import must reproduce the profile, with an id of its own."""
+    created = await client.post(
+        "/api/profiles",
+        json={
+            "name": "warmed-up",
+            "notes": "months of history",
+            "browser_settings": {"os": "macos", "timezone": "Europe/Berlin"},
+            "proxy_config": {"type": "http", "server": "1.2.3.4:8080", "password": "secret"},
+        },
+    )
+    original = created.json()
+
+    exported = await client.get(f"/api/profiles/{original['id']}/export")
+    assert exported.status_code == 200
+    assert exported.headers["content-type"] == "application/zip"
+    assert "warmed-up.camoufox.zip" in exported.headers["content-disposition"]
+
+    imported = await client.post(
+        "/api/profiles/import",
+        files={"file": ("warmed-up.camoufox.zip", exported.content, "application/zip")},
+    )
+    assert imported.status_code == 201
+    restored = imported.json()
+
+    assert restored["name"] == "warmed-up"
+    assert restored["notes"] == "months of history"
+    assert restored["browser_settings"]["timezone"] == "Europe/Berlin"
+    assert restored["proxy_config"]["server"] == "1.2.3.4:8080"
+    assert restored["id"] != original["id"], "an import must not collide with its source"
+
+
+@pytest.mark.asyncio
+async def test_importing_a_pinned_profile_keeps_the_machine(client):
+    """The point of the archive: the same identity comes back."""
+    from camoufox_pm.api.dependencies import get_profile_manager
+
+    created = await client.post("/api/profiles", json={"name": "pinned-export"})
+    manager = get_profile_manager()
+    profile = await manager.get_profile(created.json()["id"])
+    profile.fingerprint = {
+        "navigator.userAgent": "UA/1.0",
+        "navigator.hardwareConcurrency": 12,
+        "screen.width": 2560,
+        "screen.height": 1440,
+    }
+    await manager.storage.update_profile(profile)
+
+    exported = await client.get(f"/api/profiles/{profile.id}/export")
+    imported = await client.post(
+        "/api/profiles/import",
+        files={"file": ("p.zip", exported.content, "application/zip")},
+    )
+
+    fingerprint = imported.json()["fingerprint"]
+    assert fingerprint["user_agent"] == "UA/1.0"
+    assert fingerprint["hardware_concurrency"] == 12
+    assert fingerprint["screen"] == "2560x1440"
+
+
+@pytest.mark.asyncio
+async def test_import_can_rename(client):
+    created = await client.post("/api/profiles", json={"name": "original"})
+    exported = await client.get(f"/api/profiles/{created.json()['id']}/export")
+
+    imported = await client.post(
+        "/api/profiles/import",
+        params={"name": "renamed on import"},
+        files={"file": ("p.zip", exported.content, "application/zip")},
+    )
+    assert imported.json()["name"] == "renamed on import"
+
+
+@pytest.mark.asyncio
+async def test_importing_rubbish_is_a_400(client):
+    response = await client.post(
+        "/api/profiles/import",
+        files={"file": ("notes.txt", b"this is not a zip", "text/plain")},
+    )
+    assert response.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_exporting_an_unknown_profile_is_a_404(client):
+    response = await client.get("/api/profiles/does-not-exist/export")
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
 async def test_preset_catalogue_is_listed(client):
     response = await client.get("/api/fingerprints/presets", params={"os": "windows"})
     assert response.status_code == 200

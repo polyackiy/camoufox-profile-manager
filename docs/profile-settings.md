@@ -79,6 +79,42 @@ contradicts the exit IP is easier to spot than no spoofing at all.
 *Regenerate fingerprint* clears the pin, so the next launch assigns new hardware.
 The pinned values are shown read-only in the profile form.
 
+## Real device presets
+
+Camoufox bundles fingerprints captured from actual machines — 180 Windows, 67
+macOS and 65 Linux at the time of writing. A generated fingerprint is internally
+consistent but still an assembly of parts; a preset is a combination that
+genuinely exists.
+
+Pick one when creating a profile (the form lists them by screen, CPU count and
+GPU) and the profile is pinned to that device immediately. `GET
+/api/fingerprints/presets` returns the catalogue; ids look like `windows:42` and
+are only a selector — the resolved fingerprint is stored, so a Camoufox update
+that reshuffles the catalogue cannot move an existing profile.
+
+A preset defines the hardware, so values the profile would otherwise generate
+(CPU count, screen) are cleared when one is chosen. Values you set explicitly
+still win.
+
+## Moving a profile
+
+`GET /api/profiles/{id}/export` packs the profile record, its pinned fingerprint
+and its browser data directory into a single zip; `POST /api/profiles/import`
+restores it under a new id. In the UI: *Export…* in a profile's row menu, and the
+import button in the toolbar.
+
+This is the only way to move an account without losing it. A warmed-up profile is
+mostly its cookies, storage and history — exporting the settings alone would move
+the costume without the memory.
+
+- The browser must be closed. Exporting a running profile is refused (409),
+  because its databases would be copied mid-write.
+- Disposable caches are excluded, which is most of the size: a 51 MB profile
+  packs to about 16 MB.
+- **The archive is not encrypted.** It contains live session cookies, saved
+  logins and the proxy password, so it is exactly as sensitive as the account it
+  belongs to.
+
 ## Known limitations
 
 These are properties of Camoufox and Firefox, not of this manager:

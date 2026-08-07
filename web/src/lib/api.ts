@@ -199,6 +199,33 @@ export const profilesAPI = {
     return response.blob()
   },
 
+  async exportArchive(id: string): Promise<Blob> {
+    const response = await fetch(`${API_BASE_URL}/api/profiles/${id}/export`, {
+      headers: authHeaders(),
+    })
+    if (!response.ok) {
+      const body = await response.json().catch(() => null)
+      throw new Error(body?.detail ?? response.statusText)
+    }
+    return response.blob()
+  },
+
+  async importArchive(file: File): Promise<Profile> {
+    const body = new FormData()
+    body.append('file', file)
+    // No Content-Type: the browser has to set the multipart boundary itself.
+    const response = await fetch(`${API_BASE_URL}/api/profiles/import`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body,
+    })
+    if (!response.ok) {
+      const detail = await response.json().catch(() => null)
+      throw new Error(detail?.detail ?? response.statusText)
+    }
+    return response.json() as Promise<Profile>
+  },
+
   async importExcel(file: File): Promise<ImportResult> {
     const body = new FormData()
     body.append('file', file)

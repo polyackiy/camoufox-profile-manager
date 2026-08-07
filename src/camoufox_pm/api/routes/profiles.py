@@ -2,13 +2,19 @@
 API routes for managing profiles.
 """
 
+import re
+import shutil
+import tempfile
 import uuid
+import zipfile
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile, status
-from fastapi.responses import Response
+from fastapi.responses import FileResponse, Response
 from loguru import logger
 from pydantic import ValidationError
+from starlette.background import BackgroundTask
 
 from camoufox_pm.api.dependencies import get_profile_manager
 from camoufox_pm.api.models.profiles import (
@@ -370,6 +376,75 @@ async def get_profile_stats(profile_id: str):
     except Exception as e:
         logger.error(f"Failed to get statistics for profile {profile_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.get(
+    "/profiles/{profile_id}/export",
+    summary="Export a profile",
+    description=(
+        "Download the profile and its browser data (cookies, storage, history) as a "
+        "single archive. Contains the proxy password and live session cookies."
+    ),
+)
+async def export_profile(profile_id: str):
+    """Stream a profile archive."""
+    profile_manager = get_profile_manager()
+    profile = await profile_manager.get_profile(profile_id)
+    if not profile:
+        raise HTTPException(status_code=404, detail=f"Profile with ID {profile_id} not found")
+
+    # Written to a temp file rather than memory: a warmed-up profile carries
+    # tens of megabytes of storage and history.
+    handle = tempfile.NamedTemporaryFile(suffix=".camoufox.zip", delete=False)
+    handle.close()
+    destination = Path(handle.name)
+
+    try:
+        await profile_manager.export_profile(profile_id, destination)
+    except ValueError as exc:
+        destination.unlink(missing_ok=True)
+        # A running browser is a state conflict, not a bad request.
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except Exception as exc:
+        destination.unlink(missing_ok=True)
+        logger.error(f"Failed to export profile {profile_id}: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    safe_name = re.sub(r"[^A-Za-z0-9_.-]+", "-", profile.name).strip("-") or profile_id
+    return FileResponse(
+        destination,
+        media_type="application/zip",
+        filename=f"{safe_name}.camoufox.zip",
+        background=BackgroundTask(destination.unlink, missing_ok=True),
+    )
+
+
+@router.post(
+    "/profiles/import",
+    response_model=ProfileResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Import a profile",
+    description="Create a profile from an archive produced by the export endpoint",
+)
+async def import_profile(file: UploadFile = File(...), name: str | None = None):
+    """Restore a profile from an uploaded archive."""
+    profile_manager = get_profile_manager()
+
+    handle = tempfile.NamedTemporaryFile(suffix=".zip", delete=False)
+    source = Path(handle.name)
+    try:
+        shutil.copyfileobj(file.file, handle)
+        handle.close()
+        profile = await profile_manager.import_profile(source, name=name)
+        return ProfileResponse.from_profile(profile)
+    except (ValueError, zipfile.BadZipFile) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.error(f"Failed to import profile: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    finally:
+        handle.close()
+        source.unlink(missing_ok=True)
 
 
 @router.post(
