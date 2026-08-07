@@ -1,5 +1,7 @@
 """What gets frozen into a profile's identity, and what must stay dynamic."""
 
+import pytest
+
 from camoufox_pm.core import fingerprint_store
 
 RESOLVED = {
@@ -101,9 +103,29 @@ def test_summarize_without_a_pin():
 
 
 def test_get_preset_rejects_malformed_ids():
-    """Only ids that name a real preset resolve; a negative index is not one."""
-    # "<os>:-1" must not index from the end and resolve to the last preset.
-    assert fingerprint_store.get_preset("windows:-1") is None
-    assert fingerprint_store.get_preset("windows:") is None
-    assert fingerprint_store.get_preset("windows:notanumber") is None
-    assert fingerprint_store.get_preset("nosuchos:0") is None
+    """Only a plain run of ASCII digits names a preset.
+
+    int() accepts far more than that, and two of these forms used to resolve to a
+    real preset the id does not read as: "-1" indexed from the end, and "1_0"
+    (underscore as a digit separator) resolved to index 10 — a different device.
+    """
+    for bad in (
+        "windows:-1",
+        "windows:+1",
+        "windows:1_0",
+        "windows: 1",
+        "windows:1\n",
+        "windows:١",  # Arabic-Indic digit one: str.isdigit() alone accepts it
+        "windows:",
+        "windows:notanumber",
+        "nosuchos:0",
+    ):
+        assert fingerprint_store.get_preset(bad) is None, f"{bad!r} must not resolve"
+
+
+def test_get_preset_still_resolves_a_real_id():
+    """The guard must not have made every id unresolvable."""
+    presets = fingerprint_store.list_presets("windows")
+    if not presets:
+        pytest.skip("no bundled presets available")
+    assert fingerprint_store.get_preset(presets[1]["id"]) is not None

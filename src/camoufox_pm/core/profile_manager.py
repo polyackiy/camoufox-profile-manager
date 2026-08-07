@@ -123,6 +123,15 @@ class ProfileManager:
             profile.fingerprint = fingerprint_store.resolve(
                 profile.to_camoufox_launch_options(), preset=preset
             )
+            # can_resolve() only rules out a missing browser; resolution can still
+            # fail for other reasons. Check the result, not a proxy for it —
+            # otherwise the profile is created unpinned and its first launch
+            # quietly assigns a generated machine instead of the chosen device.
+            if not profile.fingerprint:
+                raise ValueError(
+                    f"Could not pin the device for preset {fingerprint_preset}. "
+                    "The profile was not created; see the server log for the cause."
+                )
 
         # Create the profile data directory
         profile_dir = Path(profile.get_storage_path(str(self.profiles_dir)))
@@ -534,8 +543,16 @@ class ProfileManager:
         profile.group = None
         data_dir = Path(profile.get_storage_path(str(self.profiles_dir)))
 
-        profile_archive.extract_data(source, data_dir)
-        await self.storage.save_profile(profile)
+        # Extraction writes into the directory before it can fail, and a profile
+        # is only real once it is in the database. Without this, every refused
+        # import (a bomb, a bad zip, an I/O error) would strand a directory that
+        # nothing references and nothing ever deletes.
+        try:
+            profile_archive.extract_data(source, data_dir)
+            await self.storage.save_profile(profile)
+        except Exception:
+            shutil.rmtree(data_dir, ignore_errors=True)
+            raise
 
         await self.storage.log_usage(
             UsageStats(
@@ -585,6 +602,13 @@ class ProfileManager:
         # timezone and WebRTC stay dynamic so they follow the proxy.
         pinned = profile.fingerprint
         if not pinned:
+            # Deliberately synchronous. There is no await between reading the
+            # profile above and writing it below, which is what makes this
+            # read-modify-write atomic: save_profile rewrites the whole row, so
+            # an await here would let a concurrent rename be silently reverted.
+            # resolve() can do network I/O (it fetches the uBlock addon on a
+            # fresh install), so offloading it to a thread is tempting — do that
+            # only together with row-level concurrency control.
             pinned = fingerprint_store.resolve(options)
             if pinned:
                 profile.fingerprint = pinned

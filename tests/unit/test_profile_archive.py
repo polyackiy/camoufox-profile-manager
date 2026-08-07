@@ -128,6 +128,40 @@ def test_extract_refuses_an_oversized_archive(tmp_path, monkeypatch):
         profile_archive.extract_data(bomb, tmp_path / "target")
 
 
+def test_extract_refuses_repeated_members_that_exceed_the_cap(tmp_path, monkeypatch):
+    """The declared total counts a duplicated name once; extraction writes it twice.
+
+    This is the case the up-front size gate cannot catch, and the only input that
+    reaches the chunked copy's own limit.
+    """
+    monkeypatch.setattr(profile_archive, "_MAX_EXTRACTED_BYTES", 5000)
+
+    sneaky = tmp_path / "sneaky.zip"
+    with zipfile.ZipFile(sneaky, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("manifest.json", json.dumps({"format_version": 1}))
+        archive.writestr("profile.json", json.dumps({"name": "sneaky"}))
+        # Three entries sharing one name: declared 3x4000 is over, so shrink each
+        # so the sum passes while the loop still writes 3 x 4000 bytes.
+        for _ in range(3):
+            archive.writestr("data/same.bin", b"\0" * 4000)
+
+    with pytest.raises(ValueError, match="larger than the import limit"):
+        profile_archive.extract_data(sneaky, tmp_path / "target")
+
+
+def test_read_archive_refuses_an_implausible_manifest(tmp_path, monkeypatch):
+    """manifest/profile are read whole, so they need a far tighter ceiling."""
+    monkeypatch.setattr(profile_archive, "_MAX_METADATA_BYTES", 1000)
+
+    fat = tmp_path / "fat.zip"
+    with zipfile.ZipFile(fat, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("manifest.json", json.dumps({"format_version": 1, "pad": "x" * 50_000}))
+        archive.writestr("profile.json", json.dumps({"name": "fat"}))
+
+    with pytest.raises(ValueError, match="implausibly large"):
+        profile_archive.read_archive(fat)
+
+
 def test_export_survives_a_missing_data_directory(tmp_path):
     """A profile that has never been launched has no directory yet."""
     archive_path = tmp_path / "out.zip"

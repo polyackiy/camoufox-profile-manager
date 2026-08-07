@@ -272,10 +272,15 @@ async def test_preset_catalogue_is_listed(client):
     assert first["screen"]
 
 
+@pytest.mark.browser
 @pytest.mark.asyncio
 async def test_creating_from_a_preset_pins_that_device(client):
-    """The pinned machine must be the device the user picked, not a generated one."""
-    pytest.importorskip("camoufox")
+    """The pinned machine must be the device the user picked, not a generated one.
+
+    Marked ``browser``: pinning resolves a full Camoufox config, which needs the
+    browser binary. Without the marker this would be skipped by the fast suite
+    and absent from the browser suite — covered by neither.
+    """
     if not fingerprint_store.can_resolve():
         pytest.skip("pinning a preset needs the Camoufox browser on disk")
     listed = await client.get("/api/fingerprints/presets", params={"os": "windows"})
@@ -293,6 +298,7 @@ async def test_creating_from_a_preset_pins_that_device(client):
     assert body["browser_settings"]["os"] == "windows"
 
 
+@pytest.mark.browser
 @pytest.mark.asyncio
 async def test_explicit_settings_still_beat_the_preset(client):
     if not fingerprint_store.can_resolve():
@@ -329,6 +335,58 @@ async def test_preset_without_the_browser_says_so(client, monkeypatch):
     )
     assert response.status_code == 400
     assert "camoufox fetch" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_a_preset_that_cannot_be_pinned_creates_nothing(client, monkeypatch):
+    """Resolution can fail for reasons other than a missing browser.
+
+    Creating the profile anyway would leave it unpinned, and its first launch
+    would quietly assign a generated machine instead of the chosen device — the
+    exact outcome the preset feature exists to prevent.
+    """
+    monkeypatch.setattr(fingerprint_store, "can_resolve", lambda: True)
+    monkeypatch.setattr(fingerprint_store, "resolve", lambda *a, **k: {})
+
+    before = (await client.get("/api/profiles")).json()["total"]
+    response = await client.post(
+        "/api/profiles", json={"name": "unpinnable", "fingerprint_preset": "windows:0"}
+    )
+
+    assert response.status_code == 400
+    assert "Could not pin" in response.json()["detail"]
+    after = (await client.get("/api/profiles")).json()["total"]
+    assert after == before, "a profile that could not be pinned must not be created"
+
+
+@pytest.mark.asyncio
+async def test_a_refused_import_leaves_nothing_behind(client, monkeypatch):
+    """A rejected archive must not strand a profile directory nobody can see."""
+    from camoufox_pm.api.dependencies import get_profile_manager
+    from camoufox_pm.core import profile_archive
+
+    manager = get_profile_manager()
+    profiles_dir = manager.profiles_dir
+
+    # A real archive with real browser data in it, refused part-way through
+    # extraction. Without data files the archive is empty and nothing is refused.
+    created = await client.post("/api/profiles", json={"name": "source"})
+    source = await manager.get_profile(created.json()["id"])
+    source_dir = profiles_dir / f"profile_{source.id}"
+    source_dir.mkdir(parents=True, exist_ok=True)
+    (source_dir / "cookies.sqlite").write_bytes(b"C" * 4000)
+
+    exported = await client.get(f"/api/profiles/{source.id}/export")
+    monkeypatch.setattr(profile_archive, "_MAX_EXTRACTED_BYTES", 10)
+
+    before = set(profiles_dir.glob("*"))
+    response = await client.post(
+        "/api/profiles/import", files={"file": ("p.zip", exported.content, "application/zip")}
+    )
+    assert response.status_code == 400
+
+    after = set(profiles_dir.glob("*"))
+    assert after == before, f"refused import left {after - before}"
 
 
 @pytest.mark.asyncio

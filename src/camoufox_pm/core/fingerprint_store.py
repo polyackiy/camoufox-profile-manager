@@ -116,31 +116,30 @@ def resolve(launch_options: dict[str, Any], preset: dict[str, Any] | None = None
 # preset is a combination that genuinely exists in the wild.
 
 
-@lru_cache(maxsize=1)
-def _presets() -> dict[str, list[dict[str, Any]]]:
-    """Load the bundled presets, keyed by operating system.
+def _catalogue_version() -> Any:
+    """The Firefox version Camoufox should pick its preset catalogue for.
 
-    Camoufox picks its catalogue by Firefox version and falls back to a much
-    smaller, older one when it is not told which. The version normally comes from
-    the installed browser — but the presets themselves ship inside the Python
-    package, so the catalogue must not disappear just because the browser has not
-    been fetched yet. When the version is unavailable, ask for the modern
-    catalogue directly.
+    Camoufox falls back to a much smaller, older catalogue when it is not told
+    which version to use. That version normally comes from the installed browser
+    — but the presets themselves ship inside the Python package, so the catalogue
+    must not disappear just because the browser has not been fetched yet.
     """
-    try:
-        from camoufox.fingerprints import PRESETS_V150_MIN_FF, load_presets
-    except ImportError as exc:  # pragma: no cover - exercised only without camoufox
-        logger.warning(f"Could not load fingerprint presets: {exc}")
-        return {}
+    from camoufox.fingerprints import PRESETS_V150_MIN_FF
 
     try:
         from camoufox.pkgman import installed_verstr
 
-        version: Any = installed_verstr()
+        return installed_verstr()
     except Exception:  # noqa: BLE001 - the browser may not be installed yet
-        version = PRESETS_V150_MIN_FF
+        return PRESETS_V150_MIN_FF
 
+
+@lru_cache(maxsize=4)
+def _presets_for(version: Any) -> dict[str, list[dict[str, Any]]]:
+    """Load the bundled presets for a Firefox version, keyed by operating system."""
     try:
+        from camoufox.fingerprints import load_presets
+
         data = load_presets(version)
     except Exception as exc:  # noqa: BLE001 - presets are optional
         logger.warning(f"Could not load fingerprint presets: {exc}")
@@ -149,6 +148,20 @@ def _presets() -> dict[str, list[dict[str, Any]]]:
         return {}
     presets = data.get("presets", data)
     return {os_name: entries for os_name, entries in presets.items() if isinstance(entries, list)}
+
+
+def _presets() -> dict[str, list[dict[str, Any]]]:
+    """Return the preset catalogue for the browser currently installed.
+
+    Keyed on the version rather than cached outright, so a user who runs
+    `camoufox fetch` while the app is up gets the right catalogue without a
+    restart, and the parse is still done only once per version.
+    """
+    try:
+        return _presets_for(_catalogue_version())
+    except ImportError as exc:  # pragma: no cover - exercised only without camoufox
+        logger.warning(f"Could not load fingerprint presets: {exc}")
+        return {}
 
 
 def can_resolve() -> bool:
@@ -202,14 +215,17 @@ def get_preset(preset_id: str) -> dict[str, Any] | None:
     """Look up one preset by the id from :func:`list_presets`."""
     os_name, _, index = preset_id.partition(":")
     entries = _presets().get(os_name, [])
-    try:
-        position = int(index)
-    except ValueError:
+
+    # Only a plain run of ASCII digits names a preset. int() is far more
+    # permissive: it accepts a sign, surrounding whitespace, underscores as digit
+    # separators and non-ASCII digits, so "windows:-1" indexed from the end and
+    # "windows:1_0" resolved to index 10 — a different device than the id reads as.
+    if not (index.isascii() and index.isdigit()):
         logger.warning(f"Unknown fingerprint preset {preset_id!r}")
         return None
-    # Reject negatives explicitly: "windows:-1" would otherwise index from the
-    # end and resolve to a real preset the id was never meant to name.
-    if 0 <= position < len(entries):
+
+    position = int(index)
+    if position < len(entries):
         return entries[position]
     logger.warning(f"Unknown fingerprint preset {preset_id!r}")
     return None
