@@ -5,6 +5,7 @@ web UI in the default browser.
 """
 
 import argparse
+import os
 import threading
 import webbrowser
 
@@ -28,6 +29,13 @@ def main() -> None:
         help="Open a native desktop window instead of a browser tab (needs the 'desktop' extra)",
     )
     args = parser.parse_args()
+
+    # Make the settings match what we are about to bind, so everything that reads
+    # them (the Settings screen, CORS, logs) reports the real address rather than
+    # the default the flags just overrode.
+    os.environ["CPM_HOST"] = args.host
+    os.environ["CPM_PORT"] = str(args.port)
+    get_settings.cache_clear()
 
     if args.desktop:
         from camoufox_pm.desktop import run_desktop

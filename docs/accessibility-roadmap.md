@@ -117,12 +117,14 @@ one file and run it.
 
 ## Cross-cutting improvements (help at every level)
 
-- **Onboarding & empty states:** a first-run screen that explains what a profile
-  is, with a "Create your first profile" call to action and sensible defaults.
+- ✅ **Onboarding & empty states:** shipped. Empty Profiles and Groups explain what
+  the thing is and offer a "Create your first profile" action.
 - **In-app guidance:** tooltips for fingerprint fields (what OS/timezone/WebRTC do),
   a "Test fingerprint" button that opens a check page (e.g. a bot-detection test).
-- **No env editing:** move all settings into a Settings screen in the UI, backed by
-  the database, instead of environment variables.
+- **No env editing:** the Settings screen now *reports* the effective configuration
+  (encryption, API key, bind address, database path, Camoufox availability) and
+  warns when secrets are unprotected. Editing those values in the UI still needs a
+  writable settings store; today they remain environment variables.
 - **Localization (i18n):** the codebase is English-only today; add a language
   switcher (start with the languages of the core audience).
 - **Docs for non-developers:** a "Getting Started" page with screenshots and a short
