@@ -120,14 +120,28 @@ def resolve(launch_options: dict[str, Any], preset: dict[str, Any] | None = None
 def _presets() -> dict[str, list[dict[str, Any]]]:
     """Load the bundled presets, keyed by operating system.
 
-    The installed browser version has to be passed in: without it Camoufox falls
-    back to its older, much smaller catalogue.
+    Camoufox picks its catalogue by Firefox version and falls back to a much
+    smaller, older one when it is not told which. The version normally comes from
+    the installed browser — but the presets themselves ship inside the Python
+    package, so the catalogue must not disappear just because the browser has not
+    been fetched yet. When the version is unavailable, ask for the modern
+    catalogue directly.
     """
     try:
-        from camoufox.fingerprints import load_presets
+        from camoufox.fingerprints import PRESETS_V150_MIN_FF, load_presets
+    except ImportError as exc:  # pragma: no cover - exercised only without camoufox
+        logger.warning(f"Could not load fingerprint presets: {exc}")
+        return {}
+
+    try:
         from camoufox.pkgman import installed_verstr
 
-        data = load_presets(installed_verstr())
+        version: Any = installed_verstr()
+    except Exception:  # noqa: BLE001 - the browser may not be installed yet
+        version = PRESETS_V150_MIN_FF
+
+    try:
+        data = load_presets(version)
     except Exception as exc:  # noqa: BLE001 - presets are optional
         logger.warning(f"Could not load fingerprint presets: {exc}")
         return {}
@@ -135,6 +149,21 @@ def _presets() -> dict[str, list[dict[str, Any]]]:
         return {}
     presets = data.get("presets", data)
     return {os_name: entries for os_name, entries in presets.items() if isinstance(entries, list)}
+
+
+def can_resolve() -> bool:
+    """Whether a fingerprint can be resolved right now.
+
+    Resolving asks Camoufox to build a full config, which needs the browser
+    binary on disk — the presets themselves do not. So the catalogue can be
+    listed before ``camoufox fetch`` has run, while pinning cannot.
+    """
+    try:
+        from camoufox.pkgman import installed_verstr
+
+        return bool(installed_verstr())
+    except Exception:  # noqa: BLE001 - any failure means it is not usable
+        return False
 
 
 def describe_preset(preset: dict[str, Any]) -> dict[str, Any]:

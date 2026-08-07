@@ -2,6 +2,8 @@
 
 import pytest
 
+from camoufox_pm.core import fingerprint_store
+
 
 @pytest.mark.asyncio
 async def test_create_and_get_profile(client):
@@ -273,6 +275,9 @@ async def test_preset_catalogue_is_listed(client):
 @pytest.mark.asyncio
 async def test_creating_from_a_preset_pins_that_device(client):
     """The pinned machine must be the device the user picked, not a generated one."""
+    pytest.importorskip("camoufox")
+    if not fingerprint_store.can_resolve():
+        pytest.skip("pinning a preset needs the Camoufox browser on disk")
     listed = await client.get("/api/fingerprints/presets", params={"os": "windows"})
     preset = listed.json()["data"]["presets"][2]
 
@@ -290,6 +295,9 @@ async def test_creating_from_a_preset_pins_that_device(client):
 
 @pytest.mark.asyncio
 async def test_explicit_settings_still_beat_the_preset(client):
+    if not fingerprint_store.can_resolve():
+        pytest.skip("pinning a preset needs the Camoufox browser on disk")
+
     listed = await client.get("/api/fingerprints/presets", params={"os": "windows"})
     preset = listed.json()["data"]["presets"][0]
 
@@ -302,6 +310,25 @@ async def test_explicit_settings_still_beat_the_preset(client):
         },
     )
     assert created.json()["fingerprint"]["hardware_concurrency"] == 16
+
+
+@pytest.mark.asyncio
+async def test_preset_without_the_browser_says_so(client, monkeypatch):
+    """The catalogue reads without the browser; pinning does not.
+
+    Creating the profile anyway would give the user a generated machine instead
+    of the device they picked, and never tell them.
+    """
+    monkeypatch.setattr(fingerprint_store, "can_resolve", lambda: False)
+
+    listed = await client.get("/api/fingerprints/presets", params={"os": "windows"})
+    assert listed.json()["data"]["presets"], "the catalogue ships with the package"
+
+    response = await client.post(
+        "/api/profiles", json={"name": "no-browser", "fingerprint_preset": "windows:0"}
+    )
+    assert response.status_code == 400
+    assert "camoufox fetch" in response.json()["detail"]
 
 
 @pytest.mark.asyncio

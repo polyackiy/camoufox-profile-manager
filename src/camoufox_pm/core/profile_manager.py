@@ -94,6 +94,14 @@ class ProfileManager:
             preset = fingerprint_store.get_preset(fingerprint_preset)
             if preset is None:
                 raise ValueError(f"Unknown fingerprint preset: {fingerprint_preset}")
+            # The catalogue can be read without the browser, but pinning a device
+            # cannot. Say so instead of quietly creating the profile and letting
+            # its first launch generate a different machine than the one chosen.
+            if not fingerprint_store.can_resolve():
+                raise ValueError(
+                    "The Camoufox browser is required to pin a device preset. "
+                    "Run 'camoufox fetch', then create the profile."
+                )
 
             # A preset carries its own OS; keep the profile's setting in step so
             # the two cannot describe different machines.
