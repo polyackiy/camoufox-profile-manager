@@ -14,7 +14,7 @@ Multilogin, or GoLogin.
 > **Status:** early release (`v0.1.0`). The core works and is tested; expect the
 > occasional rough edge and API changes before `1.0`.
 
-<!-- Add a screenshot of the web UI here, e.g. docs/assets/screenshot-profiles.png -->
+![Camoufox Profile Manager web interface](docs/assets/screenshot-profiles.png)
 
 ## Features
 
@@ -61,7 +61,12 @@ npm run dev   # http://localhost:3000
 ```
 
 The web UI proxies API calls to the backend, so no CORS setup is needed in
-development.
+development. It expects the API on `http://localhost:8000` by default; if your
+API runs elsewhere, set `API_PROXY_TARGET` before building/starting the web app:
+
+```bash
+API_PROXY_TARGET=http://localhost:8123 npm run build && npm start
+```
 
 ## Configuration
 
