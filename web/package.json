@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "build:static": "NEXT_EXPORT=1 next build"
+    "build:static": "next build"
   },
   "dependencies": {
     "@headlessui/react": "^2.2.4",
