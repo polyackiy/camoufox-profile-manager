@@ -183,7 +183,7 @@ export default function ProfilesPage() {
   // Load active browsers
   const loadActiveBrowsers = async () => {
     try {
-      const response = await fetch('http://localhost:8000/api/browsers/active')
+      const response = await fetch('/api/browsers/active')
       if (response.ok) {
         const result = await response.json()
         const activeProfileIds = new Set<string>(result.active_browsers.map((browser: { profile_id: string }) => browser.profile_id))
@@ -298,7 +298,7 @@ export default function ProfilesPage() {
   // Browser control handlers
   const handleCloseProfileBrowser = async (profileId: string) => {
     try {
-      const response = await fetch(`http://localhost:8000/api/profiles/${profileId}/close`, {
+      const response = await fetch(`/api/profiles/${profileId}/close`, {
         method: 'POST'
       })
       const result = await response.json()
@@ -321,7 +321,7 @@ export default function ProfilesPage() {
     }
 
     try {
-      const response = await fetch('http://localhost:8000/api/browsers/close-all', {
+      const response = await fetch('/api/browsers/close-all', {
         method: 'POST'
       })
       const result = await response.json()
@@ -362,7 +362,7 @@ export default function ProfilesPage() {
   // Excel handlers
   const handleExportToExcel = async () => {
     try {
-      const response = await fetch('http://localhost:8000/api/profiles/export/excel')
+      const response = await fetch('/api/profiles/export/excel')
       if (!response.ok) {
         throw new Error('Export failed')
       }
@@ -392,7 +392,7 @@ export default function ProfilesPage() {
       const formData = new FormData()
       formData.append('file', file)
       
-      const response = await fetch('http://localhost:8000/api/profiles/import/excel', {
+      const response = await fetch('/api/profiles/import/excel', {
         method: 'POST',
         body: formData
       })
