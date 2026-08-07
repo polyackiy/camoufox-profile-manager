@@ -102,6 +102,7 @@ async def create_profile(request: ProfileCreateRequest):
             proxy_config=request.proxy_config,
             generate_fingerprint=request.generate_fingerprint,
             notes=request.notes,
+            fingerprint_preset=request.fingerprint_preset,
         )
 
         logger.info(f"Created profile: {profile.name} (ID: {profile.id})")

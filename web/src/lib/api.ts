@@ -258,6 +258,26 @@ export interface SystemConfig {
   uptime_seconds: number
 }
 
+/** A fingerprint captured from a real machine, bundled with Camoufox. */
+export interface DevicePreset {
+  id: string
+  os: string
+  screen?: string | null
+  hardware_concurrency?: number | null
+  gpu?: string | null
+  vendor?: string | null
+  user_agent?: string | null
+}
+
+export const presetsAPI = {
+  async list(os?: string): Promise<DevicePreset[]> {
+    const body = await request<{ data: { presets: DevicePreset[] } }>(
+      `/api/fingerprints/presets${toQuery({ os })}`,
+    )
+    return body.data.presets
+  },
+}
+
 export const systemAPI = {
   status(): Promise<SystemStatus> {
     return request<SystemStatus>('/api/system/status')

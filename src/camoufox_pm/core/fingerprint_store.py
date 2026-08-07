@@ -17,6 +17,7 @@ that is trivial to detect and worse than no spoofing at all.
 """
 
 import json
+from functools import lru_cache
 from typing import Any
 
 from loguru import logger
@@ -68,8 +69,11 @@ def freeze(resolved: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def resolve(launch_options: dict[str, Any]) -> dict[str, Any]:
+def resolve(launch_options: dict[str, Any], preset: dict[str, Any] | None = None) -> dict[str, Any]:
     """Ask Camoufox to resolve a full fingerprint for these launch constraints.
+
+    With a ``preset``, the fingerprint is built from a captured real device
+    instead of being generated synthetically.
 
     Returns the frozen subset, or an empty dict if Camoufox cannot resolve one
     (it is not installed, or its internals moved). An empty result is not fatal:
@@ -89,6 +93,8 @@ def resolve(launch_options: dict[str, Any]) -> dict[str, Any]:
         if key not in ("user_data_dir", "persistent_context")
     }
     constraints["headless"] = True
+    if preset is not None:
+        constraints["fingerprint_preset"] = preset
 
     try:
         resolved = camoufox_launch_options(**constraints)
@@ -98,8 +104,80 @@ def resolve(launch_options: dict[str, Any]) -> dict[str, Any]:
         return {}
 
     frozen = freeze(config)
-    logger.info(f"Pinned a fingerprint with {len(frozen)} properties")
+    source = "preset" if preset is not None else "generated"
+    logger.info(f"Pinned a {source} fingerprint with {len(frozen)} properties")
     return frozen
+
+
+# --- Real device presets -----------------------------------------------------
+#
+# Camoufox ships fingerprints captured from actual machines. A generated
+# fingerprint is internally consistent but is still an assembly of parts; a
+# preset is a combination that genuinely exists in the wild.
+
+
+@lru_cache(maxsize=1)
+def _presets() -> dict[str, list[dict[str, Any]]]:
+    """Load the bundled presets, keyed by operating system.
+
+    The installed browser version has to be passed in: without it Camoufox falls
+    back to its older, much smaller catalogue.
+    """
+    try:
+        from camoufox.fingerprints import load_presets
+        from camoufox.pkgman import installed_verstr
+
+        data = load_presets(installed_verstr())
+    except Exception as exc:  # noqa: BLE001 - presets are optional
+        logger.warning(f"Could not load fingerprint presets: {exc}")
+        return {}
+    if not data:
+        return {}
+    presets = data.get("presets", data)
+    return {os_name: entries for os_name, entries in presets.items() if isinstance(entries, list)}
+
+
+def describe_preset(preset: dict[str, Any]) -> dict[str, Any]:
+    """Reduce a preset to the few values worth choosing between."""
+    navigator = preset.get("navigator", {})
+    screen = preset.get("screen", {})
+    webgl = preset.get("webgl", {})
+    width, height = screen.get("width"), screen.get("height")
+    return {
+        "screen": f"{width}x{height}" if width and height else None,
+        "hardware_concurrency": navigator.get("hardwareConcurrency"),
+        "gpu": webgl.get("unmaskedRenderer"),
+        "vendor": webgl.get("unmaskedVendor"),
+        "user_agent": navigator.get("userAgent"),
+    }
+
+
+def list_presets(os_name: str | None = None) -> list[dict[str, Any]]:
+    """Return the available real device presets, newest catalogue first.
+
+    Each entry carries an ``id`` of ``"<os>:<index>"``. The index is only a
+    selector: once a profile is created the resolved fingerprint is pinned, so a
+    later Camoufox update reshuffling the catalogue cannot move an existing
+    profile onto different hardware.
+    """
+    catalogue = _presets()
+    wanted = [os_name] if os_name else list(catalogue)
+    entries = []
+    for name in wanted:
+        for index, preset in enumerate(catalogue.get(name, [])):
+            entries.append({"id": f"{name}:{index}", "os": name, **describe_preset(preset)})
+    return entries
+
+
+def get_preset(preset_id: str) -> dict[str, Any] | None:
+    """Look up one preset by the id from :func:`list_presets`."""
+    os_name, _, index = preset_id.partition(":")
+    entries = _presets().get(os_name, [])
+    try:
+        return entries[int(index)]
+    except (ValueError, IndexError):
+        logger.warning(f"Unknown fingerprint preset {preset_id!r}")
+        return None
 
 
 def summarize(fingerprint: dict[str, Any] | None) -> dict[str, Any] | None:

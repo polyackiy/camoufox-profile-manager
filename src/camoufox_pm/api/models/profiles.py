@@ -19,6 +19,13 @@ class ProfileCreateRequest(BaseModel):
     proxy_config: dict[str, Any] | None = Field(None, description="Proxy configuration")
     notes: str | None = Field(None, max_length=1000, description="Notes")
     generate_fingerprint: bool = Field(True, description="Generate a fingerprint")
+    fingerprint_preset: str | None = Field(
+        None,
+        description=(
+            "Pin the profile to a captured real device, using an id from "
+            "GET /api/fingerprints/presets. Omit to generate a fingerprint instead."
+        ),
+    )
 
     model_config = ConfigDict(
         json_schema_extra={

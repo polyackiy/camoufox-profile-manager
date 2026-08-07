@@ -16,6 +16,7 @@ from camoufox_pm.api.models.system import (
     SystemStatusResponse,
 )
 from camoufox_pm.config import get_settings
+from camoufox_pm.core import fingerprint_store
 from camoufox_pm.core.browser_session import CAMOUFOX_AVAILABLE
 from camoufox_pm.core.cleanup import ProfileCleanupManager
 
@@ -144,6 +145,27 @@ async def restart_system():
     except Exception as exc:
         logger.error(f"Failed to restart system: {exc}")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.get(
+    "/fingerprints/presets",
+    response_model=ApiResponse,
+    summary="List real device presets",
+    description=(
+        "Fingerprints captured from real machines, bundled with Camoufox. A profile "
+        "created from one is pinned to that device instead of a generated fingerprint."
+    ),
+)
+async def list_fingerprint_presets(
+    os: str | None = None,
+):
+    """List the available real device fingerprint presets."""
+    presets = fingerprint_store.list_presets(os)
+    return ApiResponse(
+        success=True,
+        message=f"{len(presets)} presets available",
+        data={"presets": presets, "total": len(presets)},
+    )
 
 
 @router.get(

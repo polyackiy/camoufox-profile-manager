@@ -43,8 +43,14 @@ class ProfileManager:
         proxy_config: dict[str, Any] | None = None,
         generate_fingerprint: bool = True,
         notes: str | None = None,
+        fingerprint_preset: str | None = None,
     ) -> Profile:
-        """Create a new profile."""
+        """Create a new profile.
+
+        ``fingerprint_preset`` is an id from :func:`fingerprint_store.list_presets`.
+        When given, the profile is pinned to that captured real device instead of
+        waiting for its first launch to generate a synthetic one.
+        """
         logger.info(f"Creating new profile: {name}")
 
         # Notes belong to the user; the creation time is already in created_at,
@@ -75,6 +81,34 @@ class ProfileManager:
             from .models import ProxyConfig
 
             profile.proxy = ProxyConfig(**proxy_config)
+
+        # Pin a real device now, if one was chosen. Otherwise the first launch
+        # pins a generated fingerprint instead.
+        if fingerprint_preset:
+            preset = fingerprint_store.get_preset(fingerprint_preset)
+            if preset is None:
+                raise ValueError(f"Unknown fingerprint preset: {fingerprint_preset}")
+
+            # A preset carries its own OS; keep the profile's setting in step so
+            # the two cannot describe different machines.
+            preset_os = fingerprint_preset.split(":", 1)[0]
+            if preset_os in ("windows", "macos", "linux"):
+                profile.browser_settings.os = preset_os
+
+            # The preset *is* the hardware, so generated values must not override
+            # it — an explicit hardware_concurrency wins over the preset's own and
+            # would give the profile a CPU count the real device never had. Values
+            # the caller asked for are still honoured.
+            asked_for = set(browser_settings) if isinstance(browser_settings, dict) else set()
+            described = fingerprint_store.describe_preset(preset)
+            if "hardware_concurrency" not in asked_for:
+                profile.browser_settings.hardware_concurrency = None
+            if "screen" not in asked_for and described.get("screen"):
+                profile.browser_settings.screen = described["screen"]
+
+            profile.fingerprint = fingerprint_store.resolve(
+                profile.to_camoufox_launch_options(), preset=preset
+            )
 
         # Create the profile data directory
         profile_dir = Path(profile.get_storage_path(str(self.profiles_dir)))

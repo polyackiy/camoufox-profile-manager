@@ -168,6 +168,61 @@ async def test_omitted_fields_are_left_alone(client):
 
 
 @pytest.mark.asyncio
+async def test_preset_catalogue_is_listed(client):
+    response = await client.get("/api/fingerprints/presets", params={"os": "windows"})
+    assert response.status_code == 200
+    presets = response.json()["data"]["presets"]
+    assert presets, "Camoufox ships real device presets"
+    first = presets[0]
+    assert first["id"].startswith("windows:")
+    assert first["os"] == "windows"
+    assert first["screen"]
+
+
+@pytest.mark.asyncio
+async def test_creating_from_a_preset_pins_that_device(client):
+    """The pinned machine must be the device the user picked, not a generated one."""
+    listed = await client.get("/api/fingerprints/presets", params={"os": "windows"})
+    preset = listed.json()["data"]["presets"][2]
+
+    created = await client.post(
+        "/api/profiles", json={"name": "real-device", "fingerprint_preset": preset["id"]}
+    )
+    assert created.status_code == 201
+    body = created.json()
+
+    assert body["fingerprint"] is not None, "a preset pins the profile straight away"
+    assert body["fingerprint"]["screen"] == preset["screen"]
+    assert body["fingerprint"]["hardware_concurrency"] == preset["hardware_concurrency"]
+    assert body["browser_settings"]["os"] == "windows"
+
+
+@pytest.mark.asyncio
+async def test_explicit_settings_still_beat_the_preset(client):
+    listed = await client.get("/api/fingerprints/presets", params={"os": "windows"})
+    preset = listed.json()["data"]["presets"][0]
+
+    created = await client.post(
+        "/api/profiles",
+        json={
+            "name": "override-preset",
+            "fingerprint_preset": preset["id"],
+            "browser_settings": {"hardware_concurrency": 16},
+        },
+    )
+    assert created.json()["fingerprint"]["hardware_concurrency"] == 16
+
+
+@pytest.mark.asyncio
+async def test_unknown_preset_is_rejected(client):
+    response = await client.post(
+        "/api/profiles", json={"name": "nope", "fingerprint_preset": "windows:99999"}
+    )
+    assert response.status_code == 400
+    assert "preset" in response.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
 async def test_fingerprint_is_absent_until_the_first_launch(client):
     """A profile has no pinned machine until it is opened for the first time."""
     created = await client.post("/api/profiles", json={"name": "unlaunched"})
