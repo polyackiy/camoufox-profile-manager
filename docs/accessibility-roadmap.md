@@ -85,8 +85,10 @@ Status: the foundation is in place and verified on macOS.
   demand (all three are green) and can attach them to a release.
 
 Remaining (need maintainer resources, so not automated here):
-- **Code signing & notarization** — Apple Developer ID + notarization for macOS,
-  an Authenticode certificate for Windows; without these the OS warns users.
+- **Code signing & notarization** — the workflow already has guarded signing steps
+  (Apple Developer ID + notarization for macOS, Authenticode for Windows); add the
+  secrets from [docs/signing.md](signing.md) to enable them. Without the secrets
+  the builds are unsigned and the OS warns users.
 - **Installers** — wrap the bundles as `.dmg` / `.exe` (NSIS) / `.AppImage`, and
   verify the Windows/Linux builds on real hardware.
 - **Auto-update** — Sparkle (macOS) / a Windows updater, or a simple version check.
