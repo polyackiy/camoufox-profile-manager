@@ -51,6 +51,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Linux bundles on demand. Signing, installers, and auto-update are documented
   follow-ups (see `docs/accessibility-roadmap.md`).
 
+### Documentation
+- Rewrote the README around what the product actually is now — profiles that keep
+  one machine — and replaced the install instructions, which still described a
+  two-process setup and an old version.
+- Added `docs/cli.md` (every command and flag) and `docs/api.md` (the REST API,
+  endpoint by endpoint), both checked against a running instance.
+- Corrected `docs/excel.md`: it listed column names the export does not use, and
+  said nothing about the file carrying proxy passwords.
+- Updated the roadmap to record what shipped, and to state plainly what will not
+  be built — Chromium profiles and mobile profiles are out of reach for a
+  Camoufox manager.
+- CONTRIBUTING now explains what the `browser` test marker means and how to run
+  the suite as CI sees it, which is the mistake that broke a CI run.
+
 ### Changed
 - The interface was rebuilt as a control panel: a single accent colour marks the
   primary action and a running browser, so a running profile is the only thing
