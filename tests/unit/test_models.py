@@ -12,9 +12,7 @@ def test_short_id_shape_and_uniqueness():
 
 
 def test_proxy_to_camoufox_format():
-    proxy = ProxyConfig(
-        type=ProxyType.SOCKS5, server="1.2.3.4:1080", username="u", password="p"
-    )
+    proxy = ProxyConfig(type=ProxyType.SOCKS5, server="1.2.3.4:1080", username="u", password="p")
     result = proxy.to_camoufox_format()
     assert result == {"server": "socks5://1.2.3.4:1080", "username": "u", "password": "p"}
 

@@ -135,7 +135,9 @@ async def restart_system():
         profile_manager = get_profile_manager()
         await profile_manager.close_all_browsers()
         logger.info("System restart requested")
-        return ApiResponse(success=True, message="Browsers closed; restart the process to continue", data=None)
+        return ApiResponse(
+            success=True, message="Browsers closed; restart the process to continue", data=None
+        )
     except Exception as exc:
         logger.error(f"Failed to restart system: {exc}")
         raise HTTPException(status_code=500, detail=str(exc)) from exc

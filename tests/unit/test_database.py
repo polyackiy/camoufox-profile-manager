@@ -42,7 +42,9 @@ async def test_list_and_filter_profiles(storage):
 async def test_proxy_password_roundtrips_through_storage(storage):
     profile = Profile(
         name="proxied",
-        proxy=ProxyConfig(type=ProxyType.HTTP, server="1.2.3.4:8080", username="u", password="secret"),
+        proxy=ProxyConfig(
+            type=ProxyType.HTTP, server="1.2.3.4:8080", username="u", password="secret"
+        ),
     )
     await storage.save_profile(profile)
     loaded = await storage.get_profile(profile.id)

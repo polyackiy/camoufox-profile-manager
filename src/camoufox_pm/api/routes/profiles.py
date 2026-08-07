@@ -125,7 +125,9 @@ async def create_profile(request: ProfileCreateRequest):
             name=profile.name,
             group=profile.group,
             status=profile.status,
-            browser_settings=profile.browser_settings.model_dump() if profile.browser_settings else {},
+            browser_settings=profile.browser_settings.model_dump()
+            if profile.browser_settings
+            else {},
             proxy_config=profile.proxy.model_dump() if profile.proxy else None,
             storage_path=profile.storage_path,
             notes=profile.notes,
@@ -161,7 +163,9 @@ async def get_profile(profile_id: str):
             name=profile.name,
             group=profile.group,
             status=profile.status,
-            browser_settings=profile.browser_settings.model_dump() if profile.browser_settings else {},
+            browser_settings=profile.browser_settings.model_dump()
+            if profile.browser_settings
+            else {},
             proxy_config=profile.proxy.model_dump() if profile.proxy else None,
             storage_path=profile.storage_path,
             notes=profile.notes,
@@ -293,7 +297,9 @@ async def delete_profile(profile_id: str):
 
         logger.info(f"Deleted profile: ID {profile_id}")
 
-        return ApiResponse(success=True, message=f"Profile {profile_id} deleted successfully", data=None)
+        return ApiResponse(
+            success=True, message=f"Profile {profile_id} deleted successfully", data=None
+        )
 
     except HTTPException:
         raise
