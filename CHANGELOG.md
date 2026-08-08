@@ -185,6 +185,14 @@ hardware on a timer because that would undo the whole point.
   Linux bundles on demand. Signing, installers, and auto-update are documented
   follow-ups (see `docs/accessibility-roadmap.md`).
 
+### Fixed
+- **The app reported the wrong version.** `__version__` was a second copy of the
+  number in `pyproject.toml`, so a wheel built as `0.2.0` announced `0.1.1`
+  through `/health`, the OpenAPI schema and `--version`. It is read from the
+  installed package metadata now, with a test that fails if the two ever
+  disagree again — found by installing the release wheel into a clean
+  environment and asking it what it was.
+
 ### Deprecated
 - The flattened `browser_*` fields on `PUT /api/v1/profiles/{id}` — send the
   same keys inside `browser_settings`. Removed in 1.0.
