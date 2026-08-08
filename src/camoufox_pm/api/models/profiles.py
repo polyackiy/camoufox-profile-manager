@@ -25,7 +25,7 @@ class ProfileCreateRequest(BaseModel):
         None,
         description=(
             "Pin the profile to a captured real device, using an id from "
-            "GET /api/fingerprints/presets. Omit to generate a fingerprint instead."
+            "GET /api/v1/fingerprints/presets. Omit to generate a fingerprint instead."
         ),
     )
 
@@ -62,34 +62,48 @@ class ProfileUpdateRequest(BaseModel):
     proxy_config: dict[str, Any] | None = Field(None)
     notes: str | None = Field(None, max_length=1000)
 
-    # Individual browser settings
-    browser_os: str | None = Field(None, description="Operating system (windows, macos, linux)")
-    browser_screen: str | None = Field(None, description="Screen resolution (1920x1080)")
-    browser_user_agent: str | None = Field(None, description="User-Agent string")
-    browser_languages: list[str] | None = Field(None, description="Browser languages")
-    browser_timezone: str | None = Field(None, description="Timezone")
-    browser_locale: str | None = Field(None, description="Locale (en_US, ru_RU)")
-    browser_webrtc_mode: str | None = Field(
-        None, description="WebRTC mode (forward, replace, real, none)"
+    # The legacy flattened form of browser_settings. Kept for 0.1.x clients;
+    # removed in 1.0. Send the same keys inside browser_settings instead.
+    browser_os: str | None = Field(
+        None, description="Operating system (windows, macos, linux)", deprecated=True
     )
-    browser_canvas_noise: bool | None = Field(None, description="Canvas noise")
+    browser_screen: str | None = Field(
+        None, description="Screen resolution (1920x1080)", deprecated=True
+    )
+    browser_user_agent: str | None = Field(None, description="User-Agent string", deprecated=True)
+    browser_languages: list[str] | None = Field(
+        None, description="Browser languages", deprecated=True
+    )
+    browser_timezone: str | None = Field(None, description="Timezone", deprecated=True)
+    browser_locale: str | None = Field(None, description="Locale (en_US, ru_RU)", deprecated=True)
+    browser_webrtc_mode: str | None = Field(
+        None, description="WebRTC mode (forward, replace, real, none)", deprecated=True
+    )
+    browser_canvas_noise: bool | None = Field(None, description="Canvas noise", deprecated=True)
     browser_stable_canvas: bool | None = Field(
         None,
         description=(
             "Keep the canvas reproducible across launches. Costs cross-site "
             "unlinkability: the canvas becomes identical on every site."
         ),
+        deprecated=True,
     )
-    browser_webgl_noise: bool | None = Field(None, description="WebGL noise")
-    browser_audio_noise: bool | None = Field(None, description="Audio noise")
-    browser_hardware_concurrency: int | None = Field(None, ge=1, le=32, description="CPU cores")
-    browser_device_memory: int | None = Field(None, ge=1, le=128, description="Device memory (GB)")
-    browser_max_touch_points: int | None = Field(None, ge=0, le=10, description="Max touch points")
+    browser_webgl_noise: bool | None = Field(None, description="WebGL noise", deprecated=True)
+    browser_audio_noise: bool | None = Field(None, description="Audio noise", deprecated=True)
+    browser_hardware_concurrency: int | None = Field(
+        None, ge=1, le=32, description="CPU cores", deprecated=True
+    )
+    browser_device_memory: int | None = Field(
+        None, ge=1, le=128, description="Device memory (GB)", deprecated=True
+    )
+    browser_max_touch_points: int | None = Field(
+        None, ge=0, le=10, description="Max touch points", deprecated=True
+    )
     browser_window_width: int | None = Field(
-        None, ge=800, le=3840, description="Browser window width"
+        None, ge=800, le=3840, description="Browser window width", deprecated=True
     )
     browser_window_height: int | None = Field(
-        None, ge=600, le=2160, description="Browser window height"
+        None, ge=600, le=2160, description="Browser window height", deprecated=True
     )
 
     model_config = ConfigDict(
@@ -97,11 +111,13 @@ class ProfileUpdateRequest(BaseModel):
             "example": {
                 "status": "inactive",
                 "notes": "Updated notes",
-                "browser_os": "windows",
-                "browser_screen": "1920x1080",
-                "browser_webrtc_mode": "replace",
-                "browser_canvas_noise": True,
-                "browser_webgl_noise": True,
+                "browser_settings": {
+                    "os": "windows",
+                    "screen": "1920x1080",
+                    "webrtc_mode": "replace",
+                    "canvas_noise": True,
+                    "webgl_noise": True,
+                },
             }
         }
     )
@@ -123,7 +139,14 @@ class ProfileResponse(BaseModel):
     last_used: datetime | None
     # A short description of the pinned machine, not the stored config itself:
     # that is ~40 properties and tens of kilobytes, which nothing here needs.
-    fingerprint: dict[str, Any] | None = None
+    fingerprint: dict[str, Any] | None = Field(
+        None,
+        description=(
+            "Summary of the pinned machine, null until the first launch. Its values "
+            "come from Camoufox and may gain keys as Camoufox changes; not frozen "
+            "by the API contract."
+        ),
+    )
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -169,7 +192,9 @@ class ProfileStatsResponse(BaseModel):
     total_duration_minutes: int
     last_session: datetime | None
     success_rate: float
-    actions: list[dict[str, Any]]
+    actions: list[dict[str, Any]] = Field(
+        ..., description="Recent usage log entries; shape not covered by the API contract"
+    )
 
 
 class ProfileCloneRequest(BaseModel):
@@ -209,10 +234,53 @@ class ProfileLaunchResponse(BaseModel):
     """Response returned when a browser is launched."""
 
     profile_id: str
-    browser_session_id: str
-    status: str
+    browser_session_id: str = Field(
+        ...,
+        description=(
+            "A random value that never identified anything; no endpoint accepts it. "
+            "Use profile_id to address the running browser."
+        ),
+        deprecated=True,
+    )
+    status: str = Field(..., description="launched or already_running")
     message: str
-    camoufox_options: dict[str, Any]
+    process_id: int | None = Field(None, description="OS process id of the browser, if known")
+    camoufox_options: dict[str, Any] = Field(
+        ...,
+        description="Launch internals passed to Camoufox; shape not covered by the API contract",
+    )
+
+
+class BrowserCloseResponse(BaseModel):
+    """Response returned when a browser is asked to close."""
+
+    status: str = Field(..., description="closed or not_running")
+    profile_id: str
+    message: str
+
+
+class ActiveBrowserInfo(BaseModel):
+    """One running browser."""
+
+    profile_id: str
+    process_id: int | None
+    started_at: datetime
+
+
+class ActiveBrowsersResponse(BaseModel):
+    """The browsers currently running."""
+
+    active_browsers: list[ActiveBrowserInfo]
+    count: int
+
+
+class BrowsersCloseAllResponse(BaseModel):
+    """Response returned when every browser is asked to close."""
+
+    status: str
+    closed_count: int
+    errors: list[str]
+    message: str
 
 
 class ProxyCheckRequest(BaseModel):

@@ -635,7 +635,7 @@ export default function ProfilesPage() {
                   </td>
                   <td className="py-2.5 pr-4 text-ink-dim">{formatLastUsed(profile.last_used)}</td>
                   <td className="py-2.5 pr-4 font-mono text-ink-faint">
-                    {formatProxyString(profile.proxy ?? profile.proxy_config) || '—'}
+                    {formatProxyString(profile.proxy_config) || '—'}
                   </td>
 
                   <td className="py-2.5 pr-5">
