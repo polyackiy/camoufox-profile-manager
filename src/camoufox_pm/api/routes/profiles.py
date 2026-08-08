@@ -351,6 +351,9 @@ async def clone_profile(profile_id: str, request: ProfileCloneRequest):
         return ProfileResponse.from_profile(cloned_profile)
 
     except HTTPException:
+        # Without this the 404 raised above is caught by the handler below and
+        # served as a 500: the client's own bad id reported as a server fault,
+        # and a page for whoever watches the error rate.
         raise
     except ValueError as e:
         # A missing source returns None above; a ValueError here is bad input
