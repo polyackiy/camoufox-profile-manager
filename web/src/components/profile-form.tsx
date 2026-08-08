@@ -61,7 +61,7 @@ const EMPTY: FormState = {
 
 function fromProfile(profile: Profile): FormState {
   const bs = profile.browser_settings ?? {}
-  const proxy = profile.proxy ?? profile.proxy_config ?? {}
+  const proxy = profile.proxy_config ?? {}
   const geo = bs.geolocation
   const lat = geo?.lat ?? geo?.latitude
   const lon = geo?.lon ?? geo?.longitude

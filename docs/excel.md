@@ -8,7 +8,7 @@ spreadsheet carries settings only.
 ## Export
 
 - **Web UI:** the download icon in the toolbar on the Profiles page.
-- **API:** `GET /api/profiles/export/excel`
+- **API:** `GET /api/v1/profiles/export/excel`
 
 Each row is a profile. The header row carries help text and key columns have
 dropdown validation, so the file doubles as a template.
@@ -20,7 +20,7 @@ dropdown validation, so the file doubles as a template.
 ## Import
 
 - **Web UI:** the upload icon in the toolbar.
-- **API:** `POST /api/profiles/import/excel` (multipart file upload)
+- **API:** `POST /api/v1/profiles/import/excel` (multipart file upload)
 
 Import **always creates new profiles** with fresh IDs — it never updates existing
 ones. That keeps IDs unique and avoids overwriting a profile by accident. The

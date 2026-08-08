@@ -5,6 +5,10 @@
 
 export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? ''
 
+// Canonical API prefix. The backend still serves the unversioned /api paths as
+// aliases for older scripts; the bundled UI always talks to the current one.
+const API_PREFIX = '/api/v1'
+
 export interface BrowserSettings {
   os: string
   screen: string
@@ -64,7 +68,6 @@ export interface Profile {
   status: string
   browser_settings: BrowserSettings
   proxy_config?: ProxyConfig | null
-  proxy?: ProxyConfig | null
   storage_path?: string | null
   notes?: string | null
   created_at: string
@@ -135,14 +138,10 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     let detail = response.statusText
     try {
       const body = await response.json()
-      // FastAPI validation errors arrive as a list of objects; flatten them so
-      // the toast shows something readable instead of "[object Object]".
-      const raw = body.detail ?? body.message ?? detail
-      detail = Array.isArray(raw)
-        ? raw.map((item) => item?.msg ?? JSON.stringify(item)).join('; ')
-        : typeof raw === 'string'
-          ? raw
-          : JSON.stringify(raw)
+      // Every API error carries error.message; detail is the legacy mirror,
+      // kept as a fallback for anything not yet on the one error shape.
+      const raw = body.error?.message ?? body.detail ?? body.message ?? detail
+      detail = typeof raw === 'string' ? raw : JSON.stringify(raw)
     } catch {
       // response had no JSON body
     }
@@ -184,49 +183,49 @@ export interface ProxyCheck {
 
 export const profilesAPI = {
   getProfiles(params: Record<string, unknown> = {}): Promise<ProfilesResponse> {
-    return request<ProfilesResponse>(`/api/profiles${toQuery(params)}`)
+    return request<ProfilesResponse>(`${API_PREFIX}/profiles${toQuery(params)}`)
   },
 
   createProfile(data: Record<string, unknown>): Promise<Profile> {
-    return request<Profile>('/api/profiles', { method: 'POST', body: JSON.stringify(data) })
+    return request<Profile>(`${API_PREFIX}/profiles`, { method: 'POST', body: JSON.stringify(data) })
   },
 
   updateProfile(id: string, data: Record<string, unknown>): Promise<Profile> {
-    return request<Profile>(`/api/profiles/${id}`, { method: 'PUT', body: JSON.stringify(data) })
+    return request<Profile>(`${API_PREFIX}/profiles/${id}`, { method: 'PUT', body: JSON.stringify(data) })
   },
 
   deleteProfile(id: string): Promise<void> {
-    return request<void>(`/api/profiles/${id}`, { method: 'DELETE' })
+    return request<void>(`${API_PREFIX}/profiles/${id}`, { method: 'DELETE' })
   },
 
   cloneProfile(id: string, newName: string): Promise<Profile> {
-    return request<Profile>(`/api/profiles/${id}/clone`, {
+    return request<Profile>(`${API_PREFIX}/profiles/${id}/clone`, {
       method: 'POST',
       body: JSON.stringify({ new_name: newName }),
     })
   },
 
   startProfile(id: string): Promise<unknown> {
-    return request<unknown>(`/api/profiles/${id}/launch`, {
+    return request<unknown>(`${API_PREFIX}/profiles/${id}/launch`, {
       method: 'POST',
       body: JSON.stringify({ headless: false }),
     })
   },
 
   closeProfile(id: string): Promise<unknown> {
-    return request<unknown>(`/api/profiles/${id}/close`, { method: 'POST' })
+    return request<unknown>(`${API_PREFIX}/profiles/${id}/close`, { method: 'POST' })
   },
 
   resetFingerprint(id: string): Promise<Profile> {
-    return request<Profile>(`/api/profiles/${id}/reset-fingerprint`, { method: 'POST' })
+    return request<Profile>(`${API_PREFIX}/profiles/${id}/reset-fingerprint`, { method: 'POST' })
   },
 
   refreshBrowserVersion(id: string): Promise<Profile> {
-    return request<Profile>(`/api/profiles/${id}/refresh-browser`, { method: 'POST' })
+    return request<Profile>(`${API_PREFIX}/profiles/${id}/refresh-browser`, { method: 'POST' })
   },
 
   checkProxy(id: string): Promise<ProxyCheck> {
-    return request<ProxyCheck>(`/api/profiles/${id}/check-proxy`, { method: 'POST' })
+    return request<ProxyCheck>(`${API_PREFIX}/profiles/${id}/check-proxy`, { method: 'POST' })
   },
 
   // The same check for a profile that is still being filled in, so the form can
@@ -235,11 +234,11 @@ export const profilesAPI = {
     proxy_config: Record<string, unknown> | null
     browser_settings: Record<string, unknown>
   }): Promise<ProxyCheck> {
-    return request<ProxyCheck>('/api/proxy/check', { method: 'POST', body: JSON.stringify(body) })
+    return request<ProxyCheck>(`${API_PREFIX}/proxy/check`, { method: 'POST', body: JSON.stringify(body) })
   },
 
   async exportExcel(): Promise<Blob> {
-    const response = await fetch(`${API_BASE_URL}/api/profiles/export/excel`, {
+    const response = await fetch(`${API_BASE_URL}${API_PREFIX}/profiles/export/excel`, {
       headers: authHeaders(),
     })
     if (!response.ok) throw new Error(response.statusText)
@@ -247,7 +246,7 @@ export const profilesAPI = {
   },
 
   async exportArchive(id: string): Promise<Blob> {
-    const response = await fetch(`${API_BASE_URL}/api/profiles/${id}/export`, {
+    const response = await fetch(`${API_BASE_URL}${API_PREFIX}/profiles/${id}/export`, {
       headers: authHeaders(),
     })
     if (!response.ok) {
@@ -261,7 +260,7 @@ export const profilesAPI = {
     const body = new FormData()
     body.append('file', file)
     // No Content-Type: the browser has to set the multipart boundary itself.
-    const response = await fetch(`${API_BASE_URL}/api/profiles/import`, {
+    const response = await fetch(`${API_BASE_URL}${API_PREFIX}/profiles/import`, {
       method: 'POST',
       headers: authHeaders(),
       body,
@@ -277,7 +276,7 @@ export const profilesAPI = {
     const body = new FormData()
     body.append('file', file)
     // No Content-Type: the browser has to set the multipart boundary itself.
-    const response = await fetch(`${API_BASE_URL}/api/profiles/import/excel`, {
+    const response = await fetch(`${API_BASE_URL}${API_PREFIX}/profiles/import/excel`, {
       method: 'POST',
       headers: authHeaders(),
       body,
@@ -294,29 +293,29 @@ export interface ImportResult {
 
 export const browsersAPI = {
   active(): Promise<{ active_browsers: { profile_id: string }[]; count: number }> {
-    return request('/api/browsers/active')
+    return request(`${API_PREFIX}/browsers/active`)
   },
 
   closeAll(): Promise<{ closed_count: number; message: string }> {
-    return request('/api/browsers/close-all', { method: 'POST' })
+    return request(`${API_PREFIX}/browsers/close-all`, { method: 'POST' })
   },
 }
 
 export const groupsAPI = {
   list(): Promise<{ groups: Group[]; total: number }> {
-    return request('/api/groups')
+    return request(`${API_PREFIX}/groups`)
   },
 
   create(data: { name: string; description?: string }): Promise<Group> {
-    return request<Group>('/api/groups', { method: 'POST', body: JSON.stringify(data) })
+    return request<Group>(`${API_PREFIX}/groups`, { method: 'POST', body: JSON.stringify(data) })
   },
 
   update(id: string, data: { name?: string; description?: string }): Promise<Group> {
-    return request<Group>(`/api/groups/${id}`, { method: 'PUT', body: JSON.stringify(data) })
+    return request<Group>(`${API_PREFIX}/groups/${id}`, { method: 'PUT', body: JSON.stringify(data) })
   },
 
   remove(id: string): Promise<void> {
-    return request<void>(`/api/groups/${id}`, { method: 'DELETE' })
+    return request<void>(`${API_PREFIX}/groups/${id}`, { method: 'DELETE' })
   },
 }
 
@@ -346,7 +345,7 @@ export interface DevicePreset {
 export const presetsAPI = {
   async list(os?: string): Promise<DevicePreset[]> {
     const body = await request<{ data: { presets: DevicePreset[] } }>(
-      `/api/fingerprints/presets${toQuery({ os })}`,
+      `${API_PREFIX}/fingerprints/presets${toQuery({ os })}`,
     )
     return body.data.presets
   },
@@ -354,11 +353,11 @@ export const presetsAPI = {
 
 export const systemAPI = {
   status(): Promise<SystemStatus> {
-    return request<SystemStatus>('/api/system/status')
+    return request<SystemStatus>(`${API_PREFIX}/system/status`)
   },
 
   async config(): Promise<SystemConfig> {
-    const body = await request<{ data: SystemConfig }>('/api/system/config')
+    const body = await request<{ data: SystemConfig }>(`${API_PREFIX}/system/config`)
     return body.data
   },
 }

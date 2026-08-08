@@ -17,10 +17,13 @@ Track progress in [GitHub Issues](https://github.com/polyackiy/camoufox-profile-
   the profile's timezone and coordinates agree with it.
 - The web UI covers the product: creating profiles, groups, and a settings screen
   reporting how the instance is configured.
+- The REST API is stabilised for `1.0`: `/api/v1` paths (the unversioned ones
+  stay as aliases), one error shape everywhere, typed responses on every route,
+  and a written stability contract in [api.md](api.md) saying what freezes and
+  what deliberately does not.
 
 ## Now (0.1.x)
 
-- Stabilise the REST API before `1.0`.
 - Fill remaining gaps in test coverage.
 
 ## Next

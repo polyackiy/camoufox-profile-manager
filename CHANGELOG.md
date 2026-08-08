@@ -7,6 +7,22 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **A stability contract for the REST API**, written down in `docs/api.md`:
+  what 1.0 freezes (paths, field names, status codes, the error shape), what
+  stays deliberately unstable (the `fingerprint` summary, launch internals),
+  and what is deprecated with the version it goes away in.
+- **`/api/v1` is the canonical API prefix.** The unversioned `/api/...` paths
+  keep working as aliases for existing scripts — same routes, same behaviour —
+  but are left out of the OpenAPI schema so a generated client sees each
+  operation once. They go away in 2.0. The bundled web UI now calls `/api/v1`.
+- **One error shape for every failure.** All non-2xx responses now carry
+  `{"error": {"code", "message", "details"}}` with a stable snake_case `code`;
+  validation failures use it too, so `detail` is no longer sometimes a string
+  and sometimes a list. The top-level `detail` string is kept as a mirror of
+  `error.message` for FastAPI-style clients and is deprecated, removed in 1.0.
+- Every route now declares a stable `operation_id`, a summary and a typed
+  `response_model` — including the browser lifecycle endpoints and `/health`,
+  which returned bare dicts — so a generated client is actually usable.
 - **Check a proxy, and what it says about the profile.** *Check proxy* — in the
   form and in a profile's row menu — reaches the internet through the proxy and
   reports where it comes out, how long it took, and everything a page could
@@ -75,6 +91,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Linux bundles on demand. Signing, installers, and auto-update are documented
   follow-ups (see `docs/accessibility-roadmap.md`).
 
+### Deprecated
+- The flattened `browser_*` fields on `PUT /api/v1/profiles/{id}` — send the
+  same keys inside `browser_settings`. Removed in 1.0.
+- `browser_session_id` in the launch response: a random value no endpoint ever
+  accepted. The launch response now carries `process_id` at the top level.
+  Removed in 1.0.
+- Top-level `detail` in error responses — read `error.message`. Removed in 1.0.
+- The unversioned `/api/...` paths — use `/api/v1/...`. Removed in 2.0.
+
 ### Documentation
 - Rewrote the README around what the product actually is now — profiles that keep
   one machine — and replaced the install instructions, which still described a
@@ -90,6 +115,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the suite as CI sees it, which is the mistake that broke a CI run.
 
 ### Changed
+- `/health` answers `503` when the database is unreachable instead of a
+  healthy-looking `200`, so load balancers and container healthchecks see the
+  failure without parsing the body.
+- Cloning a profile with bad input returns `400`; it was previously reported as
+  `404` even when the source profile existed.
 - The interface was rebuilt as a control panel: a single accent colour marks the
   primary action and a running browser, so a running profile is the only thing
   that draws the eye. Hairline rules replace nested cards, machine values are

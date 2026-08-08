@@ -8,41 +8,54 @@ T = TypeVar("T")
 
 
 class ApiResponse(BaseModel, Generic[T]):
-    """Generic API response."""
+    """Envelope for action endpoints that do not return a resource."""
 
     success: bool = Field(True, description="Whether the operation succeeded")
     message: str = Field("", description="Message")
     data: T | None = Field(None, description="Response payload")
 
 
-class ErrorResponse(BaseModel):
-    """Error response."""
+class ErrorDetail(BaseModel):
+    """The machine-readable part of every error response."""
 
-    success: bool = Field(False)
-    error: str = Field(..., description="Error code")
-    message: str = Field(..., description="Error description")
-    details: dict[str, Any] | None = Field(None, description="Additional details")
+    code: str = Field(..., description="Stable error code (snake_case)")
+    message: str = Field(..., description="Human-readable description")
+    details: list[Any] | None = Field(
+        None, description="Structured specifics; set for validation errors"
+    )
+
+
+class ErrorResponse(BaseModel):
+    """The one shape every non-2xx response uses."""
+
+    error: ErrorDetail
+    detail: str = Field(
+        ...,
+        description="Mirror of error.message for FastAPI-style clients",
+        deprecated=True,
+    )
 
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
-                "success": False,
-                "error": "PROFILE_NOT_FOUND",
-                "message": "Profile not found",
-                "details": {"profile_id": "invalid_id"},
+                "error": {
+                    "code": "not_found",
+                    "message": "Profile with ID x1 not found",
+                    "details": None,
+                },
+                "detail": "Profile with ID x1 not found",
             }
         }
     )
 
 
-class PaginationResponse(BaseModel):
-    """Pagination metadata."""
+class HealthResponse(BaseModel):
+    """Liveness report; unhealthy instances answer with it under a 503."""
 
-    page: int = Field(1, ge=1, description="Page number")
-    per_page: int = Field(10, ge=1, le=100, description="Items per page")
-    total: int = Field(0, ge=0, description="Total number of items")
-    has_next: bool = Field(False, description="Whether a next page exists")
-    has_prev: bool = Field(False, description="Whether a previous page exists")
+    status: str = Field(..., description="healthy or unhealthy")
+    api_version: str
+    database: str = Field(..., description="connected or disconnected")
+    profiles_count: int
 
 
 class SystemStatusResponse(BaseModel):
@@ -56,6 +69,57 @@ class SystemStatusResponse(BaseModel):
     memory_usage: float = Field(..., description="Memory usage in %")
     disk_usage: float = Field(..., description="Disk usage in %")
     uptime_seconds: int = Field(..., description="Uptime in seconds")
+
+
+class SystemInfoData(BaseModel):
+    """Payload of the system info endpoint."""
+
+    name: str
+    version: str
+    description: str
+    uptime_seconds: int
+
+
+class SystemConfigData(BaseModel):
+    """Effective configuration; secrets are reported only as set/unset."""
+
+    version: str
+    host: str
+    port: int
+    database_path: str
+    api_key_set: bool
+    encryption_enabled: bool
+    cors_origins: list[str]
+    camoufox_available: bool
+    uptime_seconds: int
+
+
+class DevicePreset(BaseModel):
+    """A fingerprint captured from a real machine, from Camoufox's catalogue."""
+
+    id: str = Field(..., description="Preset id, '<os>:<index>'")
+    os: str
+    screen: str | None = None
+    hardware_concurrency: int | None = None
+    gpu: str | None = None
+    vendor: str | None = None
+    user_agent: str | None = None
+
+
+class PresetListData(BaseModel):
+    """Payload of the preset catalogue endpoint."""
+
+    presets: list[DevicePreset]
+    total: int
+
+
+class ExcelImportData(BaseModel):
+    """Payload of the Excel import endpoint."""
+
+    created_count: int
+    updated_count: int
+    error_count: int
+    errors: list[str]
 
 
 class ProfileDiagnosticResponse(BaseModel):

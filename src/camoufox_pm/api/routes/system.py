@@ -11,8 +11,12 @@ from camoufox_pm import __version__
 from camoufox_pm.api.dependencies import get_profile_manager
 from camoufox_pm.api.models.system import (
     ApiResponse,
+    DevicePreset,
+    PresetListData,
     ProfileCleanupResponse,
     ProfileDiagnosticResponse,
+    SystemConfigData,
+    SystemInfoData,
     SystemStatusResponse,
 )
 from camoufox_pm.config import get_settings
@@ -29,8 +33,9 @@ startup_time = time.time()
 @router.get(
     "/system/status",
     response_model=SystemStatusResponse,
-    summary="Get system status",
-    description="Get an overview of the system state",
+    operation_id="get_system_status",
+    summary="Get the system status.",
+    description="Get an overview of the system state.",
 )
 async def get_system_status():
     """Return an overview of the system state."""
@@ -59,8 +64,9 @@ async def get_system_status():
 @router.get(
     "/system/profiles/diagnostic",
     response_model=ProfileDiagnosticResponse,
-    summary="Diagnose profiles",
-    description="Check profile storage health and find issues",
+    operation_id="diagnose_profiles",
+    summary="Diagnose profile storage.",
+    description="Check profile storage health and find issues.",
 )
 async def diagnostic_profiles():
     """Diagnose profile storage health."""
@@ -89,8 +95,9 @@ async def diagnostic_profiles():
 @router.post(
     "/system/profiles/cleanup",
     response_model=ProfileCleanupResponse,
-    summary="Clean up orphaned profiles",
-    description="Remove profile directories that are not present in the database",
+    operation_id="cleanup_orphaned_profiles",
+    summary="Clean up orphaned profiles.",
+    description="Remove profile directories that are not present in the database.",
 )
 async def cleanup_orphaned_profiles(dry_run: bool = False):
     """Clean up orphaned profile directories."""
@@ -129,9 +136,10 @@ async def cleanup_orphaned_profiles(dry_run: bool = False):
 
 @router.post(
     "/system/restart",
-    response_model=ApiResponse,
-    summary="Restart",
-    description="Close all browsers as part of a safe restart",
+    response_model=ApiResponse[None],
+    operation_id="restart_system",
+    summary="Prepare for a restart.",
+    description="Close all browsers as part of a safe restart. Does not restart the process itself.",
 )
 async def restart_system():
     """Close all browsers in preparation for a restart."""
@@ -149,8 +157,9 @@ async def restart_system():
 
 @router.get(
     "/fingerprints/presets",
-    response_model=ApiResponse,
-    summary="List real device presets",
+    response_model=ApiResponse[PresetListData],
+    operation_id="list_fingerprint_presets",
+    summary="List real device presets.",
     description=(
         "Fingerprints captured from real machines, bundled with Camoufox. A profile "
         "created from one is pinned to that device instead of a generated fingerprint."
@@ -164,14 +173,17 @@ async def list_fingerprint_presets(
     return ApiResponse(
         success=True,
         message=f"{len(presets)} presets available",
-        data={"presets": presets, "total": len(presets)},
+        data=PresetListData(
+            presets=[DevicePreset(**preset) for preset in presets], total=len(presets)
+        ),
     )
 
 
 @router.get(
     "/system/config",
-    response_model=ApiResponse,
-    summary="Effective configuration",
+    response_model=ApiResponse[SystemConfigData],
+    operation_id="get_system_config",
+    summary="Report the effective configuration.",
     description="Report how this instance is configured. Never returns secret values.",
 )
 async def get_system_config():
@@ -184,35 +196,36 @@ async def get_system_config():
     return ApiResponse(
         success=True,
         message="Effective configuration",
-        data={
-            "version": __version__,
-            "host": settings.host,
-            "port": settings.port,
-            "database_path": str(Path(settings.db_path).resolve()),
-            "api_key_set": bool(settings.api_key),
-            "encryption_enabled": bool(settings.secret_key),
-            "cors_origins": settings.cors_origins,
-            "camoufox_available": CAMOUFOX_AVAILABLE,
-            "uptime_seconds": int(time.time() - startup_time),
-        },
+        data=SystemConfigData(
+            version=__version__,
+            host=settings.host,
+            port=settings.port,
+            database_path=str(Path(settings.db_path).resolve()),
+            api_key_set=bool(settings.api_key),
+            encryption_enabled=bool(settings.secret_key),
+            cors_origins=settings.cors_origins,
+            camoufox_available=CAMOUFOX_AVAILABLE,
+            uptime_seconds=int(time.time() - startup_time),
+        ),
     )
 
 
 @router.get(
     "/system/info",
-    response_model=ApiResponse,
-    summary="System info",
-    description="Basic information about the API",
+    response_model=ApiResponse[SystemInfoData],
+    operation_id="get_system_info",
+    summary="Get basic API information.",
+    description="Basic information about the API.",
 )
 async def get_system_info():
     """Return basic information about the API."""
     return ApiResponse(
         success=True,
         message="Camoufox Profile Manager API",
-        data={
-            "name": "camoufox-profile-manager",
-            "version": __version__,
-            "description": "Antidetect browser profile manager API",
-            "uptime_seconds": int(time.time() - startup_time),
-        },
+        data=SystemInfoData(
+            name="camoufox-profile-manager",
+            version=__version__,
+            description="Antidetect browser profile manager API",
+            uptime_seconds=int(time.time() - startup_time),
+        ),
     )

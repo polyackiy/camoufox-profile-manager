@@ -5,7 +5,7 @@ from pathlib import Path
 
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
 
@@ -15,7 +15,9 @@ from camoufox_pm.api.dependencies import (
     set_profile_manager,
     set_storage_manager,
 )
+from camoufox_pm.api.errors import install_error_handlers
 from camoufox_pm.api.middleware.logging import LoggingMiddleware
+from camoufox_pm.api.models.system import ErrorResponse, HealthResponse
 from camoufox_pm.api.routes import groups, profiles, system
 from camoufox_pm.config import get_settings
 from camoufox_pm.core.database import StorageManager
@@ -52,13 +54,18 @@ app = FastAPI(
     description=(
         "Self-hosted, open-source antidetect browser profile manager built on "
         "Camoufox. Manage profiles and groups, generate fingerprints, launch the "
-        "browser, and drive everything over a REST API."
+        "browser, and drive everything over a REST API.\n\n"
+        "Endpoints live under `/api/v1`. The unversioned `/api/...` paths from "
+        "before 0.2 keep working as aliases but are left out of this schema; "
+        "see the stability contract in `docs/api.md`."
     ),
     version=__version__,
     docs_url="/docs",
     redoc_url="/redoc",
     lifespan=lifespan,
+    responses={"4XX": {"model": ErrorResponse}, "5XX": {"model": ErrorResponse}},
 )
+install_error_handlers(app)
 
 app.add_middleware(
     CORSMiddleware,
@@ -73,32 +80,65 @@ app.add_middleware(LoggingMiddleware)
 
 # Optional API-key guard; a no-op when CPM_API_KEY is unset.
 protected = [Depends(require_api_key)]
-app.include_router(profiles.router, prefix="/api", tags=["Profiles"], dependencies=protected)
-app.include_router(groups.router, prefix="/api", tags=["Groups"], dependencies=protected)
-app.include_router(system.router, prefix="/api", tags=["System"], dependencies=protected)
+# /api/v1 is the canonical prefix. The same routers are also served under the
+# pre-0.2 unversioned /api so existing scripts keep working; those copies are
+# left out of the schema so a generated client sees each operation once.
+for _prefix, _in_schema in (("/api/v1", True), ("/api", False)):
+    app.include_router(
+        profiles.router,
+        prefix=_prefix,
+        tags=["Profiles"],
+        dependencies=protected,
+        include_in_schema=_in_schema,
+    )
+    app.include_router(
+        groups.router,
+        prefix=_prefix,
+        tags=["Groups"],
+        dependencies=protected,
+        include_in_schema=_in_schema,
+    )
+    app.include_router(
+        system.router,
+        prefix=_prefix,
+        tags=["System"],
+        dependencies=protected,
+        include_in_schema=_in_schema,
+    )
 
 
-@app.get("/health", tags=["System"])
+@app.get(
+    "/health",
+    tags=["System"],
+    response_model=HealthResponse,
+    operation_id="health_check",
+    summary="Report API and database health.",
+)
 async def health_check():
-    """Report API and database health."""
+    """Report API and database health. Unversioned so probes survive API versions."""
     from camoufox_pm.api.dependencies import get_profile_manager
 
     try:
         profile_mgr = get_profile_manager()
         profiles_list = await profile_mgr.list_profiles()
-        return {
-            "status": "healthy",
-            "api_version": __version__,
-            "database": "connected",
-            "profiles_count": len(profiles_list),
-        }
+        return HealthResponse(
+            status="healthy",
+            api_version=__version__,
+            database="connected",
+            profiles_count=len(profiles_list),
+        )
     except Exception:
-        return {
-            "status": "unhealthy",
-            "api_version": __version__,
-            "database": "disconnected",
-            "profiles_count": 0,
-        }
+        # 503 rather than a healthy-looking 200, so load balancers and container
+        # healthchecks see the failure without parsing the body.
+        return JSONResponse(
+            status_code=503,
+            content=HealthResponse(
+                status="unhealthy",
+                api_version=__version__,
+                database="disconnected",
+                profiles_count=0,
+            ).model_dump(),
+        )
 
 
 def _webui_dir() -> Path | None:

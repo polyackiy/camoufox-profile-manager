@@ -17,7 +17,11 @@ from pydantic import ValidationError
 from starlette.background import BackgroundTask
 
 from camoufox_pm.api.dependencies import get_profile_manager
+from camoufox_pm.api.errors import ApiError, validation_message
 from camoufox_pm.api.models.profiles import (
+    ActiveBrowsersResponse,
+    BrowserCloseResponse,
+    BrowsersCloseAllResponse,
     ProfileCloneRequest,
     ProfileCreateRequest,
     ProfileLaunchRequest,
@@ -29,19 +33,40 @@ from camoufox_pm.api.models.profiles import (
     ProxyCheckRequest,
     ProxyCheckResponse,
 )
-from camoufox_pm.api.models.system import ApiResponse
+from camoufox_pm.api.models.system import ApiResponse, ExcelImportData
 from camoufox_pm.core import proxy_check
 from camoufox_pm.core.excel_manager import ExcelManager
 from camoufox_pm.core.models import BrowserSettings, ProfileStatus, ProxyConfig
 
 router = APIRouter()
 
+# Maps the deprecated flattened update fields onto their browser_settings keys.
+_FLATTENED_BROWSER_FIELDS = {
+    "browser_os": "os",
+    "browser_screen": "screen",
+    "browser_user_agent": "user_agent",
+    "browser_languages": "languages",
+    "browser_timezone": "timezone",
+    "browser_locale": "locale",
+    "browser_webrtc_mode": "webrtc_mode",
+    "browser_canvas_noise": "canvas_noise",
+    "browser_stable_canvas": "stable_canvas",
+    "browser_webgl_noise": "webgl_noise",
+    "browser_audio_noise": "audio_noise",
+    "browser_hardware_concurrency": "hardware_concurrency",
+    "browser_device_memory": "device_memory",
+    "browser_max_touch_points": "max_touch_points",
+    "browser_window_width": "window_width",
+    "browser_window_height": "window_height",
+}
+
 
 @router.get(
     "/profiles",
     response_model=ProfileListResponse,
-    summary="List profiles",
-    description="List all profiles with filtering and pagination",
+    operation_id="list_profiles",
+    summary="List profiles.",
+    description="List all profiles with filtering and pagination.",
 )
 async def list_profiles(
     page: int = Query(1, ge=1, description="Page number"),
@@ -95,8 +120,9 @@ async def list_profiles(
     "/profiles",
     response_model=ProfileResponse,
     status_code=status.HTTP_201_CREATED,
-    summary="Create a profile",
-    description="Create a new profile with an auto-generated fingerprint",
+    operation_id="create_profile",
+    summary="Create a profile.",
+    description="Create a new profile with an auto-generated fingerprint.",
 )
 async def create_profile(request: ProfileCreateRequest):
     """Create a new profile."""
@@ -128,8 +154,9 @@ async def create_profile(request: ProfileCreateRequest):
 @router.get(
     "/profiles/{profile_id}",
     response_model=ProfileResponse,
-    summary="Get a profile",
-    description="Get detailed information about a profile",
+    operation_id="get_profile",
+    summary="Get a profile.",
+    description="Get detailed information about a profile.",
 )
 async def get_profile(profile_id: str):
     """Get a profile by ID."""
@@ -152,8 +179,13 @@ async def get_profile(profile_id: str):
 @router.put(
     "/profiles/{profile_id}",
     response_model=ProfileResponse,
-    summary="Update a profile",
-    description="Update a profile's data",
+    operation_id="update_profile",
+    summary="Update a profile.",
+    description=(
+        "Update a profile's data. A field that is sent is authoritative, including "
+        "an explicit null, which clears it; a field that is omitted is left alone. "
+        "browser_settings is merged over the stored settings."
+    ),
 )
 async def update_profile(profile_id: str, request: ProfileUpdateRequest):
     """Update a profile."""
@@ -164,59 +196,32 @@ async def update_profile(profile_id: str, request: ProfileUpdateRequest):
         # which clears it. A field it omitted is left untouched. Testing for
         # "is not None" instead would make clearing a proxy, a group or the
         # notes silently do nothing while still reporting success.
-        sent = request.model_fields_set
+        # Read through model_dump: attribute access on the deprecated flattened
+        # fields would raise DeprecationWarning from inside our own route.
+        sent = request.model_dump(exclude_unset=True)
 
         updates: dict[str, Any] = {}
-        if request.name is not None:
-            updates["name"] = request.name
+        if sent.get("name") is not None:
+            updates["name"] = sent["name"]
         if "group" in sent:
-            updates["group"] = request.group
-        if request.status is not None:
-            updates["status"] = request.status
+            updates["group"] = sent["group"]
+        if sent.get("status") is not None:
+            updates["status"] = sent["status"]
         if "proxy_config" in sent:
-            updates["proxy_config"] = request.proxy_config
+            updates["proxy_config"] = sent["proxy_config"]
         if "notes" in sent:
-            updates["notes"] = request.notes
+            updates["notes"] = sent["notes"]
 
-        # Browser settings arrive either as a nested object or as flattened
-        # browser_* fields. Both are collected here and merged over the stored
-        # settings, so a client that sends only the fields it edits cannot wipe
-        # the rest of the generated fingerprint.
+        # Browser settings arrive either as a nested object or as the deprecated
+        # flattened browser_* fields. Both are collected here and merged over the
+        # stored settings, so a client that sends only the fields it edits cannot
+        # wipe the rest of the generated fingerprint.
         browser_updates: dict[str, Any] = {}
-        if request.browser_settings is not None:
-            browser_updates.update(request.browser_settings)
-        if request.browser_os is not None:
-            browser_updates["os"] = request.browser_os
-        if request.browser_screen is not None:
-            browser_updates["screen"] = request.browser_screen
-        if request.browser_user_agent is not None:
-            browser_updates["user_agent"] = request.browser_user_agent
-        if request.browser_languages is not None:
-            browser_updates["languages"] = request.browser_languages
-        if request.browser_timezone is not None:
-            browser_updates["timezone"] = request.browser_timezone
-        if request.browser_locale is not None:
-            browser_updates["locale"] = request.browser_locale
-        if request.browser_webrtc_mode is not None:
-            browser_updates["webrtc_mode"] = request.browser_webrtc_mode
-        if request.browser_canvas_noise is not None:
-            browser_updates["canvas_noise"] = request.browser_canvas_noise
-        if request.browser_stable_canvas is not None:
-            browser_updates["stable_canvas"] = request.browser_stable_canvas
-        if request.browser_webgl_noise is not None:
-            browser_updates["webgl_noise"] = request.browser_webgl_noise
-        if request.browser_audio_noise is not None:
-            browser_updates["audio_noise"] = request.browser_audio_noise
-        if request.browser_hardware_concurrency is not None:
-            browser_updates["hardware_concurrency"] = request.browser_hardware_concurrency
-        if request.browser_device_memory is not None:
-            browser_updates["device_memory"] = request.browser_device_memory
-        if request.browser_max_touch_points is not None:
-            browser_updates["max_touch_points"] = request.browser_max_touch_points
-        if request.browser_window_width is not None:
-            browser_updates["window_width"] = request.browser_window_width
-        if request.browser_window_height is not None:
-            browser_updates["window_height"] = request.browser_window_height
+        if sent.get("browser_settings") is not None:
+            browser_updates.update(sent["browser_settings"])
+        for field, key in _FLATTENED_BROWSER_FIELDS.items():
+            if sent.get(field) is not None:
+                browser_updates[key] = sent[field]
 
         if browser_updates:
             current_profile = await profile_manager.get_profile(profile_id)
@@ -244,7 +249,7 @@ async def update_profile(profile_id: str, request: ProfileUpdateRequest):
         # fail when it is turned into a BrowserSettings. That is the client's
         # mistake, not a server fault.
         logger.warning(f"Rejected invalid update for profile {profile_id}: {e}")
-        raise HTTPException(status_code=422, detail=e.errors()) from e
+        raise ApiError(422, validation_message(e.errors()), details=e.errors()) from e
     except Exception as e:
         logger.error(f"Failed to update profile {profile_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e)) from e
@@ -252,9 +257,10 @@ async def update_profile(profile_id: str, request: ProfileUpdateRequest):
 
 @router.delete(
     "/profiles/{profile_id}",
-    response_model=ApiResponse,
-    summary="Delete a profile",
-    description="Delete a profile and all associated data",
+    response_model=ApiResponse[None],
+    operation_id="delete_profile",
+    summary="Delete a profile.",
+    description="Delete a profile and all associated data.",
 )
 async def delete_profile(profile_id: str):
     """Delete a profile."""
@@ -281,8 +287,9 @@ async def delete_profile(profile_id: str):
 @router.post(
     "/profiles/{profile_id}/launch",
     response_model=ProfileLaunchResponse,
-    summary="Launch browser",
-    description="Launch Camoufox with the profile's settings",
+    operation_id="launch_profile",
+    summary="Launch a browser.",
+    description="Launch Camoufox with the profile's settings.",
 )
 async def launch_profile(profile_id: str, request: ProfileLaunchRequest):
     """Launch a browser with a profile."""
@@ -304,6 +311,7 @@ async def launch_profile(profile_id: str, request: ProfileLaunchRequest):
             browser_session_id=str(uuid.uuid4()),
             status=browser_session.get("status", "launched"),
             message=browser_session.get("message", "Browser launched successfully"),
+            process_id=browser_session.get("process_id"),
             camoufox_options={
                 "process_id": browser_session.get("process_id"),
                 "status": browser_session.get("status"),
@@ -322,8 +330,9 @@ async def launch_profile(profile_id: str, request: ProfileLaunchRequest):
     "/profiles/{profile_id}/clone",
     response_model=ProfileResponse,
     status_code=status.HTTP_201_CREATED,
-    summary="Clone a profile",
-    description="Create a copy of a profile with a new fingerprint",
+    operation_id="clone_profile",
+    summary="Clone a profile.",
+    description="Create a copy of a profile with a new fingerprint.",
 )
 async def clone_profile(profile_id: str, request: ProfileCloneRequest):
     """Clone a profile."""
@@ -341,8 +350,12 @@ async def clone_profile(profile_id: str, request: ProfileCloneRequest):
 
         return ProfileResponse.from_profile(cloned_profile)
 
+    except HTTPException:
+        raise
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
+        # A missing source returns None above; a ValueError here is bad input
+        # (pydantic's ValidationError subclasses it), not a missing profile.
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
         logger.error(f"Failed to clone profile {profile_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e)) from e
@@ -351,7 +364,8 @@ async def clone_profile(profile_id: str, request: ProfileCloneRequest):
 @router.post(
     "/profiles/{profile_id}/check-proxy",
     response_model=ProxyCheckResponse,
-    summary="Check a profile's proxy",
+    operation_id="check_profile_proxy",
+    summary="Check a profile's proxy.",
     description=(
         "Reach the internet through the profile's proxy, report where it comes out, "
         "and list everything a page could notice between that and the profile's settings."
@@ -370,7 +384,8 @@ async def check_profile_proxy(profile_id: str):
 @router.post(
     "/proxy/check",
     response_model=ProxyCheckResponse,
-    summary="Check a proxy",
+    operation_id="check_proxy",
+    summary="Check an unsaved proxy.",
     description=(
         "The same check for a proxy that has not been saved yet, so a profile can be "
         "checked while it is still being filled in."
@@ -382,7 +397,7 @@ async def check_proxy(request: ProxyCheckRequest):
         proxy = ProxyConfig(**request.proxy_config) if request.proxy_config else None
         settings = BrowserSettings(**(request.browser_settings or {}))
     except ValidationError as e:
-        raise HTTPException(status_code=422, detail=e.errors()) from e
+        raise ApiError(422, validation_message(e.errors()), details=e.errors()) from e
 
     result = await proxy_check.check(proxy, settings)
     return ProxyCheckResponse.from_result(result)
@@ -391,8 +406,9 @@ async def check_proxy(request: ProxyCheckRequest):
 @router.get(
     "/profiles/{profile_id}/stats",
     response_model=ProfileStatsResponse,
-    summary="Get profile statistics",
-    description="Get usage statistics for a profile",
+    operation_id="get_profile_stats",
+    summary="Get profile statistics.",
+    description="Get usage statistics for a profile.",
 )
 async def get_profile_stats(profile_id: str):
     """Get usage statistics for a profile."""
@@ -426,7 +442,8 @@ async def get_profile_stats(profile_id: str):
 @router.post(
     "/profiles/{profile_id}/refresh-browser",
     response_model=ProfileResponse,
-    summary="Refresh the browser version",
+    operation_id="refresh_browser_version",
+    summary="Refresh the pinned browser version.",
     description=(
         "Move the profile's pinned machine onto the installed browser version, "
         "keeping its hardware. A pin never ages on its own, and a browser several "
@@ -452,11 +469,14 @@ async def refresh_browser_version(profile_id: str):
 
 @router.get(
     "/profiles/{profile_id}/export",
-    summary="Export a profile",
+    operation_id="export_profile",
+    summary="Export a profile.",
     description=(
         "Download the profile and its browser data (cookies, storage, history) as a "
         "single archive. Contains the proxy password and live session cookies."
     ),
+    response_class=FileResponse,
+    responses={200: {"content": {"application/zip": {}}, "description": "The profile archive"}},
 )
 async def export_profile(profile_id: str):
     """Stream a profile archive."""
@@ -495,8 +515,9 @@ async def export_profile(profile_id: str):
     "/profiles/import",
     response_model=ProfileResponse,
     status_code=status.HTTP_201_CREATED,
-    summary="Import a profile",
-    description="Create a profile from an archive produced by the export endpoint",
+    operation_id="import_profile",
+    summary="Import a profile.",
+    description="Create a profile from an archive produced by the export endpoint.",
 )
 async def import_profile(file: UploadFile = File(...), name: str | None = None):
     """Restore a profile from an uploaded archive."""
@@ -522,8 +543,9 @@ async def import_profile(file: UploadFile = File(...), name: str | None = None):
 @router.post(
     "/profiles/{profile_id}/reset-fingerprint",
     response_model=ProfileResponse,
-    summary="Reset fingerprint",
-    description="Fully regenerate the browser fingerprint for a profile",
+    operation_id="reset_profile_fingerprint",
+    summary="Reset the fingerprint.",
+    description="Fully regenerate the browser fingerprint for a profile.",
 )
 async def reset_profile_fingerprint(profile_id: str):
     """Reset and regenerate a profile's fingerprint."""
@@ -553,8 +575,16 @@ async def reset_profile_fingerprint(profile_id: str):
 
 @router.get(
     "/profiles/export/excel",
-    summary="Export profiles to Excel",
-    description="Export all profiles to an Excel file for bulk editing",
+    operation_id="export_profiles_to_excel",
+    summary="Export profiles to Excel.",
+    description="Export all profiles to an Excel file for bulk editing.",
+    response_class=Response,
+    responses={
+        200: {
+            "content": {"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {}},
+            "description": "The Excel workbook",
+        }
+    },
 )
 async def export_profiles_to_excel():
     """Export all profiles to an Excel file."""
@@ -580,9 +610,10 @@ async def export_profiles_to_excel():
 
 @router.post(
     "/profiles/import/excel",
-    response_model=ApiResponse,
-    summary="Import profiles from Excel",
-    description="Import profiles from an Excel file, creating new ones",
+    response_model=ApiResponse[ExcelImportData],
+    operation_id="import_profiles_from_excel",
+    summary="Import profiles from Excel.",
+    description="Import profiles from an Excel file, creating new ones.",
 )
 async def import_profiles_from_excel(file: UploadFile = File(...)):
     """Import profiles from an Excel file."""
@@ -612,12 +643,12 @@ async def import_profiles_from_excel(file: UploadFile = File(...)):
         return ApiResponse(
             success=result["success"],
             message=result["summary"],
-            data={
-                "created_count": result["created_count"],
-                "updated_count": result["updated_count"],
-                "error_count": result["error_count"],
-                "errors": result["errors"],
-            },
+            data=ExcelImportData(
+                created_count=result["created_count"],
+                updated_count=result["updated_count"],
+                error_count=result["error_count"],
+                errors=result["errors"],
+            ),
         )
 
     except HTTPException:
@@ -629,8 +660,10 @@ async def import_profiles_from_excel(file: UploadFile = File(...)):
 
 @router.post(
     "/profiles/{profile_id}/close",
-    summary="Close browser",
-    description="Force-close the browser for a profile",
+    response_model=BrowserCloseResponse,
+    operation_id="close_profile_browser",
+    summary="Close a profile's browser.",
+    description="Force-close the browser for a profile. Closing one that is not running is a no-op.",
 )
 async def close_profile_browser(profile_id: str):
     """Close the browser for a profile."""
@@ -647,7 +680,11 @@ async def close_profile_browser(profile_id: str):
 
 
 @router.get(
-    "/browsers/active", summary="List active browsers", description="List all active browsers"
+    "/browsers/active",
+    response_model=ActiveBrowsersResponse,
+    operation_id="get_active_browsers",
+    summary="List active browsers.",
+    description="List all running browsers.",
 )
 async def get_active_browsers():
     """List active browsers."""
@@ -664,8 +701,10 @@ async def get_active_browsers():
 
 @router.post(
     "/browsers/close-all",
-    summary="Close all browsers",
-    description="Force-close all active browsers",
+    response_model=BrowsersCloseAllResponse,
+    operation_id="close_all_browsers",
+    summary="Close all browsers.",
+    description="Force-close all active browsers.",
 )
 async def close_all_browsers():
     """Close all active browsers."""

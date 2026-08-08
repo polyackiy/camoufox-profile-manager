@@ -19,7 +19,6 @@ from .profiles import (
 from .system import (
     ApiResponse,
     ErrorResponse,
-    PaginationResponse,
     SystemStatusResponse,
 )
 
@@ -39,5 +38,4 @@ __all__ = [
     "SystemStatusResponse",
     "ApiResponse",
     "ErrorResponse",
-    "PaginationResponse",
 ]

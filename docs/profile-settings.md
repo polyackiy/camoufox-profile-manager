@@ -85,7 +85,7 @@ A pin never ages by itself. A profile created on Firefox 152 still claims 152 a
 year later, and a browser several releases behind is itself unusual — real
 machines update.
 
-*Update* in the Machine panel (or `POST /api/profiles/{id}/refresh-browser`)
+*Update* in the Machine panel (or `POST /api/v1/profiles/{id}/refresh-browser`)
 moves the pin onto the installed browser and changes **only** the browser
 version. Screen, GPU, cores, fonts and the noise seeds stay exactly as they were,
 which is what a real computer looks like after a browser update. The button
@@ -145,7 +145,7 @@ genuinely exists.
 
 Pick one when creating a profile (the form lists them by screen, CPU count and
 GPU) and the profile is pinned to that device immediately. `GET
-/api/fingerprints/presets` returns the catalogue; ids look like `windows:42` and
+/api/v1/fingerprints/presets` returns the catalogue; ids look like `windows:42` and
 are only a selector — the resolved fingerprint is stored, so a Camoufox update
 that reshuffles the catalogue cannot move an existing profile.
 
@@ -155,8 +155,8 @@ still win.
 
 ## Moving a profile
 
-`GET /api/profiles/{id}/export` packs the profile record, its pinned fingerprint
-and its browser data directory into a single zip; `POST /api/profiles/import`
+`GET /api/v1/profiles/{id}/export` packs the profile record, its pinned fingerprint
+and its browser data directory into a single zip; `POST /api/v1/profiles/import`
 restores it under a new id. In the UI: *Export…* in a profile's row menu, and the
 import button in the toolbar.
 

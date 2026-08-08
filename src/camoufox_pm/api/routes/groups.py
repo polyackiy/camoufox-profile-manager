@@ -18,8 +18,9 @@ router = APIRouter()
 @router.get(
     "/groups",
     response_model=GroupListResponse,
-    summary="List groups",
-    description="List all profile groups",
+    operation_id="list_groups",
+    summary="List groups.",
+    description="List all profile groups. Groups are few, so the list is not paginated.",
 )
 async def list_groups():
     """List all groups."""
@@ -46,8 +47,9 @@ async def list_groups():
     "/groups",
     response_model=GroupResponse,
     status_code=status.HTTP_201_CREATED,
-    summary="Create a group",
-    description="Create a new profile group",
+    operation_id="create_group",
+    summary="Create a group.",
+    description="Create a new profile group.",
 )
 async def create_group(request: GroupCreateRequest):
     """Create a new group."""
@@ -74,8 +76,9 @@ async def create_group(request: GroupCreateRequest):
 @router.get(
     "/groups/{group_id}",
     response_model=GroupResponse,
-    summary="Get a group",
-    description="Get information about a group",
+    operation_id="get_group",
+    summary="Get a group.",
+    description="Get information about a group.",
 )
 async def get_group(group_id: str):
     """Get a group by ID."""
@@ -101,8 +104,9 @@ async def get_group(group_id: str):
 @router.put(
     "/groups/{group_id}",
     response_model=GroupResponse,
-    summary="Update a group",
-    description="Update a group's data",
+    operation_id="update_group",
+    summary="Update a group.",
+    description="Update a group's data.",
 )
 async def update_group(group_id: str, request: GroupUpdateRequest):
     """Update a group."""
@@ -134,9 +138,10 @@ async def update_group(group_id: str, request: GroupUpdateRequest):
 
 @router.delete(
     "/groups/{group_id}",
-    response_model=ApiResponse,
-    summary="Delete a group",
-    description="Delete a group (its profiles become ungrouped)",
+    response_model=ApiResponse[None],
+    operation_id="delete_group",
+    summary="Delete a group.",
+    description="Delete a group; its profiles become ungrouped.",
 )
 async def delete_group(group_id: str):
     """Delete a group."""
