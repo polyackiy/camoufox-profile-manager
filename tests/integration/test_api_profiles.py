@@ -1,8 +1,12 @@
 """Integration tests for the profiles API."""
 
+from datetime import datetime
+
 import pytest
 
+from camoufox_pm.api.dependencies import get_profile_manager
 from camoufox_pm.core import fingerprint_store
+from camoufox_pm.core.models import UsageStats
 
 
 @pytest.mark.asyncio
@@ -554,3 +558,31 @@ async def test_flattened_browser_fields_still_apply(client):
     settings = updated.json()["browser_settings"]
     assert settings["os"] == "linux"
     assert settings["hardware_concurrency"] == 12
+
+
+@pytest.mark.asyncio
+async def test_profile_statistics_report_the_sessions_that_happened(client):
+    """Regression: the endpoint read keys the manager did not return, so it
+    always answered zero sessions, no last session and no actions — whatever the
+    profile's history actually was.
+    """
+    created = await client.post("/api/profiles", json={"name": "busy"})
+    profile_id = created.json()["id"]
+    manager = get_profile_manager()
+    for _ in range(3):
+        await manager.storage.log_usage(UsageStats(profile_id=profile_id, action="launch_browser"))
+    profile = await manager.get_profile(profile_id)
+    profile.last_used = datetime(2026, 1, 2, 3, 4, 5)
+    await manager.storage.update_profile(profile)
+
+    body = (await client.get(f"/api/profiles/{profile_id}/stats")).json()
+
+    assert body["total_sessions"] == 3
+    assert body["last_session"].startswith("2026-01-02T03:04:05")
+    assert [a["action"] for a in body["actions"]].count("launch_browser") == 3
+    assert body["success_rate"] == 1.0
+
+
+@pytest.mark.asyncio
+async def test_statistics_for_an_unknown_profile_are_a_404(client):
+    assert (await client.get("/api/profiles/nope/stats")).status_code == 404

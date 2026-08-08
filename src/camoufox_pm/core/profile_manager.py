@@ -383,6 +383,10 @@ class ProfileManager:
 
         stats = await self.storage.get_profile_usage_stats(profile_id)
 
+        # The keys here are the ones ProfileStatsResponse reads. They used to be
+        # named differently — total_usage_time against total_duration_minutes,
+        # and no last_session or actions at all — so the endpoint fell back to
+        # its defaults and reported every profile as never used.
         return {
             "profile_id": profile_id,
             "name": profile.name,
@@ -390,8 +394,18 @@ class ProfileManager:
             "created_at": profile.created_at,
             "last_used": profile.last_used,
             "total_sessions": len([s for s in stats if s.action == "launch_browser"]),
-            "total_usage_time": sum([s.duration or 0 for s in stats]),
+            # Nothing records a duration yet, so this stays 0 until something does.
+            "total_duration_minutes": sum(s.duration or 0 for s in stats) // 60,
+            "last_session": profile.last_used,
             "success_rate": len([s for s in stats if s.success]) / len(stats) if stats else 0,
+            "actions": [
+                {
+                    "action": s.action,
+                    "timestamp": s.timestamp.isoformat(),
+                    "success": s.success,
+                }
+                for s in stats
+            ],
         }
 
     async def bulk_update_profiles(self, profile_ids: list[str], updates: dict[str, Any]) -> int:
