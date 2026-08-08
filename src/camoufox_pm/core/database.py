@@ -215,12 +215,14 @@ class DatabaseManager:
 
         query += " ORDER BY created_at DESC"
 
-        if limit:
+        # SQLite will not take an OFFSET without a LIMIT, so an offset on its own
+        # used to be dropped and the caller silently got the first page back.
+        if limit or offset:
             query += " LIMIT ?"
-            params.append(limit)
-            if offset:
-                query += " OFFSET ?"
-                params.append(offset)
+            params.append(limit if limit else -1)
+        if offset:
+            query += " OFFSET ?"
+            params.append(offset)
 
         cursor = self._connection.execute(query, params)
         rows = cursor.fetchall()

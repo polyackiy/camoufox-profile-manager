@@ -43,6 +43,43 @@ async def test_list_and_filter_profiles(storage):
 
 
 @pytest.mark.asyncio
+async def test_search_by_name_matches_part_of_it(storage):
+    await storage.save_profile(Profile(name="facebook-main"))
+    await storage.save_profile(Profile(name="twitter-alt"))
+
+    found = await storage.list_profiles({"name_like": "book"})
+
+    assert [p.name for p in found] == ["facebook-main"]
+
+
+@pytest.mark.asyncio
+async def test_a_page_can_be_taken_from_anywhere_in_the_list(storage):
+    """Regression: SQLite refuses an OFFSET without a LIMIT, so an offset on its
+    own was dropped from the query and the caller got the first page back."""
+    for i in range(5):
+        await storage.save_profile(Profile(name=f"p{i}"))
+
+    first_two = await storage.list_profiles(limit=2)
+    second_two = await storage.list_profiles(limit=2, offset=2)
+    from_the_third = await storage.list_profiles(offset=2)
+
+    assert len(first_two) == 2
+    assert {p.id for p in first_two}.isdisjoint({p.id for p in second_two})
+    assert len(from_the_third) == 3
+    assert await storage.count_profiles() == 5
+
+
+@pytest.mark.asyncio
+async def test_profiles_are_counted_with_the_same_filters_they_are_listed_with(storage):
+    await storage.save_profile(Profile(name="a", status=ProfileStatus.ACTIVE))
+    await storage.save_profile(Profile(name="b", status=ProfileStatus.INACTIVE))
+    await storage.save_profile(Profile(name="c", group="g1"))
+
+    assert await storage.count_profiles({"status": "active"}) == 2
+    assert await storage.count_profiles({"group": "g1"}) == 1
+
+
+@pytest.mark.asyncio
 async def test_proxy_password_roundtrips_through_storage(storage):
     profile = Profile(
         name="proxied",
