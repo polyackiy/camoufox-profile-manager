@@ -26,6 +26,30 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   before. `POST /api/v1/auth/login`, `POST /api/v1/auth/logout`,
   `GET /api/v1/auth/session`; existing databases gain the `users` and
   `sessions` tables on first start without touching existing rows.
+- **Task scheduling.** A profile can now be opened on a schedule (account
+  warming, a regular session — with an optional "close after N minutes" so the
+  session ends by itself), and its pinned fingerprint can be moved onto the
+  installed browser version on a schedule, so a long-lived profile keeps pace
+  with browser releases the way a real machine does. The scheduler runs inside
+  the `camoufox-pm` process — no cron, no extra service — and scheduled
+  launches go through the same session manager as manual ones. Schedules are
+  either *every N minutes* or *daily at HH:MM* on chosen weekdays, on the
+  server's clock; they persist in the database and survive restarts. Runs
+  missed while the app was closed are recorded as `missed` and skipped, never
+  replayed — a night's backlog of warming launches must not open at once on
+  startup. Every run is recorded (`ok`, `skipped`, `error`, `missed`; last 20
+  kept per schedule), one failing schedule never blocks another, and a schedule
+  whose profile is gone disables itself. New **Schedules** screen in the UI and
+  `GET/POST/PUT/DELETE /api/v1/schedules`, `POST /api/v1/schedules/{id}/run`,
+  `GET /api/v1/schedules/{id}/runs`.
+
+  **Deliberately absent: scheduled hardware rotation.** The roadmap item said
+  "automated fingerprint rotation", wording left over from before fingerprints
+  were pinned, when they changed every launch anyway. Rotating the hardware on
+  a timer would hand a warmed-up account a new GPU, screen and core count
+  overnight — exactly what the pinned machine exists to prevent — so it was not
+  built. Hardware regeneration stays a deliberate manual action; the honest
+  scheduled rotation is the browser-version refresh. See `docs/scheduling.md`.
 - **A stability contract for the REST API**, written down in `docs/api.md`:
   what 1.0 freezes (paths, field names, status codes, the error shape), what
   stays deliberately unstable (the `fingerprint` summary, launch internals),

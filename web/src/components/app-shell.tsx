@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Layers, LogOut, Settings, Users } from 'lucide-react'
+import { CalendarClock, Layers, LogOut, Settings, Users } from 'lucide-react'
 
 import { useAuth } from '@/components/login-gate'
 import { systemAPI } from '@/lib/api'
@@ -11,6 +11,7 @@ import { systemAPI } from '@/lib/api'
 const NAV = [
   { href: '/', label: 'Profiles', icon: Users },
   { href: '/groups/', label: 'Groups', icon: Layers },
+  { href: '/schedules/', label: 'Schedules', icon: CalendarClock },
   { href: '/settings/', label: 'Settings', icon: Settings },
 ]
 

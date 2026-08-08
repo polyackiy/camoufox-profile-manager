@@ -33,6 +33,9 @@ from it in January still looks like the same computer in June.
   actions, and grouping by client or purpose.
 - **Browser control** — launch and stop a browser per profile; closing the window
   yourself is noticed and the session is cleaned up.
+- **Scheduling** — open a profile on a schedule (warming), and keep its pinned
+  browser version current automatically. Hardware never rotates on a timer, on
+  purpose — [docs/scheduling.md](docs/scheduling.md).
 - **Proxies** — HTTP, HTTPS and SOCKS, with passwords encrypted at rest when
   `CPM_SECRET_KEY` is set.
 - **Move a profile anywhere.** Export a profile with its fingerprint *and* its
@@ -139,6 +142,7 @@ User accounts for the web UI are managed from the CLI: `camoufox-pm user add
 | [docs/cli.md](docs/cli.md) | Every command and flag |
 | [docs/api.md](docs/api.md) | The REST API, endpoint by endpoint |
 | [docs/profile-settings.md](docs/profile-settings.md) | What each setting does, how the pinned machine works, and what Camoufox cannot do |
+| [docs/scheduling.md](docs/scheduling.md) | Scheduled launches and browser refresh, and why hardware rotation is not offered |
 | [docs/excel.md](docs/excel.md) | Bulk import and export |
 | [docs/accessibility-roadmap.md](docs/accessibility-roadmap.md) | Plan for reaching non-technical users |
 | [docs/releasing.md](docs/releasing.md) | Cutting a release |

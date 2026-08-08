@@ -15,6 +15,8 @@ from .models import (
     ProfileGroup,
     ProfileStatus,
     ProxyConfig,
+    Schedule,
+    ScheduleRun,
     UsageStats,
 )
 
@@ -143,6 +145,36 @@ class DatabaseManager:
             )
         """)
 
+        # Scheduled tasks. New tables need no _migrate entry: IF NOT EXISTS adds
+        # them to an existing database without touching what is already there.
+        self._connection.execute("""
+            CREATE TABLE IF NOT EXISTS schedules (
+                id TEXT PRIMARY KEY,
+                profile_id TEXT NOT NULL,
+                action TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                interval_minutes INTEGER,
+                at_time TEXT,
+                days TEXT,
+                run_minutes INTEGER,
+                enabled BOOLEAN DEFAULT 1,
+                next_run_at TIMESTAMP,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        self._connection.execute("""
+            CREATE TABLE IF NOT EXISTS schedule_runs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                schedule_id TEXT NOT NULL,
+                started_at TIMESTAMP NOT NULL,
+                finished_at TIMESTAMP,
+                outcome TEXT NOT NULL,
+                message TEXT
+            )
+        """)
+
         self._connection.commit()
 
     async def _create_indexes(self):
@@ -153,6 +185,8 @@ class DatabaseManager:
             "CREATE INDEX IF NOT EXISTS idx_profiles_created ON profiles(created_at)",
             "CREATE INDEX IF NOT EXISTS idx_usage_stats_profile ON usage_stats(profile_id)",
             "CREATE INDEX IF NOT EXISTS idx_usage_stats_timestamp ON usage_stats(timestamp)",
+            "CREATE INDEX IF NOT EXISTS idx_schedules_profile ON schedules(profile_id)",
+            "CREATE INDEX IF NOT EXISTS idx_schedule_runs_schedule ON schedule_runs(schedule_id)",
         ]
 
         for index_sql in indexes:
@@ -207,7 +241,13 @@ class DatabaseManager:
         logger.debug(f"Profile {profile.name} updated")
 
     async def delete_profile(self, profile_id: str) -> bool:
-        """Delete a profile."""
+        """Delete a profile, and the schedules that would otherwise fire against it."""
+        self._connection.execute(
+            "DELETE FROM schedule_runs WHERE schedule_id IN "
+            "(SELECT id FROM schedules WHERE profile_id = ?)",
+            (profile_id,),
+        )
+        self._connection.execute("DELETE FROM schedules WHERE profile_id = ?", (profile_id,))
         cursor = self._connection.execute("DELETE FROM profiles WHERE id = ?", (profile_id,))
         self._connection.commit()
         deleted = cursor.rowcount > 0
@@ -454,7 +494,130 @@ class DatabaseManager:
         self._connection.commit()
         return cursor.rowcount
 
+    # --- Schedules ---
+
+    async def save_schedule(self, schedule: Schedule):
+        """Insert or replace a schedule."""
+        self._connection.execute(
+            """
+            INSERT OR REPLACE INTO schedules (
+                id, profile_id, action, kind, interval_minutes, at_time, days,
+                run_minutes, enabled, next_run_at, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+            (
+                schedule.id,
+                schedule.profile_id,
+                schedule.action,
+                schedule.kind,
+                schedule.interval_minutes,
+                schedule.at_time,
+                json.dumps(schedule.days) if schedule.days else None,
+                schedule.run_minutes,
+                schedule.enabled,
+                schedule.next_run_at.isoformat() if schedule.next_run_at else None,
+                schedule.created_at.isoformat(),
+                schedule.updated_at.isoformat(),
+            ),
+        )
+        self._connection.commit()
+
+    async def get_schedule(self, schedule_id: str) -> Schedule | None:
+        """Get a schedule by ID."""
+        cursor = self._connection.execute("SELECT * FROM schedules WHERE id = ?", (schedule_id,))
+        row = cursor.fetchone()
+        return self._row_to_schedule(row) if row else None
+
+    async def list_schedules(self, profile_id: str | None = None) -> list[Schedule]:
+        """List schedules, oldest first so the UI order is stable."""
+        if profile_id:
+            cursor = self._connection.execute(
+                "SELECT * FROM schedules WHERE profile_id = ? ORDER BY created_at",
+                (profile_id,),
+            )
+        else:
+            cursor = self._connection.execute("SELECT * FROM schedules ORDER BY created_at")
+        return [self._row_to_schedule(row) for row in cursor.fetchall()]
+
+    async def delete_schedule(self, schedule_id: str) -> bool:
+        """Delete a schedule and its run history."""
+        self._connection.execute("DELETE FROM schedule_runs WHERE schedule_id = ?", (schedule_id,))
+        cursor = self._connection.execute("DELETE FROM schedules WHERE id = ?", (schedule_id,))
+        self._connection.commit()
+        return cursor.rowcount > 0
+
+    async def log_schedule_run(self, run: ScheduleRun, keep: int = 20) -> ScheduleRun:
+        """Record one firing and prune the history to the newest ``keep`` rows.
+
+        Bounded per schedule rather than by age: an every-five-minutes schedule
+        would otherwise write hundreds of rows a day into a database that also
+        holds the profiles.
+        """
+        cursor = self._connection.execute(
+            """
+            INSERT INTO schedule_runs (schedule_id, started_at, finished_at, outcome, message)
+            VALUES (?, ?, ?, ?, ?)
+        """,
+            (
+                run.schedule_id,
+                run.started_at.isoformat(),
+                run.finished_at.isoformat() if run.finished_at else None,
+                run.outcome,
+                run.message,
+            ),
+        )
+        run.id = cursor.lastrowid
+        self._connection.execute(
+            """
+            DELETE FROM schedule_runs WHERE schedule_id = ? AND id NOT IN (
+                SELECT id FROM schedule_runs WHERE schedule_id = ? ORDER BY id DESC LIMIT ?
+            )
+        """,
+            (run.schedule_id, run.schedule_id, keep),
+        )
+        self._connection.commit()
+        return run
+
+    async def list_schedule_runs(self, schedule_id: str, limit: int = 20) -> list[ScheduleRun]:
+        """Get the newest runs of a schedule, newest first."""
+        cursor = self._connection.execute(
+            "SELECT * FROM schedule_runs WHERE schedule_id = ? ORDER BY id DESC LIMIT ?",
+            (schedule_id, limit),
+        )
+        return [
+            ScheduleRun(
+                id=row["id"],
+                schedule_id=row["schedule_id"],
+                started_at=datetime.fromisoformat(row["started_at"]),
+                finished_at=(
+                    datetime.fromisoformat(row["finished_at"]) if row["finished_at"] else None
+                ),
+                outcome=row["outcome"],
+                message=row["message"],
+            )
+            for row in cursor.fetchall()
+        ]
+
     # --- Utilities ---
+
+    def _row_to_schedule(self, row) -> Schedule:
+        """Convert a database row into a Schedule object."""
+        return Schedule(
+            id=row["id"],
+            profile_id=row["profile_id"],
+            action=row["action"],
+            kind=row["kind"],
+            interval_minutes=row["interval_minutes"],
+            at_time=row["at_time"],
+            days=json.loads(row["days"]) if row["days"] else None,
+            run_minutes=row["run_minutes"],
+            enabled=bool(row["enabled"]),
+            next_run_at=(
+                datetime.fromisoformat(row["next_run_at"]) if row["next_run_at"] else None
+            ),
+            created_at=datetime.fromisoformat(row["created_at"]),
+            updated_at=datetime.fromisoformat(row["updated_at"]),
+        )
 
     def _row_to_profile(self, row) -> Profile:
         """Convert a database row into a Profile object."""
@@ -582,6 +745,25 @@ class StorageManager:
 
     async def delete_expired_sessions(self) -> int:
         return await self.db.delete_expired_sessions()
+
+    # Schedule methods
+    async def save_schedule(self, schedule: Schedule):
+        await self.db.save_schedule(schedule)
+
+    async def get_schedule(self, schedule_id: str) -> Schedule | None:
+        return await self.db.get_schedule(schedule_id)
+
+    async def list_schedules(self, profile_id: str | None = None) -> list[Schedule]:
+        return await self.db.list_schedules(profile_id)
+
+    async def delete_schedule(self, schedule_id: str) -> bool:
+        return await self.db.delete_schedule(schedule_id)
+
+    async def log_schedule_run(self, run: ScheduleRun) -> ScheduleRun:
+        return await self.db.log_schedule_run(run)
+
+    async def list_schedule_runs(self, schedule_id: str, limit: int = 20) -> list[ScheduleRun]:
+        return await self.db.list_schedule_runs(schedule_id, limit)
 
     async def close(self):
         """Close the database."""

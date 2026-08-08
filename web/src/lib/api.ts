@@ -348,6 +348,82 @@ export const groupsAPI = {
   },
 }
 
+// --- Schedules ---------------------------------------------------------------
+
+/** What a schedule does when it fires. Hardware regeneration is deliberately
+ * not schedulable: it would hand a warmed-up account new hardware on a timer,
+ * which is exactly what the pinned machine exists to prevent. */
+export type ScheduleAction = 'launch' | 'refresh_browser'
+
+export type ScheduleKind = 'interval' | 'daily'
+
+export type ScheduleRunOutcome = 'ok' | 'skipped' | 'error' | 'missed'
+
+export interface ScheduleRun {
+  id: number | null
+  schedule_id: string
+  started_at: string
+  finished_at: string | null
+  outcome: ScheduleRunOutcome
+  message: string | null
+}
+
+export interface Schedule {
+  id: string
+  profile_id: string
+  profile_name: string | null
+  action: ScheduleAction
+  kind: ScheduleKind
+  interval_minutes: number | null
+  /** HH:MM on the server's clock. */
+  at_time: string | null
+  /** Weekdays a daily schedule fires, 0=Monday … 6=Sunday; null = every day. */
+  days: number[] | null
+  run_minutes: number | null
+  enabled: boolean
+  next_run_at: string | null
+  last_run: ScheduleRun | null
+  created_at: string
+  updated_at: string
+}
+
+export interface SchedulePayload {
+  profile_id?: string
+  action?: ScheduleAction
+  kind?: ScheduleKind
+  interval_minutes?: number | null
+  at_time?: string | null
+  days?: number[] | null
+  run_minutes?: number | null
+  enabled?: boolean
+}
+
+export const schedulesAPI = {
+  list(): Promise<{ schedules: Schedule[]; total: number }> {
+    return request(`${API_PREFIX}/schedules`)
+  },
+
+  create(data: SchedulePayload): Promise<Schedule> {
+    return request<Schedule>(`${API_PREFIX}/schedules`, { method: 'POST', body: JSON.stringify(data) })
+  },
+
+  update(id: string, data: SchedulePayload): Promise<Schedule> {
+    return request<Schedule>(`${API_PREFIX}/schedules/${id}`, { method: 'PUT', body: JSON.stringify(data) })
+  },
+
+  remove(id: string): Promise<void> {
+    return request<void>(`${API_PREFIX}/schedules/${id}`, { method: 'DELETE' })
+  },
+
+  runNow(id: string): Promise<ScheduleRun> {
+    return request<ScheduleRun>(`${API_PREFIX}/schedules/${id}/run`, { method: 'POST' })
+  },
+
+  runs(id: string): Promise<{ runs: ScheduleRun[]; total: number }> {
+    return request(`${API_PREFIX}/schedules/${id}/runs`)
+  },
+}
+
 export interface SystemConfig {
   version: string
   host: string

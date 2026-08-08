@@ -41,6 +41,18 @@ Track progress in [GitHub Issues](https://github.com/polyackiy/camoufox-profile-
   nothing configured is as open as before (loopback), the API key keeps
   machine clients working unchanged, and the moment a user exists humans must
   log in. See [SECURITY.md](../SECURITY.md#authentication).
+- Task scheduling, in-process and stored in the database: open a profile's
+  browser on a schedule (with an optional self-closing session length), and
+  move its pinned fingerprint onto the installed browser version on a schedule.
+  Runs missed while the app was closed are recorded and skipped, not replayed.
+  This item was originally written as "task scheduling and automated
+  fingerprint rotation"; the second half was **deliberately not built**. The
+  wording predated pinned fingerprints, when the hardware changed every launch
+  anyway — now rotating it on a timer would hand a warmed-up account a new
+  machine overnight, which is exactly what the pin exists to prevent. Hardware
+  regeneration stays a manual action; the scheduled browser-version refresh is
+  the rotation that imitates what real machines do. See
+  [scheduling.md](scheduling.md).
 
 ## Now (0.1.x)
 
@@ -48,7 +60,7 @@ Track progress in [GitHub Issues](https://github.com/polyackiy/camoufox-profile-
 
 ## Next
 
-- Task scheduling and automated fingerprint rotation.
+- Nothing committed yet; the ideas below are candidates, not promises.
 
 ## Later / ideas
 
