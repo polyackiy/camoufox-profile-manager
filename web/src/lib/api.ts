@@ -25,6 +25,8 @@ export interface BrowserSettings {
   device_memory?: number | null
   max_touch_points?: number
   webrtc_mode?: string
+  /** Keep the canvas reproducible across launches, at the cost of cross-site unlinkability. */
+  stable_canvas?: boolean
   canvas_noise?: boolean
   webgl_noise?: boolean
   audio_noise?: boolean

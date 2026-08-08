@@ -38,6 +38,7 @@ class ExcelManager:
             ("canvas_noise", "Canvas noise", "true or false"),
             ("webgl_noise", "WebGL noise", "true or false"),
             ("audio_noise", "Audio noise", "true or false"),
+            ("stable_canvas", "Stable canvas", "true or false; same canvas every launch"),
             ("hardware_concurrency", "CPU cores", "Number of cores (1-32)"),
             ("device_memory", "Device memory", "Memory in GB (1-128)"),
             ("max_touch_points", "Touch points", "Number of touch points (0-10)"),
@@ -133,6 +134,7 @@ class ExcelManager:
             "canvas_noise": str(browser_settings.canvas_noise).lower(),
             "webgl_noise": str(browser_settings.webgl_noise).lower(),
             "audio_noise": str(browser_settings.audio_noise).lower(),
+            "stable_canvas": str(browser_settings.stable_canvas).lower(),
             "hardware_concurrency": browser_settings.hardware_concurrency or "",
             "device_memory": browser_settings.device_memory or "",
             "max_touch_points": browser_settings.max_touch_points,
@@ -327,6 +329,8 @@ class ExcelManager:
             browser_updates["webgl_noise"] = row_data["webgl_noise"].lower() == "true"
         if row_data["audio_noise"]:
             browser_updates["audio_noise"] = row_data["audio_noise"].lower() == "true"
+        if row_data["stable_canvas"]:
+            browser_updates["stable_canvas"] = row_data["stable_canvas"].lower() == "true"
         if row_data["hardware_concurrency"]:
             browser_updates["hardware_concurrency"] = int(row_data["hardware_concurrency"])
         if row_data["device_memory"]:
@@ -401,6 +405,9 @@ class ExcelManager:
             audio_noise=row_data["audio_noise"].lower() == "true"
             if row_data["audio_noise"]
             else True,
+            stable_canvas=row_data["stable_canvas"].lower() == "true"
+            if row_data["stable_canvas"]
+            else False,
             hardware_concurrency=int(row_data["hardware_concurrency"])
             if row_data["hardware_concurrency"]
             else 4,

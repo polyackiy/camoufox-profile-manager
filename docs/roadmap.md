@@ -55,15 +55,13 @@ By default a site sees a different canvas hash each time a profile is launched.
 Within one session it is stable per site; the problem is only across sessions,
 where a real browser would be unchanging.
 
-**Planned: make this a per-profile setting.** Launching with
-`privacy.baselineFingerprintingProtection = false` stops the randomisation, and
-together with the pinned `fonts:spacing_seed` already stored per profile the
-canvas becomes fully reproducible — measured, identical across three launches.
-The trade is that the canvas is then the same across sites, which is what a real
-machine looks like and what the randomisation existed to prevent. That makes it a
-choice rather than a default: one long-lived account per profile wants it on,
-unlinkable browsing wants it off. The work is a setting, the launch option, and a
-browser test alongside the existing fingerprint-stability ones.
+**Done: the `stable_canvas` per-profile setting.** Turning it on launches with
+`privacy.baselineFingerprintingProtection = false`, which together with the
+pinned `fonts:spacing_seed` makes the canvas reproducible across launches. Off by
+default, because the trade is that the canvas is then the same across sites — what
+a real machine looks like, and what the randomisation existed to prevent. Covered
+by browser tests that assert the stability, the drift when it is off, and the
+cross-site linkability it costs.
 
 **Also worth doing: report the upstream bug.** `canvas:seed` is advertised in
 Camoufox's property manifest and emitted by its Python layer, but its C++ config

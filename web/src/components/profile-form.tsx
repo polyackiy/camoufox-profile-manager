@@ -26,6 +26,7 @@ interface FormState {
   windowWidth: string
   windowHeight: string
   webrtcMode: string
+  stableCanvas: boolean
   geoMode: 'auto' | 'manual'
   latitude: string
   longitude: string
@@ -47,6 +48,7 @@ const EMPTY: FormState = {
   windowWidth: '1280',
   windowHeight: '720',
   webrtcMode: 'replace',
+  stableCanvas: false,
   geoMode: 'auto',
   latitude: '',
   longitude: '',
@@ -74,6 +76,7 @@ function fromProfile(profile: Profile): FormState {
     windowWidth: String(bs.window_width ?? 1280),
     windowHeight: String(bs.window_height ?? 720),
     webrtcMode: bs.webrtc_mode ?? 'replace',
+    stableCanvas: bs.stable_canvas ?? false,
     geoMode: lat != null && lon != null ? 'manual' : 'auto',
     latitude: lat != null ? String(lat) : '',
     longitude: lon != null ? String(lon) : '',
@@ -145,6 +148,7 @@ export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) 
       window_width: Number(form.windowWidth) || 1280,
       window_height: Number(form.windowHeight) || 720,
       webrtc_mode: form.webrtcMode,
+      stable_canvas: form.stableCanvas,
       // Always explicit: "from the proxy IP" must clear any stored coordinates,
       // otherwise geoip stays disabled and the old position keeps applying.
       geolocation:
@@ -527,6 +531,26 @@ export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) 
               <option value="forward">Forward</option>
               <option value="none">Disable WebRTC</option>
             </select>
+          </div>
+
+          <div className="col-span-2">
+            <label className="field-label" htmlFor="pf-canvas">
+              Canvas
+            </label>
+            <select
+              id="pf-canvas"
+              className="field"
+              value={form.stableCanvas ? 'stable' : 'randomised'}
+              onChange={(e) => set('stableCanvas', e.target.value === 'stable')}
+            >
+              <option value="randomised">Randomised each session (default)</option>
+              <option value="stable">Same canvas every launch</option>
+            </select>
+            <p className="mt-1.5 text-ink-faint">
+              {form.stableCanvas
+                ? 'Reads the same to a site across launches, like real hardware — but also the same on every site, so sites can link this profile between them.'
+                : "A site sees a different canvas each session, and a different one per site. Safer against tracking, but a long-lived account looks like new hardware every visit."}
+            </p>
           </div>
 
           <div>

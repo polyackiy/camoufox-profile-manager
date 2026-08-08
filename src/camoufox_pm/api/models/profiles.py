@@ -71,6 +71,13 @@ class ProfileUpdateRequest(BaseModel):
         None, description="WebRTC mode (forward, replace, real, none)"
     )
     browser_canvas_noise: bool | None = Field(None, description="Canvas noise")
+    browser_stable_canvas: bool | None = Field(
+        None,
+        description=(
+            "Keep the canvas reproducible across launches. Costs cross-site "
+            "unlinkability: the canvas becomes identical on every site."
+        ),
+    )
     browser_webgl_noise: bool | None = Field(None, description="WebGL noise")
     browser_audio_noise: bool | None = Field(None, description="Audio noise")
     browser_hardware_concurrency: int | None = Field(None, ge=1, le=32, description="CPU cores")

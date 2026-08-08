@@ -7,6 +7,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **`stable_canvas`, a per-profile setting.** By default a site sees a different
+  canvas each session, which makes a long-lived account look like new hardware
+  every visit. Turning this on keeps the canvas reproducible across launches. It
+  is off by default because the trade is real: a stable canvas is also identical
+  across sites, so they can link the profile between them — which is what real
+  hardware does. Browser tests assert the stability, the drift when it is off,
+  and the cross-site linkability it costs.
 - **Profiles keep the same machine across launches.** Camoufox resolves a new
   fingerprint every time it starts, so the same profile used to report different
   hardware each session — different screen, CPU count and GPU — which is exactly

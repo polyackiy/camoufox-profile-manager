@@ -145,23 +145,27 @@ These are properties of Camoufox and Firefox, not of this manager:
   upstream, and the seed is the better long-term mechanism because it would give
   each profile its own canvas value rather than one shared true render.
 
-  **There is a workaround, and it is a genuine trade.** Launching with
-  `privacy.baselineFingerprintingProtection = false` stops the pixel
-  randomisation; combined with the pinned `fonts:spacing_seed` this project
-  already stores, the canvas becomes fully reproducible across launches. The cost
-  is that the canvas is then **identical across sites**, which is exactly what a
-  real browser does — one machine, one canvas — and exactly what the randomisation
-  existed to prevent. Measured:
+  **The `stable_canvas` setting turns this off, and it is a genuine trade.**
+  Enabling it launches with `privacy.baselineFingerprintingProtection = false`,
+  which stops the pixel randomisation; combined with the pinned
+  `fonts:spacing_seed` a profile already stores, the canvas becomes fully
+  reproducible. Both halves are needed — text rendering follows the font seed
+  rather than the canvas path, so the pref alone leaves a text-bearing canvas
+  drifting. Measured:
 
   | | Same site, relaunched | Different sites |
   | --- | --- | --- |
-  | Default | different every launch | different |
-  | Pref off + pinned font seed | **identical** | **identical** |
+  | `stable_canvas` off (default) | different every launch | different |
+  | `stable_canvas` on | **identical** | **identical** |
 
-  Which you want depends on the job. One long-lived account per profile wants the
-  stable canvas; browsing the open web unlinkably wants the default. This project
-  does not set the pref today — see
-  [roadmap.md](roadmap.md#canvas-stability).
+  The right-hand column is the cost: a stable canvas is the same everywhere, so
+  two sites can tell they are looking at one machine. That is exactly what real
+  hardware does, and exactly what the randomisation existed to prevent.
+
+  Choose per profile. One long-lived account wants it on, because looking like
+  new hardware every visit is the bigger tell. Browsing the open web unlinkably
+  wants the default. Set it in the profile form under **Canvas**, or as
+  `browser_settings.stable_canvas` through the API.
 - **`max_touch_points` has no effect.** Camoufox 152 lists
   `navigator.maxTouchPoints` as a supported property but does not apply it; the
   page keeps reporting `0` on every OS, with or without the touch-events pref.
