@@ -185,6 +185,16 @@ hardware on a timer because that would undo the whole point.
   Linux bundles on demand. Signing, installers, and auto-update are documented
   follow-ups (see `docs/accessibility-roadmap.md`).
 
+### Changed
+- **Docker runs one container, not two.** The compose file still ran the old
+  two-process stack — a Python service on 8000 and a separate Next.js server on
+  3000, wired together with CORS — months after everything else moved to one
+  process serving the UI and the API on one port. The image now builds the UI in
+  a Node stage, copies the static export into the package and runs the same
+  `camoufox-pm` entry point a local install does; `web/Dockerfile` is gone and
+  there is no CORS to configure. Verified by building the image and creating a
+  profile through the running container.
+
 ### Fixed
 - **The app reported the wrong version.** `__version__` was a second copy of the
   number in `pyproject.toml`, so a wheel built as `0.2.0` announced `0.1.1`

@@ -97,11 +97,13 @@ Or build a standalone app that needs neither Python nor Node:
 ### With Docker
 
 ```bash
-docker compose up      # then open http://localhost:3000
+docker compose up      # then open http://localhost:8000
 ```
 
-Ports are published on loopback only. Launching real browsers inside a container
-needs a virtual display; profile management and the UI work as-is.
+One container serving the API and the UI on one port, like every other way of
+running it. The port is published on loopback only. Launching real browsers
+inside a container needs a virtual display; profile management, scheduling and
+the UI work as-is.
 
 ## First steps
 
