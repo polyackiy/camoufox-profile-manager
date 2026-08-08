@@ -7,19 +7,24 @@ Releases are cut by pushing a tag. The `release.yml` workflow then builds a whee
 ## Cut a release
 
 1. Update `CHANGELOG.md` (move items from `Unreleased` into the new version) and
-   bump `version` in `pyproject.toml`.
-2. Tag and push:
+   bump `version` in `pyproject.toml` and `web/package.json`. Nothing else carries
+   the number: the package reads it from its own installed metadata, so there is
+   no third copy to forget.
+2. Tag and push, substituting the version you just set:
    ```bash
-   git tag -a v0.1.1 -m "v0.1.1"
-   git push origin v0.1.1
+   VERSION=0.2.0
+   git tag -a "v$VERSION" -m "v$VERSION"
+   git push origin "v$VERSION"
    ```
 3. The workflow builds `camoufox_profile_manager-<version>-py3-none-any.whl` (with
-   the bundled UI) and attaches it to the Release. Users can then:
-   ```bash
-   pip install https://github.com/polyackiy/camoufox-profile-manager/releases/download/v0.1.1/camoufox_profile_manager-0.1.1-py3-none-any.whl
-   camoufox-pm
-   ```
-   No Node.js needed — the UI is inside the wheel.
+   the bundled UI) and attaches it to the Release. Users can then install that
+   wheel's URL from the [releases
+   page](https://github.com/polyackiy/camoufox-profile-manager/releases) and run
+   `camoufox-pm` — no Node.js needed, the UI is inside the wheel.
+
+   Worth doing once per release: install the built wheel into a clean environment
+   and ask it what it is. `curl localhost:8000/health` reporting the wrong version
+   is how the stale `__version__` copy was caught.
 
 ## Publishing to PyPI (optional)
 

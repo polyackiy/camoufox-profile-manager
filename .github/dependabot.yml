@@ -1,0 +1,26 @@
+# Python dependencies are deliberately absent. Dependabot has no uv ecosystem: its
+# "pip" updater would edit pyproject.toml and leave uv.lock stale, and the Docker
+# build runs `uv sync --frozen`, which refuses a lock that disagrees with the
+# project. A pull request that cannot build is worse than no pull request. Update
+# them with `uv lock --upgrade` instead, which refreshes both files together.
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    commit-message:
+      prefix: "ci"
+
+  - package-ecosystem: "npm"
+    directory: "/web"
+    schedule:
+      interval: "monthly"
+    commit-message:
+      prefix: "build"
+    groups:
+      # One pull request per ecosystem rather than per package: the web UI has a
+      # small, tightly-coupled dependency set, and reviewing Next, React and
+      # Tailwind bumps separately means three builds proving the same thing.
+      web-dependencies:
+        patterns: ["*"]

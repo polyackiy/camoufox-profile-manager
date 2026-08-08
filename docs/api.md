@@ -7,7 +7,7 @@ that is the authoritative schema. This page is the guided tour, and the
 
 Base URL: `http://127.0.0.1:8000` by default. Endpoints live under **`/api/v1`**.
 
-The unversioned `/api/...` paths from before 0.2 keep working as aliases — same
+The unversioned `/api/...` paths that predate 0.2.0 keep working as aliases — same
 routes, same behaviour — but are left out of the OpenAPI schema so a generated
 client sees each operation once. New code should use `/api/v1`.
 
@@ -132,7 +132,7 @@ Deliberately **outside** the contract, at 1.0 and after:
 
 ### Deprecated, removed in 1.0
 
-Everything here works throughout `0.1.x` and is marked deprecated in the
+Everything here works throughout `0.2.x` and is marked deprecated in the
 OpenAPI schema:
 
 | Deprecated                                        | Use instead                          |
@@ -214,10 +214,17 @@ merged the same way, but is deprecated — it goes away in 1.0.
 ### Other actions
 
 ```http
-POST /api/v1/profiles/{id}/clone              {"new_name": "..."}
+POST /api/v1/profiles/{id}/clone              {"new_name": "...", "regenerate_fingerprint": true}
 POST /api/v1/profiles/{id}/reset-fingerprint
 GET  /api/v1/profiles/{id}/stats
 ```
+
+A clone gets **its own machine**, not a copy of the source's. `regenerate_fingerprint`
+defaults to true, which drops the pinned fingerprint so the copy's first launch
+resolves a new one — two profiles sharing a pin would report the same GPU, screen,
+core count and noise seeds forever, which is provably one computer. Pass
+`{"regenerate_fingerprint": false}` to copy the machine as well, and know what you
+are asking for.
 
 `reset-fingerprint` generates new settings **and drops the pinned machine**, so
 the next launch assigns fresh hardware.

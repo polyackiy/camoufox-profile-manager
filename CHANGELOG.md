@@ -186,6 +186,10 @@ hardware on a timer because that would undo the whole point.
   follow-ups (see `docs/accessibility-roadmap.md`).
 
 ### Changed
+- Dependabot keeps the GitHub Actions and the web dependencies current. Python is
+  deliberately excluded: Dependabot has no uv ecosystem, and its pip updater would
+  leave `uv.lock` stale against a bumped `pyproject.toml`, which `uv sync --frozen`
+  refuses — a pull request that cannot build is worse than no pull request.
 - **Docker runs one container, not two.** The compose file still ran the old
   two-process stack — a Python service on 8000 and a separate Next.js server on
   3000, wired together with CORS — months after everything else moved to one
@@ -196,6 +200,12 @@ hardware on a timer because that would undo the whole point.
   profile through the running container.
 
 ### Fixed
+- **An imported archive ignored a `name` sent as a form field.** Every other part
+  of that multipart request travels in the body, so a client author reaches for
+  the form field first — and got no error and no rename, because only the query
+  parameter was read. Both work now.
+- `POST /api/v1/profiles/clear-geography` refuses an empty profile id instead of
+  cheerfully reporting it as `not_found`.
 - **The app reported the wrong version.** `__version__` was a second copy of the
   number in `pyproject.toml`, so a wheel built as `0.2.0` announced `0.1.1`
   through `/health`, the OpenAPI schema and `--version`. It is read from the

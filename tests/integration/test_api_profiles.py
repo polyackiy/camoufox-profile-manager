@@ -765,3 +765,37 @@ async def test_profile_statistics_report_the_sessions_that_happened(client):
 @pytest.mark.asyncio
 async def test_statistics_for_an_unknown_profile_are_a_404(client):
     assert (await client.get("/api/profiles/nope/stats")).status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_an_import_can_name_the_profile_from_the_form(client, tmp_path):
+    """Every other part of this request travels in the multipart body.
+
+    A client author reaches for the form field first, and used to get no error
+    and no rename because only the query parameter was read.
+    """
+    created = await client.post("/api/v1/profiles", json={"name": "source"})
+    exported = await client.get(f"/api/v1/profiles/{created.json()['id']}/export")
+    archive = exported.content
+
+    from_form = await client.post(
+        "/api/v1/profiles/import",
+        files={"file": ("a.zip", archive, "application/zip")},
+        data={"name": "named-by-form"},
+    )
+    from_query = await client.post(
+        "/api/v1/profiles/import?name=named-by-query",
+        files={"file": ("a.zip", archive, "application/zip")},
+    )
+
+    assert from_form.json()["name"] == "named-by-form"
+    assert from_query.json()["name"] == "named-by-query", "the query form must keep working"
+
+
+@pytest.mark.asyncio
+async def test_clearing_geography_rejects_an_empty_id(client):
+    """A client building ids from empty form state used to get a cheerful 200
+    reporting "" as not_found, rather than being told the request was wrong."""
+    refused = await client.post("/api/v1/profiles/clear-geography", json={"profile_ids": [""]})
+
+    assert refused.status_code == 422

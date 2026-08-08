@@ -31,7 +31,8 @@ from it in January still looks like the same computer in June.
 - **Real device fingerprints.** Create a profile from one of the 312 fingerprints
   Camoufox captured from actual machines, instead of a synthetic one.
 - **Profiles and groups** — create, edit, clone, delete, search, filter, bulk
-  actions, and grouping by client or purpose.
+  actions, and grouping by client or purpose. A clone gets its own machine by
+  default: two profiles sharing one fingerprint are provably one computer.
 - **Browser control** — launch and stop a browser per profile; closing the window
   yourself is noticed and the session is cleaned up.
 - **Scheduling** — open a profile on a schedule (warming), and keep its pinned

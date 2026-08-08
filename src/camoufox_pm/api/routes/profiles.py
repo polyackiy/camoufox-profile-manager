@@ -10,7 +10,7 @@ import zipfile
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, File, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.responses import FileResponse, Response
 from loguru import logger
 from pydantic import ValidationError
@@ -573,8 +573,19 @@ async def export_profile(profile_id: str):
     summary="Import a profile.",
     description="Create a profile from an archive produced by the export endpoint.",
 )
-async def import_profile(file: UploadFile = File(...), name: str | None = None):
-    """Restore a profile from an uploaded archive."""
+async def import_profile(
+    file: UploadFile = File(...),
+    name: str | None = None,
+    form_name: str | None = Form(default=None, alias="name"),
+):
+    """Restore a profile from an uploaded archive.
+
+    ``name`` is accepted both as a query parameter and as a form field. Every
+    other part of this request travels in the multipart body, so a client author
+    reaches for the form field first — and used to get no error and no rename,
+    because only the query parameter was read.
+    """
+    name = name or form_name
     profile_manager = get_profile_manager()
 
     handle = tempfile.NamedTemporaryFile(suffix=".zip", delete=False)
