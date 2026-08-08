@@ -493,6 +493,7 @@ class DatabaseManager:
         )
         self._connection.commit()
         return cursor.rowcount
+
     # --- Schedules ---
 
     async def save_schedule(self, schedule: Schedule):
@@ -744,6 +745,7 @@ class StorageManager:
 
     async def delete_expired_sessions(self) -> int:
         return await self.db.delete_expired_sessions()
+
     # Schedule methods
     async def save_schedule(self, schedule: Schedule):
         await self.db.save_schedule(schedule)
