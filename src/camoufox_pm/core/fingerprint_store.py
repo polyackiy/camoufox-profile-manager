@@ -233,15 +233,19 @@ def installed_major() -> int | None:
         return None
 
 
-def is_outdated(fingerprint: dict[str, Any] | None) -> bool:
+def is_outdated(fingerprint: dict[str, Any] | None, installed: int | None = None) -> bool:
     """Whether a pin claims an older browser than the one now installed.
 
     A pinned fingerprint never ages on its own, so a profile kept for months
     keeps advertising the version it was created with. Real machines update, and
     a browser several releases behind is itself unusual enough to notice.
+
+    ``installed`` lets a caller that already knows the version pass it in.
+    Reading it costs a config file, and a profile list would otherwise pay for
+    that once per profile per field.
     """
     pinned = browser_major(fingerprint)
-    current = installed_major()
+    current = installed_major() if installed is None else installed
     return pinned is not None and current is not None and pinned < current
 
 
@@ -341,6 +345,7 @@ def summarize(fingerprint: dict[str, Any] | None) -> dict[str, Any] | None:
     width = fingerprint.get("screen.width")
     height = fingerprint.get("screen.height")
     fonts = fingerprint.get("fonts")
+    installed = installed_major()
     return {
         "user_agent": fingerprint.get("navigator.userAgent"),
         "platform": fingerprint.get("navigator.platform"),
@@ -351,6 +356,6 @@ def summarize(fingerprint: dict[str, Any] | None) -> dict[str, Any] | None:
         "property_count": len(fingerprint),
         # So the UI can offer an update without re-deriving this itself.
         "browser_major": browser_major(fingerprint),
-        "installed_major": installed_major(),
-        "browser_outdated": is_outdated(fingerprint),
+        "installed_major": installed,
+        "browser_outdated": is_outdated(fingerprint, installed),
     }

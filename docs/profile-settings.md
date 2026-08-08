@@ -115,6 +115,11 @@ those two itself, from the same address and the same database Camoufox would hav
 used. Without that, Firefox falls back to *this computer's* timezone: measured,
 a profile with Tokyo coordinates reported `Europe/Moscow`, the host's own zone.
 
+Profiles created before this behaviour keep the timezone and coordinates they
+were given, and those were picked from a random region. They are not migrated —
+changing a stored fingerprint under a live account is worse than leaving it — so
+check such a profile and clear the two fields if they disagree with its proxy.
+
 ### Checking a proxy
 
 *Check proxy* in the profile form (and in a profile's row menu) reaches the

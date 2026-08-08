@@ -108,7 +108,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   a timezone, coordinates and languages from a randomly chosen region, so a fresh
   profile might claim Shanghai and then be given a German proxy — the manager was
   manufacturing the contradiction it exists to avoid. Geography is now left unset
-  and follows the proxy; a region can still be asked for explicitly.
+  and follows the proxy; a region can still be asked for explicitly. Existing
+  profiles keep the values they were given — a stored fingerprint is not rewritten
+  under a live account — so check one and clear the two fields if they disagree.
 - **Coordinates no longer leak the host machine's timezone.** Setting coordinates
   turns Camoufox's IP lookup off, which is the only way it keeps them — and that
   same branch is what fills the timezone and the WebRTC address. Both were left

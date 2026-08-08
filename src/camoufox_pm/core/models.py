@@ -150,10 +150,9 @@ class BrowserSettings(BaseModel):
             config["navigator.hardwareConcurrency"] = self.hardware_concurrency
         if self.max_touch_points:
             config["navigator.maxTouchPoints"] = self.max_touch_points
-        # webrtc_local_ips is intentionally not emitted. Camoufox does have a
-        # webrtc:localipv4 key, but setting it replaces the mDNS candidate a real
-        # Firefox sends with a literal address — and Camoufox's own default there
-        # is the bogon 240.0.0.2. Leaving it alone keeps the real behaviour.
+        # webrtc_local_ips is intentionally not emitted. The webrtc:localipv4 key
+        # does exist, but setting it replaces the mDNS candidate a real Firefox
+        # sends with a literal address. Leaving it alone keeps the real behaviour.
         if self.webrtc_public_ip:
             config["webrtc:ipv4"] = self.webrtc_public_ip
         return config

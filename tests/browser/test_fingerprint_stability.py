@@ -47,13 +47,20 @@ async def test_unpinned_profiles_look_like_new_hardware(tmp_path):
 
     If this ever starts passing as "stable", Camoufox changed its behaviour and
     the pinning below may no longer be needed.
+
+    Three launches, not two: Camoufox draws from a finite catalogue of machines,
+    so two consecutive draws can coincide by chance and did once here. Three
+    identical draws would mean it is not drawing at all.
     """
     profile = Profile(name="drift", browser_settings=BrowserSettings(os="windows"))
 
-    first = await observe(profile.to_camoufox_launch_options(), tmp_path / "drift")
-    second = await observe(profile.to_camoufox_launch_options(), tmp_path / "drift")
+    seen = [
+        await observe(profile.to_camoufox_launch_options(), tmp_path / "drift") for _ in range(3)
+    ]
 
-    assert first != second, "expected an unpinned profile to drift between launches"
+    assert any(other != seen[0] for other in seen[1:]), (
+        f"expected an unpinned profile to drift between launches, got {seen[0]}"
+    )
 
 
 @pytest.mark.browser

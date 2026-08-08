@@ -832,6 +832,9 @@ function Section({
  * could notice between that and the profile. A working proxy is not the whole
  * answer — a profile whose timezone contradicts its exit address is detectable
  * however healthy the connection is.
+ *
+ * Three levels, three treatments: red for something that stops the browser
+ * launching, amber for something a page can detect, grey for a note.
  */
 function ProxyCheckResult({ result }: { result: ProxyCheck | null }) {
   if (!result) return null
@@ -862,7 +865,11 @@ function ProxyCheckResult({ result }: { result: ProxyCheck | null }) {
         <p
           key={index}
           className={`flex items-start gap-1.5 ${
-            finding.level === 'info' ? 'text-ink-faint' : 'text-danger'
+            finding.level === 'error'
+              ? 'text-danger'
+              : finding.level === 'warning'
+                ? 'text-warn'
+                : 'text-ink-faint'
           }`}
         >
           {finding.level === 'info' ? (
