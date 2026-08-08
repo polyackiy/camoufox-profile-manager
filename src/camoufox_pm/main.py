@@ -13,15 +13,17 @@ from camoufox_pm import __version__
 from camoufox_pm.api.dependencies import (
     require_auth,
     set_profile_manager,
+    set_scheduler,
     set_storage_manager,
 )
 from camoufox_pm.api.errors import install_error_handlers
 from camoufox_pm.api.middleware.logging import LoggingMiddleware
 from camoufox_pm.api.models.system import ErrorResponse, HealthResponse
-from camoufox_pm.api.routes import auth, groups, profiles, system
+from camoufox_pm.api.routes import auth, groups, profiles, schedules, system
 from camoufox_pm.config import get_settings
 from camoufox_pm.core.database import StorageManager
 from camoufox_pm.core.profile_manager import ProfileManager
+from camoufox_pm.core.scheduler import TaskScheduler
 
 settings = get_settings()
 
@@ -41,11 +43,18 @@ async def lifespan(app: FastAPI):
     set_storage_manager(storage_manager)
     set_profile_manager(profile_manager)
 
+    # In-process on purpose: the app owns the browser sessions, so scheduled
+    # launches must run where the sessions live, through the same manager.
+    scheduler = TaskScheduler(storage_manager, profile_manager)
+    await scheduler.start()
+    set_scheduler(scheduler)
+
     logger.info("API ready")
     try:
         yield
     finally:
         logger.info("Shutting down API...")
+        await scheduler.stop()
         await storage_manager.close()
 
 
@@ -103,6 +112,13 @@ for _prefix, _in_schema in (("/api/v1", True), ("/api", False)):
         groups.router,
         prefix=_prefix,
         tags=["Groups"],
+        dependencies=protected,
+        include_in_schema=_in_schema,
+    )
+    app.include_router(
+        schedules.router,
+        prefix=_prefix,
+        tags=["Schedules"],
         dependencies=protected,
         include_in_schema=_in_schema,
     )

@@ -7,6 +7,7 @@ from httpx import ASGITransport
 from camoufox_pm.api import dependencies
 from camoufox_pm.core.database import StorageManager
 from camoufox_pm.core.profile_manager import ProfileManager
+from camoufox_pm.core.scheduler import TaskScheduler
 from camoufox_pm.main import app
 
 
@@ -20,6 +21,9 @@ async def client(tmp_path):
 
     dependencies.set_storage_manager(storage)
     dependencies.set_profile_manager(manager)
+    # Not started: the routes only need it to plan and to run-now; the loop
+    # would poll on a real clock, which tests must not depend on.
+    dependencies.set_scheduler(TaskScheduler(storage, manager))
 
     transport = ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as http_client:

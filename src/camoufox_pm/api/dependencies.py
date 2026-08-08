@@ -8,9 +8,11 @@ from camoufox_pm.config import get_settings
 from camoufox_pm.core import auth
 from camoufox_pm.core.database import StorageManager
 from camoufox_pm.core.profile_manager import ProfileManager
+from camoufox_pm.core.scheduler import TaskScheduler
 
 _storage_manager: StorageManager | None = None
 _profile_manager: ProfileManager | None = None
+_scheduler: TaskScheduler | None = None
 
 
 def set_storage_manager(storage_manager: StorageManager) -> None:
@@ -46,6 +48,19 @@ def _api_key_matches(x_api_key: str | None) -> bool:
         return False
     # Constant-time comparison to avoid leaking the key via response timing.
     return hmac.compare_digest(x_api_key, configured)
+
+
+def set_scheduler(scheduler: TaskScheduler) -> None:
+    """Register the shared ``TaskScheduler`` instance."""
+    global _scheduler
+    _scheduler = scheduler
+
+
+def get_scheduler() -> TaskScheduler:
+    """Return the shared ``TaskScheduler`` instance."""
+    if _scheduler is None:
+        raise HTTPException(status_code=500, detail="TaskScheduler is not initialized")
+    return _scheduler
 
 
 async def require_api_key(x_api_key: str | None = Header(default=None)) -> None:

@@ -321,6 +321,63 @@ as `fingerprint_preset` when creating a profile.
 
 The catalogue reads without the browser installed; pinning one does not.
 
+## Schedules
+
+```http
+GET    /api/v1/schedules
+POST   /api/v1/schedules
+GET    /api/v1/schedules/{id}
+PUT    /api/v1/schedules/{id}
+DELETE /api/v1/schedules/{id}
+POST   /api/v1/schedules/{id}/run
+GET    /api/v1/schedules/{id}/runs
+```
+
+A schedule runs one of two actions against a profile: `launch` (open its
+browser; `run_minutes` optionally closes it again that many minutes later) or
+`refresh_browser` (move its pinned fingerprint onto the installed browser
+version, hardware untouched). Regenerating the hardware fingerprint is
+deliberately **not** schedulable — it would make the profile a new machine on a
+timer, which is what the pin exists to prevent; see
+[scheduling.md](scheduling.md).
+
+```json
+{
+  "profile_id": "a1b2c3d4",
+  "action": "launch",
+  "kind": "daily",
+  "at_time": "09:00",
+  "days": [0, 1, 2, 3, 4],
+  "run_minutes": 15
+}
+```
+
+- `kind` is `"interval"` with `interval_minutes`, or `"daily"` with `at_time`
+  (`HH:MM`, 24-hour, read on the **server's** clock) and optional `days`
+  (weekdays the schedule fires, `0` = Monday … `6` = Sunday; omitted = every
+  day). A body whose fields do not match its `kind` fails validation.
+- Creating against an unknown profile returns `400`. Deleting a profile deletes
+  its schedules.
+- The response carries `profile_name`, the planned `next_run_at` and the
+  `last_run`, so a client does not join these itself.
+
+`PUT` updates a schedule; omitted fields are left alone, and changing the
+timing (or re-enabling) recomputes `next_run_at` from now. `enabled: false`
+pauses a schedule without losing it.
+
+`POST .../run` executes the action immediately, records the outcome, and does
+**not** move the planned next run; it works on a paused schedule too. The run
+record is returned:
+
+```json
+{"schedule_id": "x9y8z7w6", "outcome": "ok", "message": "Browser launched", ...}
+```
+
+`GET .../runs` lists the newest runs, newest first; the last 20 are kept per
+schedule. `outcome` is `ok`, `skipped` (the browser was already running),
+`error` (the message says why), or `missed` — the run fell due while the app
+was not running and was skipped, never replayed.
+
 ## Groups
 
 ```http

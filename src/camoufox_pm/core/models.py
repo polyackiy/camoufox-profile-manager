@@ -1,12 +1,13 @@
 """Data models for the Camoufox profile management system."""
 
+import re
 import secrets
 import string
 from datetime import datetime
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 # Characters used for short IDs, excluding visually confusing ones (0, o, 1, l, i).
 _ID_ALPHABET = "".join(c for c in (string.ascii_lowercase + string.digits) if c not in "0o1li")
@@ -35,6 +36,11 @@ def generate_profile_id() -> str:
 
 def generate_group_id() -> str:
     """Generate a short ID for a group."""
+    return generate_short_id(8)
+
+
+def generate_schedule_id() -> str:
+    """Generate a short ID for a schedule."""
     return generate_short_id(8)
 
 
@@ -296,3 +302,95 @@ class SystemStatus(BaseModel):
     memory_usage: float
     disk_usage: float
     uptime_seconds: int
+
+
+class ScheduleAction(str, Enum):
+    """What a schedule does to its profile when it fires.
+
+    Deliberately absent: regenerating the hardware fingerprint. The pinned
+    machine exists so a profile stays the same computer between sessions;
+    swapping its GPU, screen and cores on a timer would hand a warmed-up
+    account new hardware overnight — the one thing the pin prevents. Hardware
+    regeneration stays a manual action (reset-fingerprint), which warns about
+    the cost. REFRESH_BROWSER is the honest scheduled rotation: it moves only
+    the browser version, which is what a real machine does when it updates.
+    """
+
+    LAUNCH = "launch"
+    REFRESH_BROWSER = "refresh_browser"
+
+
+class ScheduleKind(str, Enum):
+    """How a schedule's fire times are expressed."""
+
+    INTERVAL = "interval"  # every N minutes
+    DAILY = "daily"  # at HH:MM on the chosen weekdays
+
+
+class ScheduleRunOutcome(str, Enum):
+    """How one firing of a schedule ended."""
+
+    OK = "ok"
+    SKIPPED = "skipped"  # e.g. the browser was already running
+    ERROR = "error"
+    MISSED = "missed"  # fell due while the process was down; not replayed
+
+
+_TIME_OF_DAY = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
+
+
+class Schedule(BaseModel):
+    """A recurring task against one profile.
+
+    ``at_time`` is read on the server's own clock: this is a single-process
+    tool that runs next to its browsers, so "09:00" means 09:00 where the
+    process runs, with no timezone bookkeeping to get wrong. ``days`` uses
+    Python's weekday numbering, 0 = Monday … 6 = Sunday; empty means every day.
+    """
+
+    model_config = ConfigDict(use_enum_values=True)
+
+    id: str = Field(default_factory=generate_schedule_id)
+    profile_id: str
+    action: ScheduleAction
+    kind: ScheduleKind
+    interval_minutes: int | None = Field(None, ge=1)
+    at_time: str | None = None
+    days: list[int] | None = None
+    # Launch schedules only: close the browser this long after opening it, so a
+    # warming session ends by itself instead of staying open until the next run
+    # finds it and skips.
+    run_minutes: int | None = Field(None, ge=1)
+    enabled: bool = True
+    next_run_at: datetime | None = None
+    created_at: datetime = Field(default_factory=datetime.now)
+    updated_at: datetime = Field(default_factory=datetime.now)
+
+    @model_validator(mode="after")
+    def _expression_is_complete(self) -> "Schedule":
+        if self.kind == ScheduleKind.INTERVAL:
+            if not self.interval_minutes:
+                raise ValueError("An interval schedule needs interval_minutes")
+        else:
+            if not self.at_time or not _TIME_OF_DAY.match(self.at_time):
+                raise ValueError("A daily schedule needs at_time as HH:MM (24-hour)")
+        if self.days is not None:
+            if any(day < 0 or day > 6 for day in self.days):
+                raise ValueError("days entries are weekdays, 0 (Monday) to 6 (Sunday)")
+            self.days = sorted(set(self.days)) or None
+        if self.action == ScheduleAction.REFRESH_BROWSER and self.run_minutes:
+            raise ValueError("run_minutes only applies to launch schedules")
+        return self
+
+
+class ScheduleRun(BaseModel):
+    """The record of one firing of a schedule."""
+
+    id: int | None = None
+    schedule_id: str
+    started_at: datetime = Field(default_factory=datetime.now)
+    finished_at: datetime | None = None
+    outcome: ScheduleRunOutcome
+    message: str | None = None
+
+    model_config = ConfigDict(use_enum_values=True)
