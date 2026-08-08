@@ -8,6 +8,8 @@ compare what a site would actually observe.
 Run with:  uv run pytest -m browser
 """
 
+import hashlib
+
 import pytest
 from camoufox import AsyncCamoufox
 
@@ -98,6 +100,99 @@ async def test_a_pinned_profile_survives_losing_its_directory(tmp_path):
     elsewhere = await observe(pinned_options(), tmp_path / "elsewhere")
 
     assert original == elsewhere
+
+
+CANVAS = """() => {
+  const c = document.createElement('canvas');
+  c.width = 240; c.height = 60;
+  const x = c.getContext('2d');
+  x.textBaseline = 'top';
+  x.font = '16px Arial';
+  x.fillStyle = '#f60'; x.fillRect(0, 0, 120, 25);
+  x.fillStyle = '#069'; x.fillText('canvas probe', 2, 18);
+  return c.toDataURL();
+}"""
+
+
+async def read_canvas(options, user_data_dir, url):
+    launch = dict(options)
+    launch["headless"] = True
+    launch["user_data_dir"] = str(user_data_dir)
+    async with AsyncCamoufox(**launch) as browser:
+        page = await browser.new_page()
+        await page.goto(url, wait_until="domcontentloaded", timeout=45000)
+        value = await page.evaluate(CANVAS)
+        return hashlib.sha256(value.encode()).hexdigest()[:16]
+
+
+def pinned_options(profile):
+    """Launch options with the profile's machine pinned, as a real launch does."""
+    fresh = profile.to_camoufox_launch_options()
+    fresh["config"] = {**profile.fingerprint, **fresh["config"]}
+    return fresh
+
+
+@pytest.mark.browser
+@pytest.mark.asyncio
+async def test_stable_canvas_survives_a_relaunch(tmp_path):
+    """The whole point of the setting: the canvas reads the same next session.
+
+    Needs both halves — the pref stops the pixel randomisation, and the pinned
+    fonts:spacing_seed keeps text rendering identical. Text is deliberately drawn
+    here because it follows the font seed rather than the canvas path, and that
+    is what made this look broken while only the pref was in place.
+    """
+    profile = Profile(
+        name="stable-canvas",
+        browser_settings=BrowserSettings(os="windows", stable_canvas=True),
+    )
+    options = profile.to_camoufox_launch_options()
+    assert options["firefox_user_prefs"] == {"privacy.baselineFingerprintingProtection": False}
+
+    profile.fingerprint = fingerprint_store.resolve(options)
+    assert profile.fingerprint, "the pin carries the font seed this relies on"
+
+    first = await read_canvas(pinned_options(profile), tmp_path / "a", "https://example.com")
+    second = await read_canvas(pinned_options(profile), tmp_path / "a", "https://example.com")
+    assert first == second, f"canvas drifted between launches: {first} vs {second}"
+
+
+@pytest.mark.browser
+@pytest.mark.asyncio
+async def test_a_randomised_canvas_profile_still_drifts(tmp_path):
+    """Guards the default. If this starts passing, the setting is redundant."""
+    profile = Profile(
+        name="randomised-canvas",
+        browser_settings=BrowserSettings(os="windows", stable_canvas=False),
+    )
+    options = profile.to_camoufox_launch_options()
+    assert "firefox_user_prefs" not in options
+
+    profile.fingerprint = fingerprint_store.resolve(options)
+    first = await read_canvas(pinned_options(profile), tmp_path / "b", "https://example.com")
+    second = await read_canvas(pinned_options(profile), tmp_path / "b", "https://example.com")
+    assert first != second, "expected the default to keep randomising the canvas"
+
+
+@pytest.mark.browser
+@pytest.mark.asyncio
+async def test_stable_canvas_is_linkable_across_sites(tmp_path):
+    """The cost, asserted rather than only documented.
+
+    A stable canvas is the same everywhere, so two sites can tell they are
+    looking at one machine. That is what real hardware does and why this is a
+    per-profile choice instead of the default.
+    """
+    profile = Profile(
+        name="linkable",
+        browser_settings=BrowserSettings(os="windows", stable_canvas=True),
+    )
+    profile.fingerprint = fingerprint_store.resolve(profile.to_camoufox_launch_options())
+    assert profile.fingerprint
+
+    one = await read_canvas(pinned_options(profile), tmp_path / "c", "https://example.com")
+    two = await read_canvas(pinned_options(profile), tmp_path / "c", "https://www.iana.org")
+    assert one == two, "a stable canvas is expected to be identical across sites"
 
 
 @pytest.mark.browser

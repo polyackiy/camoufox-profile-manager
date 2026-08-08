@@ -198,6 +198,8 @@ async def update_profile(profile_id: str, request: ProfileUpdateRequest):
             browser_updates["webrtc_mode"] = request.browser_webrtc_mode
         if request.browser_canvas_noise is not None:
             browser_updates["canvas_noise"] = request.browser_canvas_noise
+        if request.browser_stable_canvas is not None:
+            browser_updates["stable_canvas"] = request.browser_stable_canvas
         if request.browser_webgl_noise is not None:
             browser_updates["webgl_noise"] = request.browser_webgl_noise
         if request.browser_audio_noise is not None:

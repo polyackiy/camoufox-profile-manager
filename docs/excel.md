@@ -46,6 +46,7 @@ creating the profile through the UI instead.
 | Locale | e.g. `en_US`. |
 | WebRTC mode | `replace`, `real`, `forward`, `none`. `none` disables WebRTC. |
 | Canvas noise / WebGL noise / Audio noise | Stored intent; Camoufox owns this spoofing. |
+| Stable canvas | `true` keeps the canvas identical across launches, at the cost of being identical across sites too. Off by default — see [profile-settings.md](profile-settings.md#known-limitations). |
 | CPU cores | Reported as `navigator.hardwareConcurrency`. |
 | Device memory | Stored; not all values map onto Camoufox. |
 | Touch points | Stored, but Camoufox 152 ignores it — see the limitations in [profile-settings.md](profile-settings.md#known-limitations). |

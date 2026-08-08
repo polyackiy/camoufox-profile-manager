@@ -49,9 +49,28 @@ Track progress in [GitHub Issues](https://github.com/polyackiy/camoufox-profile-
   upstream.
 - Anything that facilitates violating a site's terms of service.
 
-## Known limitation we cannot fix here
+## Canvas stability
 
-Camoufox randomises the canvas hash per browsing context to defeat cross-site
-tracking. That is the opposite of what a long-lived profile wants, and pinning
-`canvas:seed` does not stop it. It would take a change in Camoufox itself. See
-[profile-settings.md](profile-settings.md#known-limitations).
+By default a site sees a different canvas hash each time a profile is launched.
+Within one session it is stable per site; the problem is only across sessions,
+where a real browser would be unchanging.
+
+**Done: the `stable_canvas` per-profile setting.** Turning it on launches with
+`privacy.baselineFingerprintingProtection = false`, which together with the
+pinned `fonts:spacing_seed` makes the canvas reproducible across launches. Off by
+default, because the trade is that the canvas is then the same across sites — what
+a real machine looks like, and what the randomisation existed to prevent. Covered
+by browser tests that assert the stability, the drift when it is off, and the
+cross-site linkability it costs.
+
+**Also worth doing: report the upstream bug.** `canvas:seed` is advertised in
+Camoufox's property manifest and emitted by its Python layer, but its C++ config
+reader never reads it and no patch implements it; `window.setCanvasSeed()` is
+documented but absent from the shipped build. A working seed would be better than
+the pref, because it would give each profile its own canvas value instead of one
+shared true render. This does not need a fork — a fork would mean building and
+hosting Firefox for every platform and rebasing on every Camoufox release, for
+one seed value.
+
+See [profile-settings.md](profile-settings.md#known-limitations) for the measured
+behaviour and the trade-off table.

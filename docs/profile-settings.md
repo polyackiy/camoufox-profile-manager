@@ -119,11 +119,53 @@ the costume without the memory.
 
 These are properties of Camoufox and Firefox, not of this manager:
 
-- **The canvas hash still varies.** Camoufox randomises canvas noise per browsing
-  context to defeat cross-site tracking, and pinning `canvas:seed` does not stop
-  it: two tabs on the same site produce different hashes, as does each launch. A
-  real browser is stable here, so this remains a detectable difference. It cannot
-  be fixed from this side — it is a deliberate part of how Camoufox works.
+- **The canvas hash changes between sessions, by default.** Measured on
+  Camoufox 152:
+
+  | Scope | Canvas hash |
+  | ----- | ----------- |
+  | Two tabs, same site, one session | **the same** |
+  | Different sites, one session | different — deliberate, and what stops sites correlating you across the web |
+  | Same site, same profile, next launch | **different every time** |
+
+  The first two are what a privacy browser should do. The third is the problem: a
+  real browser returns the same canvas to a site for years, so a site that records
+  it sees a new machine every session.
+
+  What is randomised is **image export** — `toDataURL()` and `toBlob()` — from a
+  2D *or* a WebGL canvas. Raw pixel readback (`getImageData`, `readPixels`) is
+  stable, and so is `measureText`.
+
+  `canvas:seed` is listed as a supported property but is **not honoured**: pinning
+  it changes nothing. It is declared in Camoufox's property manifest and emitted
+  by its Python layer, but its C++ config reader never reads it, and no patch in
+  the repository implements it. `window.setCanvasSeed()`, documented in Camoufox's
+  per-context notes, is `undefined` in the shipped build while its siblings
+  (`setNavigatorUserAgent`, `setWebGLVendor`) are defined. Both are worth fixing
+  upstream, and the seed is the better long-term mechanism because it would give
+  each profile its own canvas value rather than one shared true render.
+
+  **The `stable_canvas` setting turns this off, and it is a genuine trade.**
+  Enabling it launches with `privacy.baselineFingerprintingProtection = false`,
+  which stops the pixel randomisation; combined with the pinned
+  `fonts:spacing_seed` a profile already stores, the canvas becomes fully
+  reproducible. Both halves are needed — text rendering follows the font seed
+  rather than the canvas path, so the pref alone leaves a text-bearing canvas
+  drifting. Measured:
+
+  | | Same site, relaunched | Different sites |
+  | --- | --- | --- |
+  | `stable_canvas` off (default) | different every launch | different |
+  | `stable_canvas` on | **identical** | **identical** |
+
+  The right-hand column is the cost: a stable canvas is the same everywhere, so
+  two sites can tell they are looking at one machine. That is exactly what real
+  hardware does, and exactly what the randomisation existed to prevent.
+
+  Choose per profile. One long-lived account wants it on, because looking like
+  new hardware every visit is the bigger tell. Browsing the open web unlinkably
+  wants the default. Set it in the profile form under **Canvas**, or as
+  `browser_settings.stable_canvas` through the API.
 - **`max_touch_points` has no effect.** Camoufox 152 lists
   `navigator.maxTouchPoints` as a supported property but does not apply it; the
   page keeps reporting `0` on every OS, with or without the touch-events pref.

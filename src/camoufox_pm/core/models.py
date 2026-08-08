@@ -123,6 +123,11 @@ class BrowserSettings(BaseModel):
     webgl_noise: bool = True
     audio_noise: bool = True
 
+    # Make the canvas reproducible across launches instead of randomised per
+    # session. Off by default: it trades cross-site unlinkability for a canvas
+    # that behaves like real hardware. See to_camoufox_launch_options().
+    stable_canvas: bool = False
+
     # Fonts
     fonts: list[str] | None = None
 
@@ -204,6 +209,19 @@ class Profile(BaseModel):
         # (which reports the proxy's public IP when a proxy is set).
         if bs.webrtc_mode == WebRTCMode.NONE:
             options["block_webrtc"] = True
+        if bs.stable_canvas:
+            # Firefox's baseline fingerprinting protection randomises canvas image
+            # export (toDataURL/toBlob, 2D and WebGL) per site and per session.
+            # Turning it off makes the canvas reproducible, which is what a
+            # long-lived profile needs — together with the pinned fonts:spacing_seed,
+            # since text rendering follows that seed rather than the canvas path.
+            #
+            # The cost is deliberate: the canvas is then identical across sites,
+            # exactly as real hardware behaves, so it can be correlated between
+            # them. That is why this is per profile and off by default.
+            options["firefox_user_prefs"] = {
+                "privacy.baselineFingerprintingProtection": False,
+            }
         if bs.window_width and bs.window_height:
             options["window"] = (bs.window_width, bs.window_height)
         if bs.fonts:
