@@ -380,6 +380,33 @@ async def get_profile_stats(profile_id: str):
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
+@router.post(
+    "/profiles/{profile_id}/refresh-browser",
+    response_model=ProfileResponse,
+    summary="Refresh the browser version",
+    description=(
+        "Move the profile's pinned machine onto the installed browser version, "
+        "keeping its hardware. A pin never ages on its own, and a browser several "
+        "releases behind is itself unusual."
+    ),
+)
+async def refresh_browser_version(profile_id: str):
+    """Update only the browser-version part of a profile's pinned fingerprint."""
+    try:
+        profile_manager = get_profile_manager()
+        profile = await profile_manager.refresh_browser_version(profile_id)
+        if not profile:
+            raise HTTPException(status_code=404, detail=f"Profile with ID {profile_id} not found")
+        return ProfileResponse.from_profile(profile)
+    except HTTPException:
+        raise
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.error(f"Failed to refresh the browser version for {profile_id}: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
 @router.get(
     "/profiles/{profile_id}/export",
     summary="Export a profile",

@@ -102,6 +102,118 @@ def test_summarize_without_a_pin():
     assert fingerprint_store.summarize({}) is None
 
 
+UA_OLD = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:149.0) Gecko/20100101 Firefox/149.0"
+UA_NEW = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:152.0) Gecko/20100101 Firefox/152.0"
+
+
+def test_browser_major_reads_the_version_from_the_user_agent():
+    assert fingerprint_store.browser_major({"navigator.userAgent": UA_OLD}) == 149
+    assert fingerprint_store.browser_major({"navigator.userAgent": "nonsense"}) is None
+    assert fingerprint_store.browser_major({}) is None
+    assert fingerprint_store.browser_major(None) is None
+
+
+def test_is_outdated_compares_against_the_installed_browser(monkeypatch):
+    monkeypatch.setattr(fingerprint_store, "installed_major", lambda: 152)
+    assert fingerprint_store.is_outdated({"navigator.userAgent": UA_OLD}) is True
+    assert fingerprint_store.is_outdated({"navigator.userAgent": UA_NEW}) is False
+    # Never claim staleness without both numbers.
+    assert fingerprint_store.is_outdated(None) is False
+    monkeypatch.setattr(fingerprint_store, "installed_major", lambda: None)
+    assert fingerprint_store.is_outdated({"navigator.userAgent": UA_OLD}) is False
+
+
+def test_refresh_replaces_the_browser_but_keeps_the_machine():
+    """The whole point: same computer, newer browser."""
+    pinned = {
+        "navigator.userAgent": UA_OLD,
+        "navigator.hardwareConcurrency": 12,
+        "navigator.platform": "Win32",
+        "navigator.oscpu": "Windows NT 10.0; Win64; x64",
+        "screen.width": 2560,
+        "screen.height": 1440,
+        "webGl:renderer": "ANGLE (NVIDIA, GeForce GTX 980)",
+        "webGl:vendor": "Google Inc. (NVIDIA)",
+        "canvas:seed": 424242,
+        "audio:seed": 111,
+        "fonts": ["Arial", "Calibri"],
+        "fonts:spacing_seed": 777,
+    }
+    # A newly resolved fingerprint describes a *different* machine entirely.
+    resolved = {
+        "navigator.userAgent": UA_NEW,
+        "navigator.hardwareConcurrency": 4,
+        "screen.width": 1366,
+        "screen.height": 768,
+        "webGl:renderer": "ANGLE (Intel, Intel(R) HD Graphics)",
+        "canvas:seed": 999999,
+        "fonts": ["Segoe UI"],
+        "fonts:spacing_seed": 5,
+    }
+
+    updated = fingerprint_store.refresh_browser_version(pinned, resolved)
+
+    assert updated["navigator.userAgent"] == UA_NEW, "the browser must move forward"
+    # Everything that makes it this device must be untouched — especially the
+    # seeds, since changing one would alter the canvas the profile presents.
+    for key in (
+        "navigator.hardwareConcurrency",
+        "navigator.platform",
+        "navigator.oscpu",
+        "screen.width",
+        "screen.height",
+        "webGl:renderer",
+        "webGl:vendor",
+        "canvas:seed",
+        "audio:seed",
+        "fonts",
+        "fonts:spacing_seed",
+    ):
+        assert updated[key] == pinned[key], f"{key} is the machine and must survive"
+
+
+def test_refresh_does_not_mutate_the_stored_pin():
+    pinned = {"navigator.userAgent": UA_OLD, "screen.width": 2560}
+    fingerprint_store.refresh_browser_version(pinned, {"navigator.userAgent": UA_NEW})
+    assert pinned["navigator.userAgent"] == UA_OLD
+
+
+def test_refresh_drops_a_version_key_the_new_build_stopped_emitting():
+    """A stale buildID would be worse than none at all."""
+    pinned = {"navigator.userAgent": UA_OLD, "navigator.buildID": "20240101000000"}
+    updated = fingerprint_store.refresh_browser_version(pinned, {"navigator.userAgent": UA_NEW})
+    assert "navigator.buildID" not in updated
+
+
+def test_summary_reports_the_version_and_whether_it_is_behind(monkeypatch):
+    monkeypatch.setattr(fingerprint_store, "installed_major", lambda: 152)
+    summary = fingerprint_store.summarize({"navigator.userAgent": UA_OLD, "screen.width": 800})
+    assert summary["browser_major"] == 149
+    assert summary["installed_major"] == 152
+    assert summary["browser_outdated"] is True
+
+
+def test_pinned_os_is_read_from_the_pin_not_the_settings():
+    """A refresh must resolve for the OS the pin describes.
+
+    Regression: refreshing a Windows pin on a profile whose settings had drifted
+    to macOS produced a macOS user agent on Windows hardware — a Mac browser
+    reporting Win32 and an ANGLE Direct3D11 GPU.
+    """
+    assert fingerprint_store.pinned_os({"navigator.platform": "Win32"}) == "windows"
+    assert fingerprint_store.pinned_os({"navigator.platform": "MacIntel"}) == "macos"
+    assert fingerprint_store.pinned_os({"navigator.platform": "Linux x86_64"}) == "linux"
+    # Falls back to oscpu when the platform string is unfamiliar.
+    assert (
+        fingerprint_store.pinned_os(
+            {"navigator.platform": "Weird", "navigator.oscpu": "Windows NT 10.0; Win64; x64"}
+        )
+        == "windows"
+    )
+    assert fingerprint_store.pinned_os({}) is None
+    assert fingerprint_store.pinned_os(None) is None
+
+
 def test_get_preset_rejects_malformed_ids():
     """Only a plain run of ASCII digits names a preset.
 

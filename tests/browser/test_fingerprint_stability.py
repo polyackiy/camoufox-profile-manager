@@ -197,6 +197,95 @@ async def test_stable_canvas_is_linkable_across_sites(tmp_path):
 
 @pytest.mark.browser
 @pytest.mark.asyncio
+async def test_refreshing_the_browser_version_keeps_the_device(tmp_path):
+    """A profile can move onto the installed browser and stay the same computer.
+
+    Simulates a profile pinned months ago on an older release, then refreshed
+    against the browser actually on disk. What a page sees afterwards must be the
+    old device with the current browser.
+    """
+    profile = Profile(name="ageing", browser_settings=BrowserSettings(os="windows"))
+    profile.fingerprint = fingerprint_store.resolve(profile.to_camoufox_launch_options())
+    assert profile.fingerprint
+
+    before = await observe(pinned_options(profile), tmp_path / "before")
+
+    # Age the pin: an older browser, same hardware.
+    aged = dict(profile.fingerprint)
+    aged["navigator.userAgent"] = (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:100.0) Gecko/20100101 Firefox/100.0"
+    )
+    profile.fingerprint = aged
+    assert fingerprint_store.is_outdated(profile.fingerprint)
+
+    stale = await observe(pinned_options(profile), tmp_path / "stale")
+    assert "rv:100.0" in stale["userAgent"], "the aged pin should be what the page sees"
+
+    profile.fingerprint = fingerprint_store.refresh_browser_version(
+        profile.fingerprint,
+        fingerprint_store.resolve(profile.to_camoufox_launch_options()),
+    )
+    after = await observe(pinned_options(profile), tmp_path / "after")
+
+    assert not fingerprint_store.is_outdated(profile.fingerprint)
+    assert after["userAgent"] == before["userAgent"], "back on the installed version"
+    # The device is untouched, which is the point.
+    for key in ("screen", "cores", "gpu", "platform"):
+        assert after[key] == before[key], f"{key} changed across a version refresh"
+
+
+@pytest.mark.browser
+@pytest.mark.asyncio
+async def test_refreshing_follows_the_pinned_os_not_the_settings(tmp_path):
+    """The refreshed user agent must match the hardware, not a drifted setting.
+
+    Regression: a Windows pin on a profile whose OS setting had been changed to
+    macOS came back with a macOS user agent while still reporting Win32 and an
+    ANGLE Direct3D11 GPU — a Mac browser on a Windows machine.
+    """
+    profile = Profile(name="drifted", browser_settings=BrowserSettings(os="windows"))
+    profile.fingerprint = fingerprint_store.resolve(profile.to_camoufox_launch_options())
+    assert profile.fingerprint
+    assert fingerprint_store.pinned_os(profile.fingerprint) == "windows"
+
+    # The setting drifts away from the pinned machine.
+    profile.browser_settings.os = "macos"
+
+    options = profile.to_camoufox_launch_options()
+    options["os"] = fingerprint_store.pinned_os(profile.fingerprint)
+    profile.fingerprint = fingerprint_store.refresh_browser_version(
+        profile.fingerprint, fingerprint_store.resolve(options)
+    )
+
+    seen = await observe(pinned_options(profile), tmp_path / "drift")
+    assert "Windows" in seen["userAgent"], f"user agent left the pinned OS: {seen['userAgent']}"
+    assert seen["platform"] == "Win32"
+
+
+@pytest.mark.browser
+@pytest.mark.asyncio
+async def test_refreshing_keeps_the_canvas_identical(tmp_path):
+    """The seeds must survive a refresh, or the canvas silently changes."""
+    profile = Profile(
+        name="refresh-canvas",
+        browser_settings=BrowserSettings(os="windows", stable_canvas=True),
+    )
+    profile.fingerprint = fingerprint_store.resolve(profile.to_camoufox_launch_options())
+    assert profile.fingerprint
+
+    before = await read_canvas(pinned_options(profile), tmp_path / "c1", "https://example.com")
+
+    profile.fingerprint = fingerprint_store.refresh_browser_version(
+        profile.fingerprint,
+        fingerprint_store.resolve(profile.to_camoufox_launch_options()),
+    )
+    after = await read_canvas(pinned_options(profile), tmp_path / "c2", "https://example.com")
+
+    assert before == after, "a version refresh must not move the canvas"
+
+
+@pytest.mark.browser
+@pytest.mark.asyncio
 async def test_profile_overrides_still_win_over_the_pin(tmp_path):
     """A pinned machine must not freeze out the user's own settings."""
     profile = Profile(

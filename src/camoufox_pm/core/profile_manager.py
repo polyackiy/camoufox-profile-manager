@@ -507,6 +507,56 @@ class ProfileManager:
 
         return success
 
+    async def refresh_browser_version(self, profile_id: str) -> Profile | None:
+        """Move a profile's pinned machine onto the installed browser version.
+
+        A pin never ages: a profile kept for months keeps advertising the browser
+        it was created with, and a version several releases behind is itself
+        unusual. This replaces only the browser-version part of the pin and keeps
+        the hardware, which is what a real computer looks like after an update.
+        """
+        profile = await self.get_profile(profile_id)
+        if not profile:
+            return None
+        if not profile.fingerprint:
+            # Nothing pinned yet, so there is nothing to age. The first launch
+            # will resolve against the current browser anyway.
+            raise ValueError("This profile has no pinned machine yet; launch it once first.")
+
+        # Resolve for the OS the *pin* describes, not the profile's current
+        # setting. The two can disagree — someone may have changed the OS dropdown
+        # after the machine was pinned — and taking the user agent from the
+        # setting would then put, say, a macOS browser on Windows hardware.
+        options = profile.to_camoufox_launch_options()
+        pinned_os = fingerprint_store.pinned_os(profile.fingerprint)
+        if pinned_os:
+            options["os"] = pinned_os
+
+        resolved = fingerprint_store.resolve(options)
+        if not resolved:
+            raise ValueError(
+                "Could not read the installed browser to refresh from. "
+                "Check that Camoufox is installed ('camoufox fetch')."
+            )
+
+        before = fingerprint_store.browser_major(profile.fingerprint)
+        profile.fingerprint = fingerprint_store.refresh_browser_version(
+            profile.fingerprint, resolved
+        )
+        after = fingerprint_store.browser_major(profile.fingerprint)
+        profile.updated_at = datetime.now()
+        await self.storage.update_profile(profile)
+
+        await self.storage.log_usage(
+            UsageStats(
+                profile_id=profile_id,
+                action="refresh_browser_version",
+                details={"from": before, "to": after},
+            )
+        )
+        logger.info(f"Profile {profile_id} browser version refreshed: {before} -> {after}")
+        return profile
+
     # -- Portability --------------------------------------------------------
 
     async def export_profile(self, profile_id: str, destination: Path) -> Path:

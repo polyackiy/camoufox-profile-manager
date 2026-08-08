@@ -10,6 +10,9 @@ Track progress in [GitHub Issues](https://github.com/polyackiy/camoufox-profile-
 - Profiles can be created from Camoufox's real device presets.
 - A whole profile — settings, pinned fingerprint and browser data — exports to a
   single archive and imports elsewhere.
+- A profile's pin can be moved onto a newer browser without changing its
+  hardware, so a long-lived profile does not keep advertising the version it was
+  created with.
 - The web UI covers the product: creating profiles, groups, and a settings screen
   reporting how the instance is configured.
 
@@ -25,8 +28,6 @@ Track progress in [GitHub Issues](https://github.com/polyackiy/camoufox-profile-
 - Warn when a profile's timezone contradicts its proxy's country — the mismatch
   the pinned-fingerprint work deliberately avoids creating, but which a user can
   still configure by hand.
-- Keep the pinned machine coherent when the operating system changes, instead of
-  asking the user to regenerate.
 - Authentication for multi-user or hosted deployments, beyond the optional API key.
 - Task scheduling and automated fingerprint rotation.
 - Windows App-Bound Encryption support for the Chrome-migration module.
