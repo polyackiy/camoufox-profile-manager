@@ -26,10 +26,13 @@ from camoufox_pm.api.models.profiles import (
     ProfileResponse,
     ProfileStatsResponse,
     ProfileUpdateRequest,
+    ProxyCheckRequest,
+    ProxyCheckResponse,
 )
 from camoufox_pm.api.models.system import ApiResponse
+from camoufox_pm.core import proxy_check
 from camoufox_pm.core.excel_manager import ExcelManager
-from camoufox_pm.core.models import ProfileStatus
+from camoufox_pm.core.models import BrowserSettings, ProfileStatus, ProxyConfig
 
 router = APIRouter()
 
@@ -343,6 +346,46 @@ async def clone_profile(profile_id: str, request: ProfileCloneRequest):
     except Exception as e:
         logger.error(f"Failed to clone profile {profile_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.post(
+    "/profiles/{profile_id}/check-proxy",
+    response_model=ProxyCheckResponse,
+    summary="Check a profile's proxy",
+    description=(
+        "Reach the internet through the profile's proxy, report where it comes out, "
+        "and list everything a page could notice between that and the profile's settings."
+    ),
+)
+async def check_profile_proxy(profile_id: str):
+    """Check a saved profile's proxy against its settings."""
+    profile = await get_profile_manager().get_profile(profile_id)
+    if not profile:
+        raise HTTPException(status_code=404, detail=f"Profile with ID {profile_id} not found")
+
+    result = await proxy_check.check(profile.proxy, profile.browser_settings)
+    return ProxyCheckResponse.from_result(result)
+
+
+@router.post(
+    "/proxy/check",
+    response_model=ProxyCheckResponse,
+    summary="Check a proxy",
+    description=(
+        "The same check for a proxy that has not been saved yet, so a profile can be "
+        "checked while it is still being filled in."
+    ),
+)
+async def check_proxy(request: ProxyCheckRequest):
+    """Check an unsaved proxy against unsaved settings."""
+    try:
+        proxy = ProxyConfig(**request.proxy_config) if request.proxy_config else None
+        settings = BrowserSettings(**(request.browser_settings or {}))
+    except ValidationError as e:
+        raise HTTPException(status_code=422, detail=e.errors()) from e
+
+    result = await proxy_check.check(proxy, settings)
+    return ProxyCheckResponse.from_result(result)
 
 
 @router.get(

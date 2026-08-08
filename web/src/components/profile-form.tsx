@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, Loader2, RefreshCw } from 'lucide-react'
+import { AlertTriangle, Check, Info, Loader2, RefreshCw, X } from 'lucide-react'
 
 import { Modal } from '@/components/modal'
 import { useToast } from '@/components/toast'
@@ -12,6 +12,7 @@ import {
   type FingerprintSummary,
   type Group,
   type Profile,
+  type ProxyCheck,
 } from '@/lib/api'
 
 interface FormState {
@@ -102,6 +103,8 @@ export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) 
   const [saving, setSaving] = useState(false)
   const [regenerating, setRegenerating] = useState(false)
   const [refreshingBrowser, setRefreshingBrowser] = useState(false)
+  const [checkingProxy, setCheckingProxy] = useState(false)
+  const [proxyCheck, setProxyCheck] = useState<ProxyCheck | null>(null)
   // The `profile` prop is a snapshot from the list; regenerating or updating the
   // browser returns a new machine, and the panel has to show it without waiting
   // for the dialog to be reopened.
@@ -181,6 +184,28 @@ export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) 
       server: form.proxyServer.trim(),
       username: form.proxyUsername.trim() || undefined,
       password: form.proxyPassword.trim() || undefined,
+    }
+  }
+
+  /**
+   * Checks what is on screen rather than what is stored, so the answer belongs to
+   * the proxy the user is currently typing — the point is to find out before
+   * saving whether it works and whether it agrees with the profile.
+   */
+  async function handleCheckProxy() {
+    setCheckingProxy(true)
+    setProxyCheck(null)
+    try {
+      setProxyCheck(
+        await profilesAPI.checkUnsavedProxy({
+          proxy_config: buildProxy(),
+          browser_settings: buildBrowserSettings(),
+        }),
+      )
+    } catch (error) {
+      toast('error', 'Could not check the proxy', (error as Error).message)
+    } finally {
+      setCheckingProxy(false)
     }
   }
 
@@ -460,6 +485,23 @@ export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) 
                 without them.
               </p>
             )}
+
+          <div className="col-span-2">
+            <button
+              type="button"
+              className="btn"
+              onClick={handleCheckProxy}
+              disabled={checkingProxy}
+            >
+              {checkingProxy ? (
+                <Loader2 size={13} className="animate-spin" />
+              ) : (
+                <RefreshCw size={13} />
+              )}
+              {checkingProxy ? 'Checking…' : 'Check proxy'}
+            </button>
+            <ProxyCheckResult result={proxyCheck} />
+          </div>
         </Section>
 
         {isEdit ? (
@@ -781,5 +823,56 @@ function Section({
       {hint && <p className="mb-2.5 text-ink-faint">{hint}</p>}
       <div className="grid grid-cols-2 gap-3">{children}</div>
     </fieldset>
+  )
+}
+
+
+/**
+ * What the check found: where the proxy actually comes out, and everything a page
+ * could notice between that and the profile. A working proxy is not the whole
+ * answer — a profile whose timezone contradicts its exit address is detectable
+ * however healthy the connection is.
+ */
+function ProxyCheckResult({ result }: { result: ProxyCheck | null }) {
+  if (!result) return null
+
+  if (!result.reachable) {
+    return (
+      <p className="mt-2 flex items-start gap-1.5 text-danger">
+        <X size={13} className="mt-0.5 shrink-0" />
+        <span>{result.error}</span>
+      </p>
+    )
+  }
+
+  const where = result.location
+  const place = [where?.country, where?.timezone].filter(Boolean).join(' · ')
+
+  return (
+    <div className="mt-2 space-y-1.5">
+      <p className="flex items-start gap-1.5 text-ink-muted">
+        <Check size={13} className="mt-0.5 shrink-0 text-ok" />
+        <span>
+          Exits at <span className="font-mono">{where?.ip}</span>
+          {place && <> — {place}</>}
+          {result.latency_ms !== null && <> · {result.latency_ms} ms</>}
+        </span>
+      </p>
+      {result.findings.map((finding, index) => (
+        <p
+          key={index}
+          className={`flex items-start gap-1.5 ${
+            finding.level === 'info' ? 'text-ink-faint' : 'text-danger'
+          }`}
+        >
+          {finding.level === 'info' ? (
+            <Info size={13} className="mt-0.5 shrink-0" />
+          ) : (
+            <AlertTriangle size={13} className="mt-0.5 shrink-0" />
+          )}
+          <span>{finding.message}</span>
+        </p>
+      ))}
+    </div>
   )
 }

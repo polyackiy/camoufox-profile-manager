@@ -1,8 +1,8 @@
 """Tests for the fingerprint generator.
 
-The generator sets only high-level constraints (os, screen, region-derived
-locale/timezone/geolocation). Camoufox owns the user-agent and WebGL, so those
-are never hand-crafted here.
+The generator sets only high-level constraints: the machine (os, screen,
+hardware) always, and geography only when a region is asked for. Camoufox owns
+the user-agent and WebGL, so those are never hand-crafted here.
 """
 
 import pytest
@@ -34,3 +34,36 @@ async def test_geolocation_set_for_region():
     bs = await gen.generate_fingerprint({"os": "linux", "region": "germany"})
     assert bs.geolocation is not None
     assert "lat" in bs.geolocation and "lon" in bs.geolocation
+
+
+@pytest.mark.asyncio
+async def test_a_profile_with_no_region_has_no_geography():
+    """A new profile is a machine, not a place.
+
+    Generating a timezone and coordinates gave every profile a random country
+    that contradicted whatever proxy it was later given — and coordinates turn
+    Camoufox's IP lookup off entirely, so nothing followed the proxy at all.
+    """
+    gen = FingerprintGenerator()
+
+    bs = await gen.generate_fingerprint({"os": "windows"})
+
+    assert bs.timezone is None
+    assert bs.geolocation is None
+    assert bs.languages == ["en-US", "en"]
+    # The machine is still generated.
+    assert bs.screen in gen.os_screen_combinations["windows"]
+    assert bs.hardware_concurrency
+
+
+@pytest.mark.asyncio
+async def test_rotating_a_fingerprint_does_not_move_the_profile():
+    """Rotation changes the hardware; it must not hand the profile a country."""
+    gen = FingerprintGenerator()
+    current = await gen.generate_fingerprint({"os": "macos", "region": "germany"})
+
+    rotated = await gen.rotate_fingerprint(current)
+
+    assert rotated.os == "macos"
+    assert rotated.timezone is None
+    assert rotated.geolocation is None

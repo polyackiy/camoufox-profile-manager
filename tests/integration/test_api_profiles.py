@@ -88,7 +88,8 @@ async def test_create_keeps_generated_values_for_omitted_fields(client):
     """Omitting an optional field must leave the generated fingerprint intact.
 
     The web form omits blanks on create; sending nulls instead produced profiles
-    with no timezone and no geolocation.
+    with no hardware and no screen. Geography is the deliberate exception — it is
+    left unset so it follows the proxy — so it is asserted absent here.
     """
     created = await client.post(
         "/api/profiles",
@@ -102,8 +103,10 @@ async def test_create_keeps_generated_values_for_omitted_fields(client):
     settings = created.json()["browser_settings"]
 
     assert settings["os"] == "windows"
-    assert settings["timezone"], "timezone should have been generated"
+    assert settings["screen"], "screen should have been generated"
     assert settings["hardware_concurrency"], "hardware_concurrency should have been generated"
+    assert settings["timezone"] is None, "a generated profile takes its timezone from the proxy"
+    assert settings["geolocation"] is None, "coordinates would turn the IP lookup off"
 
 
 @pytest.mark.asyncio

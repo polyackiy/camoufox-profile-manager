@@ -7,6 +7,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Check a proxy, and what it says about the profile.** *Check proxy* — in the
+  form and in a profile's row menu — reaches the internet through the proxy and
+  reports where it comes out, how long it took, and everything a page could
+  notice: a timezone on a different clock from the exit country, coordinates far
+  from it, or SOCKS credentials Firefox will refuse to send. The form checks what
+  is on screen, so a proxy can be tested and a mismatch fixed before saving.
+  `POST /api/profiles/{id}/check-proxy` and `POST /api/proxy/check`.
 - **A pinned machine can move onto a newer browser.** A pin never ages by
   itself, so a profile created on one Firefox release kept claiming it — and a
   browser several versions behind is itself unusual, since real machines update.
@@ -97,6 +104,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and it was mounted without the API-key guard.
 
 ### Fixed
+- **A new profile no longer picks a random country.** Every generated profile got
+  a timezone, coordinates and languages from a randomly chosen region, so a fresh
+  profile might claim Shanghai and then be given a German proxy — the manager was
+  manufacturing the contradiction it exists to avoid. Geography is now left unset
+  and follows the proxy; a region can still be asked for explicitly.
+- **Coordinates no longer leak the host machine's timezone.** Setting coordinates
+  turns Camoufox's IP lookup off, which is the only way it keeps them — and that
+  same branch is what fills the timezone and the WebRTC address. Both were left
+  unset, so Firefox fell back to this computer's own zone: a profile with Tokyo
+  coordinates reported `Europe/Moscow`. The launch path now fills them from the
+  same exit address and database Camoufox would have used. Verified in a real
+  browser.
 - **Profiles created from the UI had an incomplete fingerprint.** Blank optional
   fields were sent as explicit nulls, which cleared the generated timezone,
   geolocation and CPU count — leaving exactly the kind of inconsistency this

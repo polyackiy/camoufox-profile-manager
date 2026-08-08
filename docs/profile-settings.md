@@ -96,6 +96,41 @@ The user agent is resolved for the OS **the pin describes**, taken from its
 someone changed the dropdown after the machine was pinned, and following the
 setting would put a macOS browser on Windows hardware.
 
+## Where the profile appears to be
+
+A pinned machine keeps the hardware honest. Geography is the other half, and it
+is deliberately **not** pinned: a profile that keeps a Berlin timezone after
+moving to a Tokyo proxy contradicts itself in a way any page can measure with two
+lines of JavaScript.
+
+So a new profile is created without a timezone and without coordinates, and
+Camoufox derives both — plus the WebRTC address — from where the proxy comes out.
+Set either field only when you want to override that.
+
+Setting **coordinates** is the exception worth understanding. Camoufox overwrites
+the geolocation keys from the exit address whenever its IP lookup is on, so the
+only way to keep coordinates is to turn that lookup off — and the same branch is
+what fills the timezone and the WebRTC address. This manager therefore fills
+those two itself, from the same address and the same database Camoufox would have
+used. Without that, Firefox falls back to *this computer's* timezone: measured,
+a profile with Tokyo coordinates reported `Europe/Moscow`, the host's own zone.
+
+### Checking a proxy
+
+*Check proxy* in the profile form (and in a profile's row menu) reaches the
+internet through the proxy and reports the address it comes out at, the country
+and timezone that address resolves to, and the round trip. It then lists anything
+a page could notice:
+
+| Reported as | When |
+| --- | --- |
+| Error | The profile cannot launch at all — SOCKS with credentials, which Firefox refuses |
+| Warning | A page can see the contradiction: a timezone on a different clock, or coordinates more than 500 km from the exit |
+| Note | Worth knowing, not detectable as a conflict: a different zone name on the same clock, or coordinates in a nearby city |
+
+The check reads the form as it is on screen, so a proxy can be tested — and a
+mismatch fixed and re-tested — before anything is saved.
+
 ## Real device presets
 
 Camoufox bundles fingerprints captured from actual machines — 180 Windows, 67

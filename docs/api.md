@@ -120,6 +120,23 @@ profile response says when. Returns `400` if the profile has no pin yet.
 The response's `fingerprint` summary carries `browser_major`, `installed_major`
 and `browser_outdated` so a client does not have to parse the user agent.
 
+## Checking a proxy
+
+```http
+POST /api/profiles/{id}/check-proxy
+POST /api/proxy/check      {"proxy_config": {...}, "browser_settings": {...}}
+```
+
+Both reach the internet through the proxy and return the same shape: `reachable`,
+`error`, `latency_ms`, the `location` it comes out at (`ip`, `country`,
+`timezone`, `latitude`, `longitude`) and a list of `findings`, each with a
+`level` of `error`, `warning` or `info`, the `field` it concerns and a message.
+
+A proxy that does not answer is reported with `reachable: false` and an `error`,
+not raised as a 5xx. The second form takes an unsaved proxy, which is what the
+profile form uses so a proxy can be checked before the profile exists; omit
+`proxy_config` to check the direct connection.
+
 ## Running browsers
 
 ```http

@@ -3,8 +3,9 @@ name: CI
 on:
   push:
     branches: [main]
+  # Every pull request, not only those targeting main: a PR stacked on another
+  # branch got no checks at all, which is when review needs them most.
   pull_request:
-    branches: [main]
 
 concurrency:
   group: ci-${{ github.ref }}

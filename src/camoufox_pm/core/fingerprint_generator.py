@@ -91,27 +91,31 @@ class FingerprintGenerator:
             constraints = constraints.model_dump()
 
         os_choice = (constraints or {}).get("os") or random.choice(["windows", "macos", "linux"])
-        region = (constraints or {}).get("region") or random.choice(list(self.language_sets))
+        region = (constraints or {}).get("region")
 
         screen = random.choice(self.os_screen_combinations[os_choice])
-        languages = self.language_sets.get(region, ["en-US", "en"])
-        locale = self.locale_map.get(region, "en_US")
-        timezone = self.timezone_map.get(region, "UTC")
-        geolocation = self._geolocation_for_region(region)
         hardware = random.choice(self.hardware_specs)
-        max_touch_points = 0  # desktop operating systems only
 
-        return BrowserSettings(
+        # A new profile is a machine, not a place. Where it appears to be comes
+        # from its proxy: Camoufox derives the timezone, the coordinates and the
+        # WebRTC address from the exit address, but only for the values a profile
+        # leaves unset. Picking a random country here — as this used to — gave
+        # every new profile a timezone and coordinates that contradicted whatever
+        # proxy it was later given, and coordinates additionally turn the whole
+        # IP lookup off. Geography is pinned only when a region is asked for.
+        settings = BrowserSettings(
             os=os_choice,
             screen=screen,
-            languages=languages,
-            locale=locale,
-            timezone=timezone,
-            geolocation=geolocation,
             hardware_concurrency=hardware["cores"],
             device_memory=hardware["memory"],
-            max_touch_points=max_touch_points,
+            max_touch_points=0,  # desktop operating systems only
         )
+        if region:
+            settings.languages = self.language_sets.get(region, ["en-US", "en"])
+            settings.locale = self.locale_map.get(region, "en_US")
+            settings.timezone = self.timezone_map.get(region, "UTC")
+            settings.geolocation = self._geolocation_for_region(region)
+        return settings
 
     async def reset_fingerprint(self, profile_id: str) -> BrowserSettings:
         """Regenerate a fingerprint from scratch."""

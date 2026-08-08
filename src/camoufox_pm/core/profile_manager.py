@@ -7,7 +7,7 @@ from typing import Any
 
 from loguru import logger
 
-from . import fingerprint_store, profile_archive
+from . import fingerprint_store, profile_archive, proxy_check
 from .browser_session import BrowserSessionManager
 from .database import StorageManager
 from .fingerprint_generator import FingerprintGenerator
@@ -676,6 +676,11 @@ class ProfileManager:
                 profile_id=profile_id, action="launch_browser", details={"headless": headless}
             )
         )
+
+        # After the write on purpose: this only touches the launch options, so it
+        # cannot clobber the row, and it is the first await that is allowed to run
+        # between reading the profile and saving it.
+        await proxy_check.fill_what_geoip_would_have(profile.proxy, options)
 
         session = await self.browser_sessions.launch(
             profile_id, options, on_exit=self._on_browser_exit

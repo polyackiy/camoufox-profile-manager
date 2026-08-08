@@ -160,6 +160,28 @@ function toQuery(params: Record<string, unknown>): string {
   return query.toString() ? `?${query.toString()}` : ''
 }
 
+export interface ProxyLocation {
+  ip: string
+  country: string | null
+  timezone: string | null
+  latitude: number | null
+  longitude: number | null
+}
+
+export interface ProxyFinding {
+  level: 'error' | 'warning' | 'info'
+  field: string
+  message: string
+}
+
+export interface ProxyCheck {
+  reachable: boolean
+  error: string | null
+  latency_ms: number | null
+  location: ProxyLocation | null
+  findings: ProxyFinding[]
+}
+
 export const profilesAPI = {
   getProfiles(params: Record<string, unknown> = {}): Promise<ProfilesResponse> {
     return request<ProfilesResponse>(`/api/profiles${toQuery(params)}`)
@@ -201,6 +223,19 @@ export const profilesAPI = {
 
   refreshBrowserVersion(id: string): Promise<Profile> {
     return request<Profile>(`/api/profiles/${id}/refresh-browser`, { method: 'POST' })
+  },
+
+  checkProxy(id: string): Promise<ProxyCheck> {
+    return request<ProxyCheck>(`/api/profiles/${id}/check-proxy`, { method: 'POST' })
+  },
+
+  // The same check for a profile that is still being filled in, so the form can
+  // answer before anything is saved.
+  checkUnsavedProxy(body: {
+    proxy_config: Record<string, unknown> | null
+    browser_settings: Record<string, unknown>
+  }): Promise<ProxyCheck> {
+    return request<ProxyCheck>('/api/proxy/check', { method: 'POST', body: JSON.stringify(body) })
   },
 
   async exportExcel(): Promise<Blob> {
