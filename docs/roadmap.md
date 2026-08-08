@@ -71,6 +71,11 @@ order of how much they would hurt if left alone:
 - The browser test suite depends on reaching `example.com` and `iana.org`, so a
   full run can flake on a rate limit rather than a real fault. Serving the two
   origins locally would make it deterministic.
+- **Next 16 migration.** The web UI is on Next 15. Next 16 removes `next lint`,
+  which the CI job calls, so the bump needs the move to the ESLint CLI and comes
+  with ESLint 10 and TypeScript 7 alongside it. It is a migration with its own
+  verification, not a dependency bump, which is why the grouped Dependabot pull
+  request for it could not simply be merged.
 - Proxy health at a glance in the profiles list, so a dead proxy is visible
   without opening each profile and pressing *Check proxy*.
 
