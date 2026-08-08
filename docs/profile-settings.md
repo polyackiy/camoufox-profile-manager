@@ -119,7 +119,8 @@ the costume without the memory.
 
 These are properties of Camoufox and Firefox, not of this manager:
 
-- **The canvas hash changes between sessions.** Measured on Camoufox 152:
+- **The canvas hash changes between sessions, by default.** Measured on
+  Camoufox 152:
 
   | Scope | Canvas hash |
   | ----- | ----------- |
@@ -131,13 +132,36 @@ These are properties of Camoufox and Firefox, not of this manager:
   real browser returns the same canvas to a site for years, so a site that records
   it sees a new machine every session.
 
-  `canvas:seed` is listed as a supported property but is **not honoured** for 2D
-  canvas readback in this build — pinning it changes nothing, and neither does
-  turning off Firefox's own anti-fingerprinting preferences. Camoufox's newer
-  per-context patches add a `window.setCanvasSeed()` call that would fix this, but
-  it is not exposed in the current release. Nothing in this project can change
-  that; it needs the browser. See
-  [roadmap.md](roadmap.md#known-limitation-we-cannot-fix-here).
+  What is randomised is **image export** — `toDataURL()` and `toBlob()` — from a
+  2D *or* a WebGL canvas. Raw pixel readback (`getImageData`, `readPixels`) is
+  stable, and so is `measureText`.
+
+  `canvas:seed` is listed as a supported property but is **not honoured**: pinning
+  it changes nothing. It is declared in Camoufox's property manifest and emitted
+  by its Python layer, but its C++ config reader never reads it, and no patch in
+  the repository implements it. `window.setCanvasSeed()`, documented in Camoufox's
+  per-context notes, is `undefined` in the shipped build while its siblings
+  (`setNavigatorUserAgent`, `setWebGLVendor`) are defined. Both are worth fixing
+  upstream, and the seed is the better long-term mechanism because it would give
+  each profile its own canvas value rather than one shared true render.
+
+  **There is a workaround, and it is a genuine trade.** Launching with
+  `privacy.baselineFingerprintingProtection = false` stops the pixel
+  randomisation; combined with the pinned `fonts:spacing_seed` this project
+  already stores, the canvas becomes fully reproducible across launches. The cost
+  is that the canvas is then **identical across sites**, which is exactly what a
+  real browser does — one machine, one canvas — and exactly what the randomisation
+  existed to prevent. Measured:
+
+  | | Same site, relaunched | Different sites |
+  | --- | --- | --- |
+  | Default | different every launch | different |
+  | Pref off + pinned font seed | **identical** | **identical** |
+
+  Which you want depends on the job. One long-lived account per profile wants the
+  stable canvas; browsing the open web unlinkably wants the default. This project
+  does not set the pref today — see
+  [roadmap.md](roadmap.md#canvas-stability).
 - **`max_touch_points` has no effect.** Camoufox 152 lists
   `navigator.maxTouchPoints` as a supported property but does not apply it; the
   page keeps reporting `0` on every OS, with or without the touch-events pref.

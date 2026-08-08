@@ -49,18 +49,30 @@ Track progress in [GitHub Issues](https://github.com/polyackiy/camoufox-profile-
   upstream.
 - Anything that facilitates violating a site's terms of service.
 
-## Known limitation we cannot fix here
+## Canvas stability
 
-A site sees a different canvas hash each time a profile is launched. Within one
-session it is stable per site; the problem is only across sessions, where a real
-browser would be unchanging.
+By default a site sees a different canvas hash each time a profile is launched.
+Within one session it is stable per site; the problem is only across sessions,
+where a real browser would be unchanging.
 
-The fix belongs in Camoufox, and the machinery is already there: its per-context
-patches add `window.setCanvasSeed()`, which the current release does not expose,
-and the `canvas:seed` config property is advertised but not honoured for 2D
-canvas readback. The useful next step is an upstream issue carrying the
-measurements — not a fork, which would mean building and hosting Firefox for
-every platform and rebasing on every Camoufox release, all for one seed value.
+**Planned: make this a per-profile setting.** Launching with
+`privacy.baselineFingerprintingProtection = false` stops the randomisation, and
+together with the pinned `fonts:spacing_seed` already stored per profile the
+canvas becomes fully reproducible — measured, identical across three launches.
+The trade is that the canvas is then the same across sites, which is what a real
+machine looks like and what the randomisation existed to prevent. That makes it a
+choice rather than a default: one long-lived account per profile wants it on,
+unlinkable browsing wants it off. The work is a setting, the launch option, and a
+browser test alongside the existing fingerprint-stability ones.
+
+**Also worth doing: report the upstream bug.** `canvas:seed` is advertised in
+Camoufox's property manifest and emitted by its Python layer, but its C++ config
+reader never reads it and no patch implements it; `window.setCanvasSeed()` is
+documented but absent from the shipped build. A working seed would be better than
+the pref, because it would give each profile its own canvas value instead of one
+shared true render. This does not need a fork — a fork would mean building and
+hosting Firefox for every platform and rebasing on every Camoufox release, for
+one seed value.
 
 See [profile-settings.md](profile-settings.md#known-limitations) for the measured
-behaviour.
+behaviour and the trade-off table.
