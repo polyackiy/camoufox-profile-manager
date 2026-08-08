@@ -68,6 +68,9 @@ order of how much they would hurt if left alone:
   fields, `browser_session_id`, and the top-level `detail` in errors all go away
   in `1.0`, and the unversioned `/api` prefix in `2.0`. See the deprecation table
   in [api.md](api.md#stability-contract).
+- The browser test suite depends on reaching `example.com` and `iana.org`, so a
+  full run can flake on a rate limit rather than a real fault. Serving the two
+  origins locally would make it deterministic.
 - Proxy health at a glance in the profiles list, so a dead proxy is visible
   without opening each profile and pressing *Check proxy*.
 
