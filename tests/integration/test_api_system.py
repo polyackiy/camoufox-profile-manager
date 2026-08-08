@@ -4,6 +4,7 @@ import shutil
 
 import pytest
 
+from camoufox_pm.api import dependencies
 from camoufox_pm.api.dependencies import get_profile_manager
 from camoufox_pm.config import get_settings
 from camoufox_pm.core.browser_session import BrowserSession
@@ -130,6 +131,30 @@ async def test_restart_closes_every_running_browser(client):
     assert response.json()["success"] is True
     assert [c.exits for c in camoufoxes] == [1, 1]
     assert manager.browser_sessions.list_active() == []
+
+
+@pytest.mark.asyncio
+async def test_health_reports_the_database_and_the_profile_count(client):
+    await client.post("/api/profiles", json={"name": "one"})
+
+    body = (await client.get("/health")).json()
+
+    assert body["status"] == "healthy"
+    assert body["database"] == "connected"
+    assert body["profiles_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_health_answers_when_storage_is_unavailable(client, monkeypatch):
+    """This is what a container orchestrator polls. It has to answer 'unhealthy'
+    rather than raise, or a failing instance looks the same as an unreachable one."""
+    monkeypatch.setattr(dependencies, "_profile_manager", None)
+
+    response = await client.get("/health")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "unhealthy"
+    assert response.json()["database"] == "disconnected"
 
 
 @pytest.mark.asyncio
