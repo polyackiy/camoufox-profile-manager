@@ -169,7 +169,10 @@ class ProfileResponse(BaseModel):
             created_at=profile.created_at,
             updated_at=profile.updated_at,
             last_used=profile.last_used,
-            fingerprint=fingerprint_store.summarize(profile.fingerprint),
+            fingerprint=fingerprint_store.summarize(
+                profile.fingerprint,
+                profile.browser_settings.os if profile.browser_settings else None,
+            ),
         )
 
 
@@ -301,6 +304,37 @@ class ProxyCheckRequest(BaseModel):
             }
         }
     )
+
+
+class ReconcileOsRequest(BaseModel):
+    """Which of the two things a profile says about its OS should win."""
+
+    keep_machine: bool = Field(
+        ...,
+        description=(
+            "True: put the OS setting back to what the pinned machine reports, changing "
+            "no fingerprint. False: pin a new machine for the OS setting instead — new "
+            "screen, GPU, cores, fonts and noise seeds."
+        ),
+    )
+
+    model_config = ConfigDict(json_schema_extra={"example": {"keep_machine": True}})
+
+
+class ClearGeographyRequest(BaseModel):
+    """Profiles whose stored timezone and coordinates should follow the proxy again."""
+
+    profile_ids: list[str] = Field(..., min_length=1, description="Profile IDs to clear")
+
+    model_config = ConfigDict(json_schema_extra={"example": {"profile_ids": ["a1b2c3d4"]}})
+
+
+class ClearGeographyResponse(BaseModel):
+    """What the request did to each profile it named."""
+
+    cleared: list[str] = Field(..., description="Had a timezone or coordinates; both are now unset")
+    unchanged: list[str] = Field(..., description="Already followed the proxy")
+    not_found: list[str] = Field(..., description="No such profile")
 
 
 class ProxyLocationResponse(BaseModel):

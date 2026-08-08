@@ -96,6 +96,43 @@ def test_launch_options_geoip_auto_unless_explicit_coords():
     assert with_coords["geoip"] is False
 
 
+def test_clearing_geography_hands_the_location_back_to_the_proxy():
+    """The point of clearing is the geoip flip, not the tidier record.
+
+    Coordinates force ``geoip=False``, and that same branch is what Camoufox uses
+    to fill the timezone and the WebRTC address from the exit address. A profile
+    carrying a randomly chosen region therefore derives none of the three.
+    """
+    settings = BrowserSettings(timezone="Asia/Shanghai", geolocation={"lat": 31.2, "lon": 121.5})
+    assert settings.has_geography() is True
+    before = Profile(name="old", browser_settings=settings).to_camoufox_launch_options()
+    assert before["geoip"] is False
+    assert before["config"]["timezone"] == "Asia/Shanghai"
+
+    assert settings.clear_geography() is True
+    after = Profile(name="old", browser_settings=settings).to_camoufox_launch_options()
+    assert after["geoip"] is True
+    assert "timezone" not in after["config"]
+    assert "geolocation:latitude" not in after["config"]
+
+
+def test_clearing_geography_leaves_the_language_alone():
+    """Languages are identity, not geography; Camoufox applies them either way."""
+    settings = BrowserSettings(
+        timezone="Asia/Shanghai", languages=["zh-CN", "zh"], locale="zh_CN", os="macos"
+    )
+    settings.clear_geography()
+    assert settings.languages == ["zh-CN", "zh"]
+    assert settings.locale == "zh_CN"
+    assert settings.os == "macos"
+
+
+def test_clearing_geography_reports_when_there_was_none():
+    settings = BrowserSettings()
+    assert settings.has_geography() is False
+    assert settings.clear_geography() is False
+
+
 def test_launch_options_include_proxy():
     p = Profile(
         name="t",

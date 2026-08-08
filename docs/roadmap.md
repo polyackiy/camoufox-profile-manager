@@ -15,6 +15,10 @@ Track progress in [GitHub Issues](https://github.com/polyackiy/camoufox-profile-
   created with.
 - A proxy can be checked from the UI: where it comes out, how fast, and whether
   the profile's timezone and coordinates agree with it.
+- A profile that contradicts itself says so and can be fixed: an OS setting that
+  disagrees with the pinned machine is reported with both ways out, and a profile
+  carrying geography from before it followed the proxy can have it cleared, one
+  profile or a whole selection at a time.
 - The web UI covers the product: creating profiles, groups, and a settings screen
   reporting how the instance is configured.
 - The REST API is stabilised for `1.0`: `/api/v1` paths (the unversioned ones
@@ -32,11 +36,6 @@ Track progress in [GitHub Issues](https://github.com/polyackiy/camoufox-profile-
 
 ## Next
 
-- Reconcile a profile's OS setting with its pinned machine. A refresh now follows
-  the pin rather than the setting, so the two can disagree silently; nothing
-  offers to bring them back into step.
-- Offer to clear the geography of profiles created before it followed the proxy,
-  instead of only reporting the mismatch when the proxy is checked.
 - Authentication for multi-user or hosted deployments, beyond the optional API key.
 - Task scheduling and automated fingerprint rotation.
 - Windows App-Bound Encryption support for the Chrome-migration module.

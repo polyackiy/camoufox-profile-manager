@@ -207,6 +207,20 @@ class ProfileManager:
                         value = BrowserSettings(**value)
                 setattr(profile, key, value)
 
+        # Changing the OS of a pinned profile is not refused: the setting is not
+        # what a page sees while a pin exists, so nothing breaks, and refusing
+        # would block a legitimate edit made on the way to regenerating. But it
+        # does leave the profile saying two things, so it is worth a line in the
+        # log; the profile response reports it as os_mismatch for the UI.
+        if "browser_settings" in updates and profile.fingerprint:
+            pinned_os = fingerprint_store.pinned_os(profile.fingerprint)
+            if pinned_os and pinned_os != profile.browser_settings.os:
+                logger.warning(
+                    f"Profile {profile_id} is now set to {profile.browser_settings.os} "
+                    f"while its pinned machine is {pinned_os}; the setting has no effect "
+                    "until the machine is regenerated"
+                )
+
         profile.updated_at = datetime.now()
 
         # Persist the update
@@ -582,6 +596,106 @@ class ProfileManager:
         )
         logger.info(f"Profile {profile_id} browser version refreshed: {before} -> {after}")
         return profile
+
+    async def reconcile_os(self, profile_id: str, keep_machine: bool) -> Profile | None:
+        """Put a profile's OS setting and its pinned machine back in agreement.
+
+        The two can drift apart because a pin describes the machine forever while
+        the setting is a dropdown: change it after the first launch and nothing
+        objects, because the pin is what a page actually sees. There are only two
+        honest ways out and they cost very different amounts.
+
+        ``keep_machine`` puts the setting back to the OS the pin describes and
+        touches nothing else — the profile is the computer it has always been.
+        Otherwise the setting wins and a new machine is pinned for it: new screen,
+        GPU, cores, fonts and noise seeds. For a warmed-up account that is a real
+        cost, which is why it is never the automatic answer.
+        """
+        profile = await self.get_profile(profile_id)
+        if not profile:
+            return None
+        if not profile.fingerprint:
+            raise ValueError("This profile has no pinned machine yet, so nothing can disagree.")
+
+        pinned_os = fingerprint_store.pinned_os(profile.fingerprint)
+        if not pinned_os:
+            raise ValueError("Cannot tell which operating system this profile's machine describes.")
+        if pinned_os == profile.browser_settings.os:
+            # Regenerating hardware is irreversible for an account, so refuse
+            # rather than let a stale UI fire this at a profile that agrees.
+            raise ValueError(f"This profile is already set to {pinned_os}.")
+
+        was = profile.browser_settings.os
+        if keep_machine:
+            profile.browser_settings.os = pinned_os
+        else:
+            resolved = fingerprint_store.resolve(profile.to_camoufox_launch_options())
+            if not resolved:
+                raise ValueError(
+                    "Could not resolve a machine for this operating system. "
+                    "Check that Camoufox is installed ('camoufox fetch')."
+                )
+            profile.fingerprint = resolved
+            # The stored screen described the machine that has just been replaced.
+            width, height = resolved.get("screen.width"), resolved.get("screen.height")
+            if width and height:
+                profile.browser_settings.screen = f"{width}x{height}"
+
+        profile.updated_at = datetime.now()
+        await self.storage.update_profile(profile)
+        await self.storage.log_usage(
+            UsageStats(
+                profile_id=profile_id,
+                action="reconcile_os",
+                details={
+                    "kept": "machine" if keep_machine else "setting",
+                    "from": was,
+                    "to": profile.browser_settings.os,
+                },
+            )
+        )
+        logger.info(
+            f"Profile {profile_id} reconciled to {profile.browser_settings.os} "
+            f"by keeping the {'machine' if keep_machine else 'setting'}"
+        )
+        return profile
+
+    async def clear_geography(self, profile_ids: list[str]) -> dict[str, list[str]]:
+        """Drop the stored timezone and coordinates so the proxy supplies both.
+
+        Until recently every new profile was given the timezone and coordinates of
+        a randomly chosen region, so an old profile can claim Shanghai and be
+        handed a German proxy. Those profiles were deliberately not migrated —
+        rewriting a stored fingerprint under a live account is worse than leaving
+        it — so this is the offer instead: the same change, made deliberately.
+
+        Clearing the coordinates is the part that matters beyond tidiness. Their
+        presence turns Camoufox's IP lookup off, and that lookup is also what
+        fills the timezone and the WebRTC address; without them the profile is
+        back to deriving all three from where its proxy comes out, exactly as a
+        profile created today does.
+        """
+        cleared: list[str] = []
+        unchanged: list[str] = []
+        not_found: list[str] = []
+
+        for profile_id in profile_ids:
+            profile = await self.get_profile(profile_id)
+            if not profile:
+                not_found.append(profile_id)
+                continue
+            if not profile.browser_settings.clear_geography():
+                unchanged.append(profile_id)
+                continue
+            profile.updated_at = datetime.now()
+            await self.storage.update_profile(profile)
+            await self.storage.log_usage(
+                UsageStats(profile_id=profile_id, action="clear_geography", details={})
+            )
+            cleared.append(profile_id)
+
+        logger.info(f"Cleared the geography of {len(cleared)} of {len(profile_ids)} profiles")
+        return {"cleared": cleared, "unchanged": unchanged, "not_found": not_found}
 
     # -- Portability --------------------------------------------------------
 

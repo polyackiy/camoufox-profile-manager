@@ -30,6 +30,7 @@ import {
   formatLastUsed,
   formatProxyString,
   groupsAPI,
+  hasGeography,
   OS_LABELS,
   profilesAPI,
   type Group,
@@ -176,6 +177,12 @@ export default function ProfilesPage() {
       }
     })
   }, [profiles, search, statusFilter, sortKey, sortDir, groupNames])
+
+  // Offering the bulk clear when nothing selected would change is just noise.
+  const selectedWithGeography = useMemo(
+    () => profiles.filter((profile) => selected.has(profile.id) && hasGeography(profile)).length,
+    [profiles, selected],
+  )
 
   const totalPages = Math.max(1, Math.ceil(visible.length / perPage))
   // Deleting the last rows of a page must not strand the user on an empty one.
@@ -346,6 +353,30 @@ export default function ProfilesPage() {
     })
   }
 
+  /**
+   * The profiles this exists for were all created the same way — with the
+   * timezone and coordinates of a randomly chosen region — so the useful unit is
+   * a selection, not one profile at a time. Only those that actually state a
+   * location are named, so the confirmation says what will really change.
+   */
+  function askClearGeography() {
+    const ids = profiles.filter((p) => selected.has(p.id) && hasGeography(p)).map((p) => p.id)
+    setConfirm({
+      title: `Clear geography of ${ids.length} profile${ids.length === 1 ? '' : 's'}`,
+      body:
+        'The stored timezone and coordinates are unset, so Camoufox derives both — and the ' +
+        'WebRTC address — from where each profile\'s proxy comes out, as a profile created ' +
+        'today does. Languages and the pinned machine are untouched.',
+      label: 'Clear',
+      run: async () => {
+        const result = await profilesAPI.clearGeography(ids)
+        toast('ok', `Cleared ${result.cleared.length} profile${result.cleared.length === 1 ? '' : 's'}`)
+        setSelected(new Set())
+        loadProfiles()
+      },
+    })
+  }
+
   function askCloseAll() {
     setConfirm({
       title: 'Close all browsers',
@@ -496,6 +527,12 @@ export default function ProfilesPage() {
       {selected.size > 0 && (
         <div className="flex items-center gap-3 border-b border-line bg-raised px-5 py-2">
           <span>{selected.size} selected</span>
+          {selectedWithGeography > 0 && (
+            <button className="btn btn-default h-7" onClick={askClearGeography}>
+              <Globe size={13} />
+              Clear geography ({selectedWithGeography})
+            </button>
+          )}
           <button className="btn btn-danger h-7" onClick={askBulkDelete}>
             <Trash2 size={13} />
             Delete

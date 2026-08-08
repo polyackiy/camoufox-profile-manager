@@ -192,6 +192,33 @@ profile response says when. Returns `400` if the profile has no pin yet.
 The response's `fingerprint` summary carries `browser_major`, `installed_major`
 and `browser_outdated` so a client does not have to parse the user agent.
 
+```http
+POST /api/profiles/{id}/reconcile-os     {"keep_machine": true}
+```
+
+Brings a profile's `os` setting and its pinned machine back into agreement. The
+summary reports the disagreement as `pinned_os`, `settings_os` and `os_mismatch`.
+
+- `keep_machine: true` sets `os` to what the pin reports and changes **no**
+  fingerprint value.
+- `keep_machine: false` pins a machine resolved for the `os` setting instead —
+  new screen, GPU, cores, fonts and noise seeds, and `browser_settings.screen` is
+  updated to match.
+
+`400` when the profile has no pin, when the pin's OS cannot be read, or when the
+two already agree — regenerating hardware is irreversible for an account, so a
+stale client cannot trigger it by accident.
+
+```http
+POST /api/profiles/clear-geography    {"profile_ids": ["a1b2c3d4", ...]}
+```
+
+Unsets `timezone` and `geolocation` on each profile named, so Camoufox derives
+both — and the WebRTC address — from where that profile's proxy comes out, as a
+profile created today does. Languages and `locale` are not touched. Returns
+`cleared`, `unchanged` (already followed the proxy) and `not_found`, so a bulk
+call reports itself; `422` for an empty list.
+
 ## Checking a proxy
 
 ```http

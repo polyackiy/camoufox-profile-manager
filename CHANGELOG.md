@@ -23,6 +23,31 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Every route now declares a stable `operation_id`, a summary and a typed
   `response_model` — including the browser lifecycle endpoints and `/health`,
   which returned bare dicts — so a generated client is actually usable.
+- **A profile that disagrees with itself now says so, and offers the fix.** Two
+  cases, both of which a profile could previously carry silently:
+  - **The OS setting and the pinned machine.** The pin is what a page sees, so
+    changing the `os` dropdown on a pinned profile changed nothing observable and
+    warned about nothing — the setting just quietly stopped meaning anything. The
+    profile response now reports `pinned_os`, `settings_os` and `os_mismatch`,
+    the save is logged, the form says so under the dropdown, and the Machine
+    panel offers both honest ways out: *Keep this machine* puts the setting back
+    and changes no fingerprint value at all, or a new machine is pinned for the
+    OS that was chosen — new screen, GPU, cores, fonts and seeds, which for a
+    warmed-up account is a real cost. `POST /api/profiles/{id}/reconcile-os`,
+    which refuses when the two already agree.
+  - **Geography from before it followed the proxy.** Profiles created when every
+    new one was given a randomly chosen region still carry that timezone and
+    those coordinates, so an old profile can claim Shanghai on a German proxy and
+    only find out if someone presses *Check proxy*. They are still not migrated
+    behind the user's back, but both fields can now be cleared in one action —
+    from the profile form, or as a bulk action on a selection in the profiles
+    list — after which Camoufox derives the timezone, the coordinates and the
+    WebRTC address from the exit address, as it does for a profile created today.
+    Languages and locale are left alone; they are identity, not geography.
+    `POST /api/profiles/clear-geography`. No heuristic guesses which values were
+    deliberate: nothing recorded it, and the only distinguishable signal is
+    exactly what a deliberate choice of that city would look like, so the action
+    is offered wherever geography is set and explained rather than inferred.
 - **Check a proxy, and what it says about the profile.** *Check proxy* — in the
   form and in a profile's row menu — reaches the internet through the proxy and
   reports where it comes out, how long it took, and everything a page could
