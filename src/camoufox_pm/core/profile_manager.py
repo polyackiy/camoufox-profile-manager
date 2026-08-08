@@ -50,6 +50,7 @@ class ProfileManager:
         generate_fingerprint: bool = True,
         notes: str | None = None,
         fingerprint_preset: str | None = None,
+        status: ProfileStatus | str | None = None,
     ) -> Profile:
         """Create a new profile.
 
@@ -62,6 +63,11 @@ class ProfileManager:
         # Notes belong to the user; the creation time is already in created_at,
         # so it is not stamped into the field the user types into.
         profile = Profile(name=name, group=group, notes=notes)
+        if status:
+            # Raises for an unknown value rather than falling back to active: a
+            # bulk import is where a typo would otherwise reactivate a fleet of
+            # profiles their owner had deliberately parked.
+            profile.status = ProfileStatus(status)
 
         # Generate a browser fingerprint if requested
         if generate_fingerprint:

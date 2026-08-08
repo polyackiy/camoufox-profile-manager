@@ -46,7 +46,7 @@ def make_orphan(root, name: str = "deadbeef", size: int = 4096):
 @pytest.mark.asyncio
 async def test_status_reports_what_is_there(client):
     await client.post("/api/profiles", json={"name": "one"})
-    await client.post("/api/profiles", json={"name": "two", "status": "inactive"})
+    await client.post("/api/profiles", json={"name": "two"})
     await client.post("/api/groups", json={"name": "Social"})
 
     body = (await client.get("/api/system/status")).json()

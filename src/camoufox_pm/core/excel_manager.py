@@ -11,7 +11,7 @@ from openpyxl.comments import Comment
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.worksheet.datavalidation import DataValidation
 
-from .models import BrowserSettings, Profile, ProfileStatus, WebRTCMode
+from .models import BrowserSettings, Profile, WebRTCMode
 from .profile_manager import ProfileManager
 
 
@@ -220,10 +220,7 @@ class ExcelManager:
             wb = load_workbook(excel_buffer)
             ws = wb.active
 
-            # Read the headers
-            headers = {}
-            for col_idx, (field, _, _) in enumerate(self.columns, 1):
-                headers[field] = col_idx
+            headers = self._locate_columns(ws)
 
             # Process the rows
             for row_idx in range(2, ws.max_row + 1):
@@ -257,12 +254,40 @@ class ExcelManager:
 
         return result
 
+    def _locate_columns(self, ws) -> dict[str, int]:
+        """Find which column each field occupies in *this* sheet.
+
+        The layout used to be taken from ``self.columns`` by position, on the
+        assumption that the file still looks exactly like the export. Bulk
+        editing invites the opposite: a column dragged elsewhere, or a read-only
+        one deleted. Every field after the change was then read from its
+        neighbour's column, and because most of them are free text nothing
+        objected — a sheet with Locale moved ahead of Timezone imported cleanly
+        with the two values swapped, for every row.
+        """
+        present: dict[str, int] = {}
+        for col_idx in range(1, ws.max_column + 1):
+            value = ws.cell(row=1, column=col_idx).value
+            if value is not None:
+                present.setdefault(str(value).strip(), col_idx)
+
+        located = {field: present[header] for field, header, _ in self.columns if header in present}
+        if "name" not in located:
+            name_header = next(header for field, header, _ in self.columns if field == "name")
+            raise ValueError(
+                f"No '{name_header}' column found in the first row. "
+                "Export the profiles to Excel and edit that file."
+            )
+        return located
+
     async def _process_excel_row(
         self, ws, row_idx: int, headers: dict[str, int], result: dict[str, Any]
     ):
         """Process a single Excel row."""
-        # Read the values from the row
-        row_data = {}
+        # Every field is read, whether or not the sheet still has its column; a
+        # column the user removed leaves the value empty, which is what the
+        # defaults below are for.
+        row_data = {field: "" for field, _, _ in self.columns}
         for field, col_idx in headers.items():
             cell_value = ws.cell(row=row_idx, column=col_idx).value
             row_data[field] = str(cell_value).strip() if cell_value is not None else ""
@@ -286,87 +311,12 @@ class ExcelManager:
             browser_settings=browser_settings,
             proxy_config=proxy_config,
             generate_fingerprint=False,  # Use the data from Excel
+            # Both columns are exported and both were read here and then dropped
+            # on the floor, so every import came back active and without notes.
+            notes=row_data["notes"] or None,
+            status=row_data["status"] or None,
         )
         result["created_count"] += 1
-
-    def _prepare_profile_updates(self, row_data: dict[str, str]) -> dict[str, Any]:
-        """Build the profile-update payload from a row."""
-        updates: dict[str, Any] = {}
-
-        # Core profile fields
-        if row_data["name"]:
-            updates["name"] = row_data["name"]
-        if row_data["group"]:
-            updates["group"] = row_data["group"]
-        if row_data["status"]:
-            updates["status"] = ProfileStatus(row_data["status"])
-        if row_data["notes"]:
-            updates["notes"] = row_data["notes"]
-
-        # Browser settings
-        browser_updates: dict[str, Any] = {}
-        if row_data["os"]:
-            browser_updates["os"] = row_data["os"]
-        if row_data["screen"]:
-            browser_updates["screen"] = row_data["screen"]
-        if row_data["window_width"]:
-            browser_updates["window_width"] = int(row_data["window_width"])
-        if row_data["window_height"]:
-            browser_updates["window_height"] = int(row_data["window_height"])
-        if row_data["languages"]:
-            browser_updates["languages"] = [
-                lang.strip() for lang in row_data["languages"].split(",")
-            ]
-        if row_data["timezone"]:
-            browser_updates["timezone"] = row_data["timezone"]
-        if row_data["locale"]:
-            browser_updates["locale"] = row_data["locale"]
-        if row_data["webrtc_mode"]:
-            browser_updates["webrtc_mode"] = WebRTCMode(row_data["webrtc_mode"])
-        if row_data["canvas_noise"]:
-            browser_updates["canvas_noise"] = row_data["canvas_noise"].lower() == "true"
-        if row_data["webgl_noise"]:
-            browser_updates["webgl_noise"] = row_data["webgl_noise"].lower() == "true"
-        if row_data["audio_noise"]:
-            browser_updates["audio_noise"] = row_data["audio_noise"].lower() == "true"
-        if row_data["stable_canvas"]:
-            browser_updates["stable_canvas"] = row_data["stable_canvas"].lower() == "true"
-        if row_data["hardware_concurrency"]:
-            browser_updates["hardware_concurrency"] = int(row_data["hardware_concurrency"])
-        if row_data["device_memory"]:
-            browser_updates["device_memory"] = int(row_data["device_memory"])
-        if row_data["max_touch_points"]:
-            browser_updates["max_touch_points"] = int(row_data["max_touch_points"])
-
-        # Geolocation
-        if (
-            row_data["geo_mode"] == "manual"
-            and row_data["geo_latitude"]
-            and row_data["geo_longitude"]
-        ):
-            browser_updates["geolocation"] = {
-                "lat": float(row_data["geo_latitude"]),
-                "lon": float(row_data["geo_longitude"]),
-                "accuracy": int(row_data["geo_accuracy"]) if row_data["geo_accuracy"] else 10,
-            }
-        elif row_data["geo_mode"] == "auto":
-            browser_updates["geolocation"] = None
-
-        if browser_updates:
-            updates["browser_settings"] = browser_updates
-
-        # Proxy
-        if row_data["proxy_type"] and row_data["proxy_server"]:
-            updates["proxy_config"] = {
-                "type": row_data["proxy_type"],
-                "server": row_data["proxy_server"],
-                "username": row_data["proxy_username"] or None,
-                "password": row_data["proxy_password"] or None,
-            }
-        elif not row_data["proxy_type"]:
-            updates["proxy_config"] = None
-
-        return updates
 
     def _create_browser_settings(self, row_data: dict[str, str]) -> BrowserSettings:
         """Build a BrowserSettings object from Excel data."""
