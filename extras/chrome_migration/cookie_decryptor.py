@@ -13,8 +13,15 @@ from typing import Any
 
 from loguru import logger
 
+from .cookie_crypto import (
+    SUPPORTED_PREFIXES,
+    CookieDecryptionError,
+    decrypt_cookie_value,
+)
+
 try:
-    from Crypto.Cipher import AES
+    # Only the PBKDF2 key derivation still needs pycryptodome; the ciphers moved
+    # to `cryptography` in cookie_crypto, which is a core dependency.
     from Crypto.Protocol.KDF import PBKDF2
 
     CRYPTO_AVAILABLE = True
@@ -202,42 +209,27 @@ class ChromeCookieDecryptor:
             if not encrypted_value or len(encrypted_value) < 16:
                 return None
 
-            # The first 3 bytes are the version. v10/v11 use the classic key
-            # (AES-128-CBC below); v20 is App-Bound Encryption and needs the
-            # separately resolved master key and an AES-256-GCM path. v20 runs on
-            # 'cryptography' (a core dependency), so it does not depend on the
-            # pycryptodome check that the v10/v11 CBC path below requires.
+            # The first three bytes are the version. v20 is App-Bound Encryption
+            # and needs its own master key; v10 and v11 use the classic key, but
+            # the cipher behind those two tags depends on the platform — see
+            # cookie_crypto for why reading the tag alone is not enough.
             version = encrypted_value[:3]
 
             if version == b"v20":
                 return self._decrypt_v20_cookie(encrypted_value)
 
-            if not CRYPTO_AVAILABLE:
-                logger.error("pycryptodome is not installed")
-                return None
-
-            if version == b"v10":
-                # Old format (before Chrome 80)
-                iv = b" " * 16  # empty IV
-                encrypted_data = encrypted_value[3:]
-            elif version == b"v11":
-                # New format (Chrome 80+)
-                iv = encrypted_value[3:15]  # 12-byte IV
-                encrypted_data = encrypted_value[15:]
-            else:
+            if version not in SUPPORTED_PREFIXES:
                 logger.debug(f"Unknown encryption version: {version}")
                 return None
 
-            # Decrypt
-            cipher = AES.new(encryption_key, AES.MODE_CBC, iv)
-            decrypted = cipher.decrypt(encrypted_data)
-
-            # Remove padding
-            padding_length = decrypted[-1]
-            if padding_length <= 16:
-                decrypted = decrypted[:-padding_length]
-
-            return decrypted.decode("utf-8", errors="ignore")
+            try:
+                return decrypt_cookie_value(encrypted_value, encryption_key, self.system)
+            except CookieDecryptionError as exc:
+                # Skipping is the only safe outcome: CBC has no authentication,
+                # so a value that cannot be decrypted properly must never be
+                # written as if it had been.
+                logger.debug(f"Failed to decrypt cookie: {exc}")
+                return None
 
         except Exception as e:
             logger.debug(f"Failed to decrypt cookie: {e}")

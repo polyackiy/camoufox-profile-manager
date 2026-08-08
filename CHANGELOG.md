@@ -6,7 +6,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+- **Chrome cookie migration was broken on Windows, and `v11` everywhere.** The
+  `v10`/`v11` tag does not name a cipher: on Windows those values are
+  AES-256-GCM, on macOS and Linux AES-128-CBC with an IV of sixteen spaces. The
+  decryptor applied CBC to all of them. On Windows that fails outright for
+  fifteen cookies in sixteen — and for the sixteenth, where the body happens to
+  be a whole number of AES blocks, it "succeeded" and wrote random bytes as the
+  cookie value. A 36-character session UUID is exactly that case. Separately,
+  `v11` was read as "12-byte IV, then CBC", which cannot work at all because CBC
+  needs a 16-byte IV, so `v11` never decrypted on any platform. The cipher is now
+  chosen by platform, PKCS#7 padding is validated instead of trusted, and a value
+  that cannot be decrypted is skipped rather than written mangled.
 
 ## [0.2.0] - 2026-08-08
 
