@@ -19,8 +19,14 @@ updates:
     commit-message:
       prefix: "build"
     groups:
-      # One pull request per ecosystem rather than per package: the web UI has a
-      # small, tightly-coupled dependency set, and reviewing Next, React and
-      # Tailwind bumps separately means three builds proving the same thing.
+      # Minor and patch bumps travel together: the web UI has a small, tightly
+      # coupled dependency set, and reviewing them separately means several
+      # builds proving the same thing.
+      #
+      # Majors are deliberately left out of the group and arrive one at a time.
+      # Grouping everything produced a single pull request carrying Next 15→16,
+      # ESLint 9→10 and TypeScript 5→7, which failed CI and could not be split —
+      # Next 16 removes `next lint`, so that bump is a migration, not an upgrade.
       web-dependencies:
         patterns: ["*"]
+        update-types: ["minor", "patch"]
