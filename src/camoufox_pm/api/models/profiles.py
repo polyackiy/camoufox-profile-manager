@@ -1,11 +1,13 @@
 """API models for profile endpoints."""
 
+from dataclasses import asdict
 from datetime import datetime
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from camoufox_pm.core.models import Profile, ProfileStatus
+from camoufox_pm.core.proxy_check import ProxyCheckResult
 
 
 class ProfileCreateRequest(BaseModel):
@@ -211,3 +213,63 @@ class ProfileLaunchResponse(BaseModel):
     status: str
     message: str
     camoufox_options: dict[str, Any]
+
+
+class ProxyCheckRequest(BaseModel):
+    """Request body for checking a proxy that is not saved yet."""
+
+    proxy_config: dict[str, Any] | None = Field(
+        None, description="Proxy to check. Omit to check the direct connection."
+    )
+    browser_settings: dict[str, Any] | None = Field(
+        None, description="Settings to compare against the exit address"
+    )
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "proxy_config": {"type": "http", "server": "proxy.example.com:8080"},
+                "browser_settings": {"timezone": "Europe/Berlin"},
+            }
+        }
+    )
+
+
+class ProxyLocationResponse(BaseModel):
+    """Where a proxy actually comes out."""
+
+    ip: str
+    country: str | None = None
+    timezone: str | None = None
+    latitude: float | None = None
+    longitude: float | None = None
+
+
+class ProxyFindingResponse(BaseModel):
+    """One thing worth telling the user about this proxy and this profile."""
+
+    level: str = Field(..., description="error, warning or info")
+    field: str = Field(..., description="The setting the finding is about")
+    message: str
+
+
+class ProxyCheckResponse(BaseModel):
+    """The result of reaching the internet through a proxy and comparing it."""
+
+    reachable: bool
+    error: str | None = None
+    latency_ms: int | None = None
+    location: ProxyLocationResponse | None = None
+    findings: list[ProxyFindingResponse] = Field(default_factory=list)
+
+    @classmethod
+    def from_result(cls, result: ProxyCheckResult) -> "ProxyCheckResponse":
+        return cls(
+            reachable=result.reachable,
+            error=result.error,
+            latency_ms=result.latency_ms,
+            location=(
+                ProxyLocationResponse(**asdict(result.location)) if result.location else None
+            ),
+            findings=[ProxyFindingResponse(**asdict(f)) for f in result.findings],
+        )

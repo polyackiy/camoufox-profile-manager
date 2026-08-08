@@ -8,6 +8,7 @@ import {
   ChevronRight,
   Copy,
   Download,
+  Globe,
   MoreHorizontal,
   PackageOpen,
   Pencil,
@@ -282,6 +283,33 @@ export default function ProfilesPage() {
       loadProfiles()
     } catch (err) {
       toast('error', 'Could not clone profile', String(err))
+    }
+  }
+
+  /**
+   * A proxy that answers is only half the question: the toast also carries the
+   * first thing a page could notice between the exit address and the profile,
+   * because a healthy proxy in the wrong country is still a giveaway.
+   */
+  async function checkProxy(profile: Profile) {
+    toast('info', 'Checking the proxy…', profile.name)
+    try {
+      const result = await profilesAPI.checkProxy(profile.id)
+      if (!result.reachable) {
+        toast('error', `${profile.name}: proxy unreachable`, result.error ?? undefined)
+        return
+      }
+      const where = [result.location?.country, result.location?.timezone]
+        .filter(Boolean)
+        .join(' · ')
+      const problem = result.findings.find((finding) => finding.level !== 'info')
+      const summary = `${result.location?.ip}${where ? ` — ${where}` : ''}${
+        result.latency_ms !== null ? ` · ${result.latency_ms} ms` : ''
+      }`
+      if (problem) toast('error', `${profile.name}: ${summary}`, problem.message)
+      else toast('ok', `${profile.name}: ${summary}`)
+    } catch (err) {
+      toast('error', 'Could not check the proxy', String(err))
     }
   }
 
@@ -684,6 +712,14 @@ export default function ProfilesPage() {
                               label="Duplicate"
                               onClick={() => {
                                 clone(profile)
+                                closeMenu(profile.id)
+                              }}
+                            />
+                            <MenuItem
+                              icon={<Globe size={13} />}
+                              label="Check proxy"
+                              onClick={() => {
+                                checkProxy(profile)
                                 closeMenu(profile.id)
                               }}
                             />

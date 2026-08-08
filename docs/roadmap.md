@@ -13,21 +13,18 @@ Track progress in [GitHub Issues](https://github.com/polyackiy/camoufox-profile-
 - A profile's pin can be moved onto a newer browser without changing its
   hardware, so a long-lived profile does not keep advertising the version it was
   created with.
+- A proxy can be checked from the UI: where it comes out, how fast, and whether
+  the profile's timezone and coordinates agree with it.
 - The web UI covers the product: creating profiles, groups, and a settings screen
   reporting how the instance is configured.
 
 ## Now (0.1.x)
 
 - Stabilise the REST API before `1.0`.
-- Proxy testing and health checks in the UI, so a dead proxy is visible before a
-  profile is launched with it.
 - Fill remaining gaps in test coverage.
 
 ## Next
 
-- Warn when a profile's timezone contradicts its proxy's country — the mismatch
-  the pinned-fingerprint work deliberately avoids creating, but which a user can
-  still configure by hand.
 - Authentication for multi-user or hosted deployments, beyond the optional API key.
 - Task scheduling and automated fingerprint rotation.
 - Windows App-Bound Encryption support for the Chrome-migration module.
