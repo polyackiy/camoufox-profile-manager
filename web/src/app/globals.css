@@ -28,6 +28,9 @@
 
   --color-danger: #f2555a;
   --color-danger-shade: #3a1418;
+  /* Detectable-but-not-fatal. Distinct from --color-signal, which means "this is
+     the primary action" or "this profile is running" and nothing else. */
+  --color-warn: #d8a13a;
   --color-ok: #3fb950;
 
   --font-sans: var(--font-plex-sans), ui-sans-serif, system-ui, sans-serif;

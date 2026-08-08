@@ -7,7 +7,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 from camoufox_pm.core.models import Profile, ProfileStatus
-from camoufox_pm.core.proxy_check import ProxyCheckResult
+from camoufox_pm.core.proxy_check import Level, ProxyCheckResult
 
 
 class ProfileCreateRequest(BaseModel):
@@ -248,7 +248,7 @@ class ProxyLocationResponse(BaseModel):
 class ProxyFindingResponse(BaseModel):
     """One thing worth telling the user about this proxy and this profile."""
 
-    level: str = Field(..., description="error, warning or info")
+    level: Level = Field(..., description="error, warning or info")
     field: str = Field(..., description="The setting the finding is about")
     message: str
 

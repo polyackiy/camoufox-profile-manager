@@ -25,6 +25,11 @@ Track progress in [GitHub Issues](https://github.com/polyackiy/camoufox-profile-
 
 ## Next
 
+- Reconcile a profile's OS setting with its pinned machine. A refresh now follows
+  the pin rather than the setting, so the two can disagree silently; nothing
+  offers to bring them back into step.
+- Offer to clear the geography of profiles created before it followed the proxy,
+  instead of only reporting the mismatch when the proxy is checked.
 - Authentication for multi-user or hosted deployments, beyond the optional API key.
 - Task scheduling and automated fingerprint rotation.
 - Windows App-Bound Encryption support for the Chrome-migration module.

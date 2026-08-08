@@ -1,10 +1,16 @@
 """Does what a profile claims match where its proxy actually comes out?
 
 A pinned fingerprint keeps a profile's hardware honest. The parts deliberately
-left dynamic — timezone, coordinates, locale — follow the proxy only as long as
-the profile does not override them. A profile that reports ``Europe/Berlin``
-while its proxy exits in Tokyo contradicts itself in a way any page can measure
-with two lines of JavaScript, and no amount of fingerprint pinning hides it.
+left dynamic — timezone, coordinates, the WebRTC address — follow the proxy only
+as long as the profile does not override them. A profile that reports
+``Europe/Berlin`` while its proxy exits in Tokyo contradicts itself in a way any
+page can measure with two lines of JavaScript, and no amount of fingerprint
+pinning hides it.
+
+Languages are not in that list. Camoufox applies ``handle_locales`` after its IP
+lookup and overwrites ``locale:*`` unconditionally, so a profile's languages
+always win — by design here, since an English-language browser is unremarkable
+from any country and warning about one would fire on nearly every profile.
 
 This module resolves where a proxy really comes out and compares that with what
 the profile would tell a page.
@@ -18,20 +24,26 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from math import asin, cos, radians, sin, sqrt
-from typing import Literal
+from typing import Any, Literal
+from urllib.parse import quote
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import httpx
+from camoufox.ip import valid_ipv4, valid_ipv6
 from loguru import logger
 
 from .models import BrowserSettings, ProxyConfig, ProxyType
 
 Level = Literal["error", "warning", "info"]
 
-# The same endpoints Camoufox asks for the exit address, so a check sees what the
-# browser will see. We make the request ourselves rather than calling
+# Three of the endpoints Camoufox asks for the exit address, so a check sees the
+# address the browser will. We make the request ourselves rather than calling
 # camoufox.ip.public_ip: that answer is cached for the life of the process, and a
 # check button has to see the proxy as it is now, not as it was an hour ago.
+#
+# One deliberate difference: Camoufox does not verify TLS here and we do, so a
+# proxy that intercepts TLS fails this check while still working at launch. That
+# is worth being told about rather than papering over.
 IP_ENDPOINTS = (
     "https://api.ipify.org",
     "https://checkip.amazonaws.com",
@@ -45,6 +57,10 @@ NEARBY_KM = 100.0
 FAR_KM = 500.0
 
 DEFAULT_TIMEOUT = 10.0
+
+# The launch path is not a person waiting for an answer, so it gets Camoufox's own
+# 5 seconds: a tarpitting proxy must not hold a browser open indefinitely.
+LAUNCH_TIMEOUT = 5.0
 
 
 class LocationUnavailable(RuntimeError):
@@ -81,12 +97,18 @@ class ProxyCheckResult:
 
 
 def proxy_url(proxy: ProxyConfig) -> str:
-    """The proxy as a URL, with credentials if it has them."""
+    """The proxy as a URL, with credentials if it has them.
+
+    Credentials are percent-encoded. Provider-issued passwords routinely contain
+    "@" or ":", and interpolating one raw makes the parser split the URL in the
+    wrong place — which would silently fail the check *and* the lookup that
+    keeps a launch from falling back to this computer's timezone.
+    """
     credentials = ""
     if proxy.username:
-        credentials = proxy.username
+        credentials = quote(proxy.username, safe="")
         if proxy.password:
-            credentials += f":{proxy.password}"
+            credentials += f":{quote(proxy.password, safe='')}"
         credentials += "@"
     return f"{proxy.type.value}://{credentials}{proxy.server}"
 
@@ -222,12 +244,16 @@ def compare(settings: BrowserSettings, location: ProxyLocation) -> list[Finding]
 async def resolve_exit_ip(
     proxy: ProxyConfig | None, timeout: float = DEFAULT_TIMEOUT
 ) -> tuple[str, int]:
-    """Ask, through the proxy, what address the internet sees. Returns (ip, ms)."""
+    """Ask, through the proxy, what address the internet sees. Returns (ip, ms).
+
+    An endpoint that answers with something other than an address is treated as a
+    failure and the next one is tried, as Camoufox does. A captive portal or a
+    rate-limit page can answer 200 with HTML, and that string must never reach a
+    fingerprint key.
+    """
     url = proxy_url(proxy) if proxy else None
     last_error: Exception | None = None
 
-    # TLS is verified. A proxy that intercepts it fails the check with an SSL error,
-    # which is worth knowing rather than papering over.
     async with httpx.AsyncClient(proxy=url, timeout=timeout) as client:
         for endpoint in IP_ENDPOINTS:
             started = time.monotonic()
@@ -238,7 +264,12 @@ async def resolve_exit_ip(
                 last_error = exc
                 logger.debug(f"Proxy check via {endpoint} failed: {exc}")
                 continue
-            return response.text.strip(), int((time.monotonic() - started) * 1000)
+            answer = response.text.strip()
+            if not valid_ipv4(answer) and not valid_ipv6(answer):
+                last_error = ValueError(f"{endpoint} answered with something else")
+                logger.debug(f"Proxy check via {endpoint} returned {answer[:60]!r}")
+                continue
+            return answer, int((time.monotonic() - started) * 1000)
 
     raise ConnectionError(_readable(last_error))
 
@@ -270,7 +301,7 @@ def _readable(error: Exception | None) -> str:
     return f"Could not reach the internet through the proxy: {error}"
 
 
-async def fill_what_geoip_would_have(proxy: ProxyConfig | None, options: dict) -> None:
+async def fill_what_geoip_would_have(proxy: ProxyConfig | None, options: dict[str, Any]) -> None:
     """Supply the IP-derived values Camoufox skips when geoip is off.
 
     Setting coordinates turns geoip off, because that is the only way Camoufox
@@ -281,27 +312,36 @@ async def fill_what_geoip_would_have(proxy: ProxyConfig | None, options: dict) -
     Europe/Moscow, the host's own zone. That is worse than any mismatch, because
     it is the real machine showing through.
 
-    So we do that part ourselves, from the same exit address and the same
-    database Camoufox would have used. A lookup that fails leaves the launch
-    alone rather than blocking it.
+    This reproduces that branch — the address, the timezone and the IPv6 pref that
+    goes with a spoofed v4 candidate — from the same endpoints and the same
+    database Camoufox would have used. It deliberately does not touch the
+    coordinates, which are the reason geoip is off in the first place. A lookup
+    that fails leaves the launch alone rather than blocking it.
     """
     if options.get("geoip"):
         return
 
     config = options.setdefault("config", {})
     needs_timezone = "timezone" not in config
-    needs_webrtc = "webrtc:ipv4" not in config and not options.get("block_webrtc")
+    has_webrtc = "webrtc:ipv4" in config or "webrtc:ipv6" in config
+    needs_webrtc = not has_webrtc and not options.get("block_webrtc")
     if not needs_timezone and not needs_webrtc:
         return
 
     try:
-        ip, _ = await resolve_exit_ip(proxy)
+        ip, _ = await resolve_exit_ip(proxy, timeout=LAUNCH_TIMEOUT)
     except ConnectionError as exc:
         logger.warning(f"Could not find the exit address, leaving the launch alone: {exc}")
         return
 
     if needs_webrtc:
-        config["webrtc:ipv4"] = ip
+        if valid_ipv4(ip):
+            config["webrtc:ipv4"] = ip
+            # Camoufox pairs the v4 spoof with this pref, so a page cannot reach
+            # around the spoofed candidate over IPv6.
+            options.setdefault("firefox_user_prefs", {})["network.dns.disableIPv6"] = True
+        else:
+            config["webrtc:ipv6"] = ip
     if not needs_timezone:
         return
 

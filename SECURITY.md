@@ -39,3 +39,7 @@ reproduce. We aim to acknowledge reports within a few days.
   authentication (set `CPM_API_KEY`) and a TLS-terminating reverse proxy.
 - Set `CPM_CORS_ORIGINS` to the specific origins you trust; do not use a wildcard
   together with credentials.
+- The proxy check connects to whatever host a request names and reports whether it
+  answered and how fast. On an instance reachable beyond localhost without
+  `CPM_API_KEY`, that is an unauthenticated way to probe hosts and ports the
+  server can reach but the caller cannot.
