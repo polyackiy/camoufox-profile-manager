@@ -13,18 +13,56 @@ client sees each operation once. New code should use `/api/v1`.
 
 ## Authentication
 
-None by default, because the app binds to loopback. Set `CPM_API_KEY` and every
-request must carry it:
+Two independent mechanisms, either of which satisfies the guard on every
+`/api/...` route. Which ones are active follows from what is configured — there
+is no separate auth switch:
 
-```bash
-curl -H "X-API-Key: $CPM_API_KEY" http://localhost:8000/api/v1/profiles
+1. **Nothing configured** (no users, no `CPM_API_KEY`): the API is open. This is
+   the default, and it is fine because the app binds to loopback.
+2. **`CPM_API_KEY` set**: every request must carry the key — the
+   machine-to-machine path, unchanged from before user accounts existed:
+
+   ```bash
+   curl -H "X-API-Key: $CPM_API_KEY" http://localhost:8000/api/v1/profiles
+   ```
+
+   The key is compared in constant time. The web UI can send it too — paste it
+   into the Settings screen, which stores it in that browser only.
+3. **Any user account exists** (`camoufox-pm user add <name>`): the API requires
+   a login session — or the API key, so machine clients keep working the day a
+   human account is created. The web UI shows a login screen; other clients call
+   `POST /api/v1/auth/login` and carry the `cpm_session` cookie it sets. There
+   is no registration endpoint: accounts are created from the CLI, which
+   requires shell access to the host.
+
+**Configure at least one of them before binding to anything other than
+`127.0.0.1`.** Without either, anybody who can reach the port can read your
+profiles, including proxy passwords.
+
+### Login sessions
+
+```http
+POST /api/v1/auth/login       {"username": "...", "password": "..."}
+POST /api/v1/auth/logout
+GET  /api/v1/auth/session
 ```
 
-The key is compared in constant time. The web UI sends it too — paste it into the
-Settings screen, which stores it in that browser only.
+These three are the only unauthenticated API routes — login has to work logged
+out, and `GET /auth/session` is how the UI decides whether to show the login
+screen. All three answer `{user_auth_enabled, authenticated, username}`; login
+additionally sets the session cookie, and logout returns the action envelope.
 
-**Set a key before binding to anything other than `127.0.0.1`.** Without one,
-anybody who can reach the port can read your profiles, including proxy passwords.
+- A successful login sets `cpm_session`: **HttpOnly** (invisible to page
+  scripts), **SameSite=Lax**, `Path=/`, and **Secure** when the request came
+  over HTTPS or `CPM_SECURE_COOKIES=1`. It expires after `CPM_SESSION_TTL_HOURS`
+  (default 168, one week).
+- The session is server-side: the database stores only a SHA-256 of the token,
+  and logout deletes the row, so a logged-out token is dead even if replayed.
+- A failed login is a `401` with the same body whether the username exists or
+  the password is wrong, costs an argon2 verification either way, and is
+  delayed half a second.
+- Passwords are hashed with argon2id; no response or log ever carries a
+  password or a hash.
 
 ## Conventions
 
@@ -35,9 +73,10 @@ anybody who can reach the port can read your profiles, including proxy passwords
 - **A field you send is authoritative, including `null`, which clears it. A field
   you omit is left alone.** This matters most on `PUT /api/v1/profiles/{id}`:
   send `{"proxy_config": null}` to detach a proxy; omit the key to leave it.
-- Statuses: `400` for a bad request, `401` for a missing or wrong API key,
-  `404` for a missing resource, `409` for a state conflict (exporting a running
-  profile), `422` for values that fail validation, `500` otherwise.
+- Statuses: `400` for a bad request, `401` for missing or wrong credentials
+  (API key or login session), `404` for a missing resource, `409` for a state
+  conflict (exporting a running profile), `422` for values that fail
+  validation, `500` otherwise.
 
 ### Errors
 
@@ -320,9 +359,10 @@ POST /api/v1/system/restart                 close all browsers, ready for a rest
 unhealthy instance answers with the same body under a `503`, so a load balancer
 or container healthcheck sees the failure without parsing anything.
 
-`/api/v1/system/config` reports whether encryption and the API key are on, the
-bind address, the database path and whether the browser is installed — it never
-returns the values of secrets. It backs the Settings screen.
+`/api/v1/system/config` reports whether encryption, the API key and user login
+are on, the bind address, the database path and whether the browser is
+installed — it never returns the values of secrets. It backs the Settings
+screen.
 
 `/api/v1/system/restart` does **not** restart the process; it closes every
 browser so you can restart it cleanly yourself.

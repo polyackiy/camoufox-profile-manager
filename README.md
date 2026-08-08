@@ -116,7 +116,9 @@ Settings come from environment variables (prefix `CPM_`). Copy `.env.example` to
 | `CPM_PORT`         | `8000`                  | Port                                            |
 | `CPM_DB_PATH`      | `data/profiles.db`      | SQLite database path                            |
 | `CPM_SECRET_KEY`   | *(empty)*               | Fernet key; encrypts proxy passwords at rest    |
-| `CPM_API_KEY`      | *(empty)*               | If set, required as the `X-API-Key` header      |
+| `CPM_API_KEY`      | *(empty)*               | If set, required as the `X-API-Key` header (machine clients) |
+| `CPM_SESSION_TTL_HOURS` | `168`              | Login session lifetime, in hours                |
+| `CPM_SECURE_COOKIES` | `0`                   | Force the session cookie's `Secure` flag (set behind a TLS proxy) |
 | `CPM_CORS_ORIGINS` | `http://localhost:3000` | Comma-separated allowed origins                 |
 | `CPM_WEBUI_DIR`    | *(auto)*                | Override where the bundled web UI is served from |
 
@@ -125,6 +127,10 @@ Generate an encryption key with:
 ```bash
 uv run python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 ```
+
+User accounts for the web UI are managed from the CLI: `camoufox-pm user add
+<name>` creates one, and from then on the API and UI require a login (see
+[SECURITY.md](SECURITY.md#authentication)).
 
 ## Documentation
 

@@ -75,11 +75,22 @@ export default function SettingsPage() {
               warnWhenOff
             />
             <Toggle
+              on={config.user_auth_enabled}
+              label="User accounts"
+              onText="Login is required. Manage accounts with: camoufox-pm user"
+              offText="No user accounts. Create one with: camoufox-pm user add <name>"
+              warnWhenOff={config.host !== '127.0.0.1' && !config.api_key_set}
+            />
+            <Toggle
               on={config.api_key_set}
               label="API key"
               onText="Requests must send a matching X-API-Key header."
-              offText="No API key is set. Anyone who can reach this port can use the API."
-              warnWhenOff={config.host !== '127.0.0.1'}
+              offText={
+                config.user_auth_enabled
+                  ? 'No API key is set. Machine clients have no way in; humans log in.'
+                  : 'No API key is set. Anyone who can reach this port can use the API.'
+              }
+              warnWhenOff={config.host !== '127.0.0.1' && !config.user_auth_enabled}
             />
             {config.api_key_set && (
               <form onSubmit={saveKey} className="flex items-start gap-4 px-4 py-2.5">

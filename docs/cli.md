@@ -27,6 +27,37 @@ camoufox-pm --desktop                # native window
 
 To stop it, press `Ctrl+C`. Any browsers it launched are closed with it.
 
+## `camoufox-pm user`
+
+Manages web UI login accounts. **Creating the first account turns login on**:
+from then on the API requires a session (or the API key), and the web UI shows
+a login screen. Removing the last account turns login back off. Accounts live
+in the CLI on purpose — there is no registration endpoint, so creating one
+requires shell access to the host, and the first user can be created without a
+chicken-and-egg lockout.
+
+```
+usage: camoufox-pm user {add,passwd,remove,list} ...
+```
+
+| Command | What it does |
+| ------- | ------------ |
+| `user add <name>` | Create an account. Prompts twice for the password (min 8 characters); it is argon2id-hashed before it touches the database and never appears in argv, the environment, or logs. |
+| `user passwd <name>` | Change an account's password. Existing sessions stay valid. |
+| `user remove <name>` | Delete an account and its open sessions. Warns when it was the last one. |
+| `user list` | List account names and creation times. Never shows hashes. |
+
+`add` and `passwd` take `--password-stdin` to read the password from the first
+line of stdin instead of prompting — for provisioning scripts and containers:
+
+```bash
+camoufox-pm user add alice                            # interactive
+openssl rand -base64 18 | camoufox-pm user add ci-bot --password-stdin
+```
+
+The commands work against `CPM_DB_PATH` and take effect immediately, even while
+the server is running — the guard checks the database per request.
+
 ## `camoufox fetch`
 
 Downloads the Camoufox browser (~300 MB). This comes from Camoufox itself, not

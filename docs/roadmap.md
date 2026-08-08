@@ -35,6 +35,12 @@ Track progress in [GitHub Issues](https://github.com/polyackiy/camoufox-profile-
   in bulk are under test, and the six bugs that turned up in doing it are fixed.
   What is deliberately left uncovered, and why, is written down in
   [CONTRIBUTING.md](../CONTRIBUTING.md#what-is-deliberately-not-covered).
+- Authentication beyond the API key: user accounts (`camoufox-pm user add`),
+  argon2id password hashes, HttpOnly session cookies with a real server-side
+  logout, and a login screen in the web UI. The three states stay coherent —
+  nothing configured is as open as before (loopback), the API key keeps
+  machine clients working unchanged, and the moment a user exists humans must
+  log in. See [SECURITY.md](../SECURITY.md#authentication).
 
 ## Now (0.1.x)
 
@@ -42,7 +48,6 @@ Track progress in [GitHub Issues](https://github.com/polyackiy/camoufox-profile-
 
 ## Next
 
-- Authentication for multi-user or hosted deployments, beyond the optional API key.
 - Task scheduling and automated fingerprint rotation.
 
 ## Later / ideas

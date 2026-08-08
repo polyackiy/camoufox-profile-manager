@@ -88,6 +88,9 @@ class SystemConfigData(BaseModel):
     port: int
     database_path: str
     api_key_set: bool
+    # Whether any user account exists, i.e. whether the API requires a login
+    # session (or the API key) rather than being open.
+    user_auth_enabled: bool
     encryption_enabled: bool
     cors_origins: list[str]
     camoufox_available: bool

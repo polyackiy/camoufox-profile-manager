@@ -7,6 +7,25 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **User accounts and login, for deployments more than one person can reach.**
+  The API key stays what it was — one shared machine secret — and humans now
+  get their own path: `camoufox-pm user add <name>` creates an account
+  (password prompted, argon2id-hashed, never in argv or logs), and from the
+  moment any account exists the API requires a login session or the API key.
+  The web UI grows a login screen and a logout control. Sessions are opaque
+  random tokens stored server-side as SHA-256 — the cookie is HttpOnly,
+  SameSite=Lax, Secure over TLS (`CPM_SECURE_COOKIES` forces it behind a
+  proxy), expires after `CPM_SESSION_TTL_HOURS` (default a week), and logout
+  deletes the server-side row, so a logged-out token is dead even if replayed.
+  A failed login does not reveal whether the username exists, and costs the
+  same argon2 work either way plus a half-second delay. There is deliberately
+  no self-registration and no role system: accounts are managed from the CLI
+  (`user add|passwd|remove|list`), and every authenticated user is equivalent —
+  profiles are shared, so there is nothing for roles to protect yet. With no
+  accounts and no `CPM_API_KEY`, the loopback default stays exactly as open as
+  before. `POST /api/v1/auth/login`, `POST /api/v1/auth/logout`,
+  `GET /api/v1/auth/session`; existing databases gain the `users` and
+  `sessions` tables on first start without touching existing rows.
 - **A stability contract for the REST API**, written down in `docs/api.md`:
   what 1.0 freezes (paths, field names, status codes, the error shape), what
   stays deliberately unstable (the `fingerprint` summary, launch internals),
