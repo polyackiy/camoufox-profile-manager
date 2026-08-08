@@ -232,7 +232,7 @@ export const profilesAPI = {
 
   /** keepMachine: move the OS setting to the pin. Otherwise: pin new hardware for the setting. */
   reconcileOs(id: string, keepMachine: boolean): Promise<Profile> {
-    return request<Profile>(`/api/profiles/${id}/reconcile-os`, {
+    return request<Profile>(`${API_PREFIX}/profiles/${id}/reconcile-os`, {
       method: 'POST',
       body: JSON.stringify({ keep_machine: keepMachine }),
     })
@@ -241,7 +241,7 @@ export const profilesAPI = {
   // Takes a list because the profiles this exists for — created when every one
   // was given a random region — are all of them at once.
   clearGeography(ids: string[]): Promise<ClearGeographyResult> {
-    return request<ClearGeographyResult>('/api/profiles/clear-geography', {
+    return request<ClearGeographyResult>(`${API_PREFIX}/profiles/clear-geography`, {
       method: 'POST',
       body: JSON.stringify({ profile_ids: ids }),
     })
