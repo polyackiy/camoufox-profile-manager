@@ -111,7 +111,7 @@ the Machine panel shows a banner offering the two ways out.
 | **Keep this machine** | Puts the OS setting back to what the pin reports | Nothing — no fingerprint value changes |
 | **New \<OS\> machine** | Pins a fresh machine resolved for the OS setting | New screen, GPU, cores, fonts and noise seeds; a warmed-up account is now on different hardware |
 
-Neither is preselected, and `POST /api/profiles/{id}/reconcile-os` refuses when
+Neither is preselected, and `POST /api/v1/profiles/{id}/reconcile-os` refuses when
 the two already agree, so a stale screen cannot replace the hardware of a healthy
 profile.
 
@@ -144,7 +144,7 @@ worse than leaving it — but the change is offered:
 - **In the profiles list**, as a bulk action on the current selection. The button
   counts how many of the selected profiles actually state a location, so it says
   what it will really change.
-- **`POST /api/profiles/clear-geography`** with `{"profile_ids": [...]}`, which
+- **`POST /api/v1/profiles/clear-geography`** with `{"profile_ids": [...]}`, which
   is what both use.
 
 **There is no attempt to guess which values were chosen on purpose.** Nothing
