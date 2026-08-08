@@ -164,6 +164,10 @@ src/camoufox_pm/
 │   ├── profile_manager.py   profile lifecycle and browser control
 │   ├── browser_session.py   running browsers
 │   ├── fingerprint_store.py pinning, and the real device presets
+│   ├── scheduler.py         in-process scheduled launches and browser refresh
+│   ├── auth.py              password hashing and login sessions
+│   ├── proxy_check.py       reaching the internet through a proxy
+│   ├── excel_manager.py     bulk import and export
 │   └── profile_archive.py   whole-profile export and import
 └── api/                routes, request/response models, middleware
 web/                    Next.js web interface
