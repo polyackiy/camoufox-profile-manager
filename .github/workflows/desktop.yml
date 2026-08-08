@@ -104,7 +104,7 @@ jobs:
         run: tar -C dist -czf dist/camoufox-pm-linux.tar.gz camoufox-pm
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: camoufox-pm-${{ runner.os }}
           path: |
