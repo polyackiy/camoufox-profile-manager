@@ -5,6 +5,7 @@ on Windows. Fixtures here are built with the real layouts, so every platform's
 path is exercised from any machine.
 """
 
+import hashlib
 import os
 import uuid
 
@@ -121,3 +122,80 @@ def test_the_platform_chooses_the_cipher():
 
     with pytest.raises(CookieDecryptionError):
         decrypt_cookie_value(windows_blob(value, win_key), win_key, "darwin")
+
+
+# --- the cookie-store schema, which is a second layer on top of the cipher ---
+
+
+def v24_plaintext(value: str, host_key: str) -> bytes:
+    """From schema 24 Chrome encrypts SHA256(host_key) || value, not the value."""
+    return hashlib.sha256(host_key.encode()).digest() + value.encode()
+
+
+@pytest.mark.parametrize("system", ["windows", "darwin", "linux"])
+def test_a_schema_24_cookie_decrypts_on_every_platform(system):
+    """The prefix belongs to the cookie store, not to any cipher, so it applies
+    to GCM and CBC alike. Getting the cipher right and missing this recovered
+    zero cookies from any Chrome newer than late 2024."""
+    host_key, value = ".example.com", "SID=abcdefghijklmnop"
+    key = os.urandom(32 if system == "windows" else 16)
+    plaintext = v24_plaintext(value, host_key)
+
+    if system == "windows":
+        nonce = os.urandom(12)
+        blob = b"v10" + nonce + AESGCM(key).encrypt(nonce, plaintext, None)
+    else:
+        pad = 16 - len(plaintext) % 16
+        enc = Cipher(algorithms.AES(key), modes.CBC(b" " * 16)).encryptor()
+        blob = b"v10" + enc.update(plaintext + bytes([pad]) * pad) + enc.finalize()
+
+    assert decrypt_cookie_value(blob, key, system, host_key) == value
+
+
+def test_the_domain_digest_is_verified_not_assumed():
+    """Chrome drops a cookie whose digest does not match its own domain, and so
+    does this: blindly stripping 32 bytes would hand back a truncated value."""
+    key = os.urandom(32)
+    plaintext = v24_plaintext("SID=abc", ".example.com")
+    nonce = os.urandom(12)
+    blob = b"v10" + nonce + AESGCM(key).encrypt(nonce, plaintext, None)
+
+    with pytest.raises(CookieDecryptionError):
+        decrypt_cookie_value(blob, key, "windows", ".attacker.example")
+
+
+def test_a_pre_schema_24_cookie_keeps_its_whole_value():
+    """Passing no host_key means "this store has no prefix". Stripping anyway
+    would take 32 bytes off the front of every real value."""
+    key = os.urandom(32)
+
+    assert decrypt_cookie_value(windows_blob("SID=abc", key), key, "windows") == "SID=abc"
+
+
+def test_the_digest_gives_cbc_the_integrity_check_it_lacks():
+    """PKCS#7 padding validates by chance about once in 256 tries, and CBC has no
+    tag. A digest over the row's own domain closes that gap."""
+    plaintext = v24_plaintext("SID=abc", ".example.com")
+    pad = 16 - len(plaintext) % 16
+    enc = Cipher(algorithms.AES(os.urandom(16)), modes.CBC(b" " * 16)).encryptor()
+    blob = b"v10" + enc.update(plaintext + bytes([pad]) * pad) + enc.finalize()
+
+    with pytest.raises(CookieDecryptionError):
+        decrypt_cookie_value(blob, os.urandom(16), "darwin", ".example.com")
+
+
+@pytest.mark.parametrize("system", ["cygwin_nt-10.0", "freebsd", ""])
+def test_an_unknown_platform_is_refused_rather_than_assumed_to_be_cbc(system):
+    """Under Cygwin or MSYS platform.system() is not "windows", and silently
+    treating a Windows profile as CBC would skip every cookie it has."""
+    key = os.urandom(32)
+
+    with pytest.raises(CookieDecryptionError):
+        decrypt_cookie_value(windows_blob("SID=abc", key), key, system)
+
+
+def test_a_cbc_key_of_the_wrong_length_is_refused_not_raised_raw():
+    """The module's contract is CookieDecryptionError; a bare ValueError from the
+    cipher would escape callers that catch only ours."""
+    with pytest.raises(CookieDecryptionError):
+        decrypt_aes_cbc(cbc_blob("SID=abc", os.urandom(16)), os.urandom(20))

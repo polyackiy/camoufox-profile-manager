@@ -42,6 +42,8 @@ from dataclasses import dataclass
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM, ChaCha20Poly1305
 
+from .cookie_crypto import CookieDecryptionError, strip_domain_prefix
+
 # Marker at the front of the base64-decoded ``app_bound_encrypted_key``. It is a
 # tag Chrome writes, not part of the DPAPI blob, so it is stripped before the
 # first unprotect. See runassu PoC ``main()``.
@@ -229,12 +231,19 @@ def unwrap_master_key(
         raise V20DecryptionError(f"failed to unwrap the ABE master key: {exc}") from exc
 
 
-def decrypt_v20_cookie_value(encrypted_value: bytes, master_key: bytes) -> str:
+def decrypt_v20_cookie_value(
+    encrypted_value: bytes, master_key: bytes, host_key: str | None = None
+) -> str:
     """Decrypt one ``v20`` cookie ``encrypted_value`` with the ABE master key.
 
-    Layout: ``[b"v20"][nonce:12][ciphertext:var][tag:16]``, AES-256-GCM. The
-    decrypted plaintext starts with a 32-byte domain-bound hash that Chrome
-    prepends; it is stripped to recover the real value.
+    Layout: ``[b"v20"][nonce:12][ciphertext:var][tag:16]``, AES-256-GCM.
+
+    ``host_key`` is the cookie's domain, passed only for cookie stores at schema
+    24 or later, where the plaintext begins with ``SHA256(host_key)``. That
+    prefix belongs to the cookie store rather than to App-Bound Encryption, so
+    Chrome 127-129 could write ``v20`` cookies into a schema-23 database that has
+    no prefix at all — stripping unconditionally, as this used to, would take 32
+    bytes off the front of those values.
     """
     if encrypted_value[: len(V20_COOKIE_PREFIX)] != V20_COOKIE_PREFIX:
         raise V20DecryptionError("cookie value is not v20-prefixed.")
@@ -251,7 +260,16 @@ def decrypt_v20_cookie_value(encrypted_value: bytes, master_key: bytes) -> str:
     except Exception as exc:  # InvalidTag and friends
         raise V20DecryptionError(f"failed to decrypt v20 cookie: {exc}") from exc
 
-    if len(plaintext) < _COOKIE_PLAINTEXT_PREFIX_LEN:
-        raise V20DecryptionError("decrypted v20 cookie is shorter than its prefix.")
+    if host_key is not None:
+        try:
+            plaintext = strip_domain_prefix(plaintext, host_key)
+        except CookieDecryptionError as exc:
+            raise V20DecryptionError(str(exc)) from exc
 
-    return plaintext[_COOKIE_PLAINTEXT_PREFIX_LEN:].decode("utf-8", errors="ignore")
+    # Strict, like the v10/v11 path: the GCM tag has already proved the plaintext
+    # is genuine, so bytes that are not UTF-8 mean the value is not text — better
+    # skipped than written with the bad characters silently dropped.
+    try:
+        return plaintext.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise V20DecryptionError(f"decrypted v20 cookie is not valid UTF-8: {exc}") from exc

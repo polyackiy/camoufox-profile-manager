@@ -6,9 +6,11 @@ Track progress in [GitHub Issues](https://github.com/polyackiy/camoufox-profile-
 ## Since 0.2.0
 
 - Chrome cookies decrypt with the cipher the platform that wrote them actually
-  used: AES-256-GCM on Windows, AES-128-CBC on macOS and Linux. The same `v10`
-  tag means different things, and reading it alone had left Windows migration
-  broken since before App-Bound Encryption existed.
+  used (AES-256-GCM on Windows, AES-128-CBC on macOS and Linux) *and* with the
+  cookie-store schema they were written under — from schema 24 the plaintext
+  carries a `SHA256(host_key)` prefix that is verified against the row's domain.
+  Both layers were wrong, so Windows migration had recovered nothing since well
+  before App-Bound Encryption existed.
 
 ## Shipped in 0.2.0
 
@@ -66,6 +68,9 @@ Track progress in [GitHub Issues](https://github.com/polyackiy/camoufox-profile-
 Everything planned for `0.2.0` shipped. These are the known follow-ups, in rough
 order of how much they would hurt if left alone:
 
+- Read the Linux keyring for the `v11` cookie password. The key is currently
+  always derived from Chrome's hardcoded `peanuts`, so a genuine Linux `v11`
+  cookie is skipped rather than decrypted.
 - Reconcile the deprecations before `1.0`: the flattened `browser_*` update
   fields, `browser_session_id`, and the top-level `detail` in errors all go away
   in `1.0`, and the unversioned `/api` prefix in `2.0`. See the deprecation table
