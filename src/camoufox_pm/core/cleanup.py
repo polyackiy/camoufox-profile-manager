@@ -19,10 +19,17 @@ from camoufox_pm.core.models import Profile
 class ProfileCleanupManager:
     """Reconcile profile directories on disk with the database."""
 
-    def __init__(self, data_dir: str = "data"):
+    def __init__(self, data_dir: str = "data", db_path: str | None = None):
+        """``db_path`` must be the database the application itself uses.
+
+        Deriving it from ``data_dir`` assumes the file is called ``profiles.db``.
+        Any other configured name means opening an empty database beside the real
+        one — and then every directory on disk has no profile behind it and is
+        reported, and removed, as an orphan.
+        """
         self.data_dir = Path(data_dir)
         self.profiles_dir = self.data_dir / "profiles"
-        self.storage = StorageManager(str(self.data_dir / "profiles.db"))
+        self.storage = StorageManager(db_path or str(self.data_dir / "profiles.db"))
 
     async def initialize(self) -> None:
         await self.storage.initialize()
@@ -176,9 +183,12 @@ async def main() -> None:
         "--dry-run", action="store_true", help="Report changes without applying them"
     )
     parser.add_argument("--data-dir", default="data", help="Path to the data directory")
+    parser.add_argument(
+        "--db-path", default=None, help="Path to the database (default: <data-dir>/profiles.db)"
+    )
     args = parser.parse_args()
 
-    manager = ProfileCleanupManager(args.data_dir)
+    manager = ProfileCleanupManager(args.data_dir, args.db_path)
     await manager.initialize()
     try:
         if args.action == "diagnostic":

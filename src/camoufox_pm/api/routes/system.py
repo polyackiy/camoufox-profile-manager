@@ -30,6 +30,19 @@ router = APIRouter()
 startup_time = time.time()
 
 
+def _cleanup_manager() -> ProfileCleanupManager:
+    """Point the cleanup at the storage this instance actually uses.
+
+    It used to be constructed with its defaults, which are ``./data`` and
+    ``./data/profiles.db`` whatever ``CPM_DB_PATH`` says. With the database
+    configured under any other name, the cleanup opened an empty one beside it,
+    concluded that every profile directory on disk was an orphan, and deleted
+    them all.
+    """
+    db_path = Path(get_settings().db_path)
+    return ProfileCleanupManager(str(db_path.parent), str(db_path))
+
+
 @router.get(
     "/system/status",
     response_model=SystemStatusResponse,
@@ -71,7 +84,7 @@ async def get_system_status():
 async def diagnostic_profiles():
     """Diagnose profile storage health."""
     try:
-        cleanup_manager = ProfileCleanupManager()
+        cleanup_manager = _cleanup_manager()
         await cleanup_manager.initialize()
         try:
             result = await cleanup_manager.full_diagnostic()
@@ -102,7 +115,7 @@ async def diagnostic_profiles():
 async def cleanup_orphaned_profiles(dry_run: bool = False):
     """Clean up orphaned profile directories."""
     try:
-        cleanup_manager = ProfileCleanupManager()
+        cleanup_manager = _cleanup_manager()
         await cleanup_manager.initialize()
         try:
             if dry_run:
