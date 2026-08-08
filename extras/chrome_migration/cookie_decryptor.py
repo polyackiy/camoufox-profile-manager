@@ -29,6 +29,11 @@ class ChromeCookieDecryptor:
     def __init__(self):
         self.system = platform.system().lower()
         self.encryption_key = None
+        # App-Bound Encryption (v20) master key, resolved lazily on Windows. None
+        # on other platforms or when it cannot be recovered; see abe_windows.
+        self.abe_master_key: bytes | None = None
+        # Emit the "cannot decrypt v20" guidance once, not once per cookie.
+        self._v20_warning_emitted = False
 
     def get_chrome_encryption_key(self, chrome_data_path: str) -> bytes | None:
         """Return the Chrome encryption key for the current OS."""
@@ -136,6 +141,12 @@ class ChromeCookieDecryptor:
             key = win32crypt.CryptUnprotectData(encrypted_key, None, None, None, 0)[1]
 
             logger.info("Chrome encryption key obtained (Windows)")
+
+            # Chrome 127+ writes new cookies with App-Bound Encryption (v20) under a
+            # separate key. Resolve it best-effort; failure here must not stop the
+            # v10/v11 path above. Cookies we cannot decrypt are skipped later.
+            self._resolve_abe_master_key(chrome_data_path)
+
             return key
 
         except ImportError:
@@ -144,6 +155,24 @@ class ChromeCookieDecryptor:
         except Exception as e:
             logger.error(f"Failed to get the Windows key: {e}")
             return None
+
+    def _resolve_abe_master_key(self, chrome_data_path: str) -> None:
+        """Resolve the App-Bound Encryption (v20) master key on Windows, if any.
+
+        The Windows syscalls live in the guarded ``abe_windows`` module, imported
+        lazily so this file stays importable on macOS/Linux. Any failure leaves
+        ``self.abe_master_key`` as None, which makes v20 cookies degrade to a skip.
+        """
+        try:
+            from . import abe_windows
+
+            local_state_path = Path(chrome_data_path) / "Local State"
+            self.abe_master_key = abe_windows.get_v20_master_key(local_state_path)
+            if self.abe_master_key:
+                logger.info("App-Bound Encryption (v20) master key resolved")
+        except Exception as e:
+            logger.debug(f"Could not resolve the ABE master key: {e}")
+            self.abe_master_key = None
 
     def _get_linux_encryption_key(self, chrome_data_path: str) -> bytes | None:
         """Get the Chrome encryption key on Linux."""
@@ -170,16 +199,22 @@ class ChromeCookieDecryptor:
     ) -> str | None:
         """Decrypt a Chrome cookie value."""
         try:
-            if not CRYPTO_AVAILABLE:
-                logger.error("pycryptodome is not installed")
-                return None
-
             if not encrypted_value or len(encrypted_value) < 16:
                 return None
 
-            # Chrome uses AES-128 in CBC mode
-            # The first 3 bytes are the version (usually v10 or v11)
+            # The first 3 bytes are the version. v10/v11 use the classic key
+            # (AES-128-CBC below); v20 is App-Bound Encryption and needs the
+            # separately resolved master key and an AES-256-GCM path. v20 runs on
+            # 'cryptography' (a core dependency), so it does not depend on the
+            # pycryptodome check that the v10/v11 CBC path below requires.
             version = encrypted_value[:3]
+
+            if version == b"v20":
+                return self._decrypt_v20_cookie(encrypted_value)
+
+            if not CRYPTO_AVAILABLE:
+                logger.error("pycryptodome is not installed")
+                return None
 
             if version == b"v10":
                 # Old format (before Chrome 80)
@@ -206,6 +241,32 @@ class ChromeCookieDecryptor:
 
         except Exception as e:
             logger.debug(f"Failed to decrypt cookie: {e}")
+            return None
+
+    def _decrypt_v20_cookie(self, encrypted_value: bytes) -> str | None:
+        """Decrypt an App-Bound Encryption (v20) cookie, or skip it honestly.
+
+        Returns None when the master key is unavailable (non-Windows, not
+        elevated, or a machine-bound key on a foreign machine) or when the value
+        does not authenticate. Returning None makes the caller skip the cookie
+        rather than write a garbage value.
+        """
+        from .abe import V20DecryptionError, decrypt_v20_cookie_value
+
+        if not self.abe_master_key:
+            if not self._v20_warning_emitted:
+                logger.warning(
+                    "Skipping App-Bound Encryption (v20) cookies: no master key. "
+                    "These are decryptable only by running this tool as "
+                    "Administrator on the same Windows machine that wrote them."
+                )
+                self._v20_warning_emitted = True
+            return None
+
+        try:
+            return decrypt_v20_cookie_value(encrypted_value, self.abe_master_key)
+        except V20DecryptionError as e:
+            logger.debug(f"Failed to decrypt v20 cookie: {e}")
             return None
 
     def get_decrypted_chrome_cookies(self, chrome_profile_path: str) -> list[dict[str, Any]]:

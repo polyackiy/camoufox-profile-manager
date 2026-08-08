@@ -48,6 +48,21 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     deliberate: nothing recorded it, and the only distinguishable signal is
     exactly what a deliberate choice of that city would look like, so the action
     is offered wherever geography is set and explained rather than inferred.
+- **Chrome App-Bound Encryption (`v20`) cookies in the migration extra.** Chrome
+  127+ on Windows writes new cookies under App-Bound Encryption, whose key is
+  double-DPAPI-wrapped (an outer SYSTEM layer, an inner user layer) plus an AEAD
+  wrap from Chrome's elevation service — the classic DPAPI path could not read
+  them. The migration extra now decrypts `v20` cookies when run **as
+  Administrator on the machine that wrote them**, using the documented offline
+  unwrap chain (SYSTEM DPAPI via `lsass` impersonation → user DPAPI → the
+  elevation service's AEAD key → AES-256-GCM, stripping the 32-byte domain
+  prefix). The parsing, key-unwrap and cookie decryption are pure and unit-tested
+  cross-platform; the Windows DPAPI/CNG syscalls are isolated in `abe_windows.py`
+  and imported lazily so the module still loads on macOS/Linux. When it cannot
+  decrypt a `v20` cookie (not elevated, a different machine, a machine-bound
+  `flag 3` key, or non-Windows), the cookie is **skipped with one clear warning**,
+  never written as garbage. Adds `pywin32` to the `chrome-migration` extra,
+  gated to Windows.
 - **Check a proxy, and what it says about the profile.** *Check proxy* — in the
   form and in a profile's row menu — reaches the internet through the proxy and
   reports where it comes out, how long it took, and everything a page could

@@ -19,6 +19,12 @@ Track progress in [GitHub Issues](https://github.com/polyackiy/camoufox-profile-
   disagrees with the pinned machine is reported with both ways out, and a profile
   carrying geography from before it followed the proxy can have it cleared, one
   profile or a whole selection at a time.
+- The Chrome-migration extra reads Chrome 127+ App-Bound Encryption (`v20`)
+  cookies when run elevated on the machine that wrote them, and skips — rather
+  than corrupts — the ones it cannot. What remains is the part that is inherently
+  out of reach off the originating machine: `v20` keys that use the machine-bound
+  CNG variant cannot be recovered elsewhere, so those cookies still need
+  re-authenticating in Camoufox.
 - The web UI covers the product: creating profiles, groups, and a settings screen
   reporting how the instance is configured.
 - The REST API is stabilised for `1.0`: `/api/v1` paths (the unversioned ones
@@ -38,7 +44,6 @@ Track progress in [GitHub Issues](https://github.com/polyackiy/camoufox-profile-
 
 - Authentication for multi-user or hosted deployments, beyond the optional API key.
 - Task scheduling and automated fingerprint rotation.
-- Windows App-Bound Encryption support for the Chrome-migration module.
 
 ## Later / ideas
 
