@@ -6,6 +6,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.2.0] - 2026-08-08
+
+The release where a profile became a machine you can keep. `0.1.x` could launch
+Camoufox with settings; it could not promise that the same profile looked like
+the same computer tomorrow. It does now, and everything below follows from that:
+pinning the fingerprint, moving a pin onto a newer browser without changing the
+hardware, checking that a proxy agrees with the profile, and refusing to rotate
+hardware on a timer because that would undo the whole point.
+
 ### Added
 - **User accounts and login, for deployments more than one person can reach.**
   The API key stays what it was — one shared machine secret — and humans now
@@ -362,6 +373,7 @@ First public release after a comprehensive revamp.
   Camoufox owns fingerprint generation for consistency.
 - Committed profile data, leaked proxy credentials, and duplicate/backup files.
 
-[Unreleased]: https://github.com/polyackiy/camoufox-profile-manager/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/polyackiy/camoufox-profile-manager/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/polyackiy/camoufox-profile-manager/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/polyackiy/camoufox-profile-manager/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/polyackiy/camoufox-profile-manager/releases/tag/v0.1.0
