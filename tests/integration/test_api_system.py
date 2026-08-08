@@ -146,13 +146,14 @@ async def test_health_reports_the_database_and_the_profile_count(client):
 
 @pytest.mark.asyncio
 async def test_health_answers_when_storage_is_unavailable(client, monkeypatch):
-    """This is what a container orchestrator polls. It has to answer 'unhealthy'
-    rather than raise, or a failing instance looks the same as an unreachable one."""
+    """This is what a container orchestrator polls, and it reads the status code,
+    not the body: an unhealthy instance must answer 503, or a failing one looks
+    exactly like a healthy one to a load balancer."""
     monkeypatch.setattr(dependencies, "_profile_manager", None)
 
     response = await client.get("/health")
 
-    assert response.status_code == 200
+    assert response.status_code == 503
     assert response.json()["status"] == "unhealthy"
     assert response.json()["database"] == "disconnected"
 
