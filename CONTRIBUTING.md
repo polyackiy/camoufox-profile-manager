@@ -66,6 +66,31 @@ uv run python scripts/build_webui.py
   options passed in. When a test guards a premise about Camoufox's behaviour, say
   so — `test_unpinned_profiles_look_like_new_hardware` exists to fail loudly if
   upstream ever changes.
+- **A test should be able to fail.** Coverage is a way of finding untested
+  behaviour, not a target: a test that asserts a getter returns what was set
+  costs time on every run and catches nothing. Name the behaviour in the test
+  name, and when the test exists because something once broke, say in a docstring
+  what broke.
+
+### What is deliberately not covered
+
+Two modules are left untested on purpose, so nobody spends an afternoon
+rediscovering why:
+
+- **`desktop.py`** composes uvicorn and pywebview and has no logic of its own
+  beyond a connect-retry loop. pywebview is an optional extra that CI does not
+  install, so a test would have to stand in for every call it makes and would
+  then only assert that the stand-ins were called in order. The thing that can
+  actually break here — the window opening at all — is not observable without a
+  display.
+- **The FastAPI lifespan in `main.py`** builds the storage and profile manager
+  from the settings on startup. The integration tests inject their own instead,
+  which is what lets each of them have a throwaway database.
+
+The remaining uncovered lines are mostly `except Exception -> 500` handlers,
+which exist for failures that cannot be provoked without breaking SQLite
+underneath the process, and `fingerprint_store.resolve()`, which needs the
+browser binary and is covered by the `browser`-marked tests.
 
 ## Project layout
 

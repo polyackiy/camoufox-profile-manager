@@ -223,6 +223,30 @@ async def test_no_endpoint_gives_an_address(answers):
         await proxy_check.resolve_exit_ip(None)
 
 
+@pytest.mark.parametrize(
+    ("failure", "expected"),
+    [
+        (
+            httpx.HTTPStatusError("boom", request=None, response=httpx.Response(407)),  # type: ignore[arg-type]
+            "rejected the credentials",
+        ),
+        # httpx reports a failed CONNECT as a ProxyError rather than a status, so
+        # the commonest failure of all arrives without a status code on it.
+        (httpx.ProxyError("407 Proxy Authentication Required"), "rejected the credentials"),
+        (httpx.HTTPStatusError("boom", request=None, response=httpx.Response(502)), "answered 502"),
+        (httpx.TimeoutException("slow"), "did not answer in time"),
+        (httpx.UnsupportedProtocol("socks4h"), "SOCKS4 is not supported"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_a_failure_is_reported_in_words_the_user_can_act_on(answers, failure, expected):
+    """This string is the whole result of the check: it has to say what to fix."""
+    answers(failure, failure, failure)
+
+    with pytest.raises(ConnectionError, match=expected):
+        await proxy_check.resolve_exit_ip(None)
+
+
 @pytest.mark.asyncio
 async def test_the_ipv6_answer_goes_into_the_ipv6_key(answers):
     """Camoufox routes a v6 exit address to webrtc:ipv6, and so must this."""

@@ -21,10 +21,14 @@ Track progress in [GitHub Issues](https://github.com/polyackiy/camoufox-profile-
   stay as aliases), one error shape everywhere, typed responses on every route,
   and a written stability contract in [api.md](api.md) saying what freezes and
   what deliberately does not.
+- The parts that delete profile directories, run browsers and import spreadsheets
+  in bulk are under test, and the six bugs that turned up in doing it are fixed.
+  What is deliberately left uncovered, and why, is written down in
+  [CONTRIBUTING.md](../CONTRIBUTING.md#what-is-deliberately-not-covered).
 
 ## Now (0.1.x)
 
-- Fill remaining gaps in test coverage.
+- The 0.1.x scope is cleared; the items below are what comes next.
 
 ## Next
 
