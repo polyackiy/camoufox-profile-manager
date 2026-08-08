@@ -38,15 +38,42 @@ Or use the pieces directly:
 | -------- | ----------------- | ----- |
 | macOS    | ✅ Keychain       | Works on current Chrome. |
 | Linux    | ✅ Default key    | Works with the standard `peanuts` key. |
-| Windows  | ⚠️ Limited        | See App-Bound Encryption below. |
+| Windows  | ✅ `v10`/`v11`, ⚠️ `v20` needs elevation | See App-Bound Encryption below. |
 
 ### Windows App-Bound Encryption (ABE)
 
-Starting with **Chrome 127 (2024)**, Windows encrypts cookies with
-[App-Bound Encryption](https://security.googleblog.com/2024/07/improving-security-of-chrome-cookies-on.html),
-which ties the key to the browser application. The classic DPAPI path this module
-uses no longer decrypts cookies written by recent Chrome versions on Windows.
-macOS and Linux are unaffected. Contributions to support ABE are welcome.
+Starting with **Chrome 127 (2024)**, Windows writes new cookies with
+[App-Bound Encryption](https://security.googleblog.com/2024/07/improving-security-of-chrome-cookies-on.html)
+(a `v20` prefix). The key no longer lives under the classic per-user DPAPI blob:
+it is in `Local State` under `os_crypt.app_bound_encrypted_key`, wrapped by
+**two** DPAPI layers (an outer SYSTEM-context layer, an inner user-context layer)
+and an inner AEAD wrap performed by Chrome's SYSTEM-level elevation service. This
+is Google's anti-infostealer measure, and unwrapping the outer SYSTEM layer needs
+SYSTEM-level access — a normal user process cannot do it.
+
+**What this module does:**
+
+- **`v10`/`v11`** cookies: decrypted as before.
+- **`v20`** cookies, when the tool runs **as Administrator on the same Windows
+  machine** that wrote them: decrypted using the documented offline unwrap chain
+  (SYSTEM DPAPI via `lsass` impersonation → user DPAPI → the elevation service's
+  AEAD key → AES-256-GCM). Requires the `chrome-migration` extra, which pulls in
+  `pywin32` on Windows.
+- **`v20`** cookies in any other situation (not elevated, a different machine,
+  non-Windows, or a machine-bound `flag 3` key): **skipped, never guessed.** You
+  will see one warning explaining why, and those cookies are simply not migrated
+  rather than written as garbage.
+
+**If a cookie cannot be decrypted:** re-run the migration from an elevated
+(Administrator) prompt on the machine where the Chrome profile lives, with Chrome
+closed. If it still cannot be read, the profile most likely uses a machine-bound
+key variant that cannot be recovered off that exact machine; migrate what you can
+and re-authenticate the rest in Camoufox.
+
+> **Scope note.** Full `v20` recovery is inherently Windows- and
+> elevation-bound; the crypto is implemented and unit-tested cross-platform with
+> synthetic fixtures, but the Windows DPAPI/CNG syscalls can only run on an
+> elevated Windows host. See `abe.py` and `abe_windows.py`.
 
 ## Legal
 

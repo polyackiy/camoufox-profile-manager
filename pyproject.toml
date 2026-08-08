@@ -40,7 +40,13 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-chrome-migration = ["pycryptodome>=3.19", "pyyaml>=6.0"]
+chrome-migration = [
+    "pycryptodome>=3.19",
+    "pyyaml>=6.0",
+    # Windows App-Bound Encryption (v20) unwrap needs the DPAPI/token APIs.
+    # Gated to Windows so a macOS/Linux install of the extra never pulls it in.
+    "pywin32>=306; sys_platform == 'win32'",
+]
 desktop = ["pywebview>=5.0"]
 build = ["pywebview>=5.0", "pyinstaller>=6.0"]
 dev = [
