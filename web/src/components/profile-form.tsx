@@ -6,6 +6,8 @@ import { AlertTriangle, Check, Info, Loader2, RefreshCw, X } from 'lucide-react'
 import { Modal } from '@/components/modal'
 import { useToast } from '@/components/toast'
 import {
+  hasGeography,
+  OS_LABELS,
   presetsAPI,
   profilesAPI,
   type DevicePreset,
@@ -109,6 +111,11 @@ export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) 
   // browser returns a new machine, and the panel has to show it without waiting
   // for the dialog to be reopened.
   const [machine, setMachine] = useState<FingerprintSummary | null | undefined>(undefined)
+  const [reconciling, setReconciling] = useState(false)
+  // Whether the *saved* profile states where it is. The form fields alone cannot
+  // answer that once the user has started typing in them.
+  const [storedGeography, setStoredGeography] = useState(false)
+  const [clearingGeography, setClearingGeography] = useState(false)
   const [presets, setPresets] = useState<DevicePreset[]>([])
   const [presetId, setPresetId] = useState('')
   const toast = useToast()
@@ -117,6 +124,7 @@ export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) 
     if (open) {
       setForm(profile ? fromProfile(profile) : EMPTY)
       setMachine(profile?.fingerprint)
+      setStoredGeography(profile ? hasGeography(profile) : false)
       setPresetId('')
     }
   }, [open, profile])
@@ -273,6 +281,52 @@ export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) 
     }
   }
 
+  /**
+   * Keeping the machine only moves the dropdown; keeping the setting replaces the
+   * hardware, so the two are reported very differently even though one call does
+   * both. The form's own OS field follows, or it would still show the value the
+   * user has just resolved away from.
+   */
+  async function handleReconcileOs(keepMachine: boolean) {
+    if (!profile) return
+    setReconciling(true)
+    try {
+      const updated = await profilesAPI.reconcileOs(profile.id, keepMachine)
+      setMachine(updated.fingerprint)
+      set('os', updated.browser_settings.os)
+      toast(
+        'ok',
+        keepMachine
+          ? `Set back to ${OS_LABELS[updated.browser_settings.os] ?? updated.browser_settings.os}`
+          : 'New machine pinned',
+        keepMachine
+          ? 'The machine is untouched.'
+          : `${updated.fingerprint?.screen} · ${updated.fingerprint?.hardware_concurrency} cores. The old hardware is gone.`,
+      )
+      onSaved()
+    } catch (err) {
+      toast('error', 'Could not reconcile the operating system', String(err))
+    } finally {
+      setReconciling(false)
+    }
+  }
+
+  async function handleClearGeography() {
+    if (!profile) return
+    setClearingGeography(true)
+    try {
+      await profilesAPI.clearGeography([profile.id])
+      setForm((current) => ({ ...current, timezone: '', geoMode: 'auto', latitude: '', longitude: '' }))
+      setStoredGeography(false)
+      toast('ok', 'Timezone and coordinates cleared', 'Both now follow the proxy.')
+      onSaved()
+    } catch (err) {
+      toast('error', 'Could not clear the geography', String(err))
+    } finally {
+      setClearingGeography(false)
+    }
+  }
+
   async function handleRegenerate() {
     if (!profile) return
     setRegenerating(true)
@@ -373,10 +427,15 @@ export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) 
               <option value="macos">macOS</option>
               <option value="linux">Linux</option>
             </select>
+            {/* Once a machine is pinned this setting is not what a page sees, so
+                the honest warning is stronger than "the rest stays as it was". */}
             {isEdit && form.os !== (profile.browser_settings?.os ?? 'windows') && (
               <p className="mt-1.5 text-ink-faint">
-                Screen size, locale and fonts stay as they were. Use Regenerate fingerprint for a
-                set that matches the new OS.
+                {machine?.pinned_os
+                  ? `Saving this changes nothing a page can see: the pinned machine reports ${
+                      OS_LABELS[machine.pinned_os] ?? machine.pinned_os
+                    } and keeps doing so. The Machine panel then offers both ways out.`
+                  : 'Screen size, locale and fonts stay as they were. Use Regenerate fingerprint for a set that matches the new OS.'}
               </p>
             )}
           </div>
@@ -509,6 +568,8 @@ export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) 
             fingerprint={machine}
             onRefreshBrowser={handleRefreshBrowser}
             refreshing={refreshingBrowser}
+            onReconcileOs={handleReconcileOs}
+            reconciling={reconciling}
           />
         ) : (
           <fieldset>
@@ -694,6 +755,36 @@ export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) 
               </div>
             </div>
           )}
+
+          {/* Until recently every new profile was given the timezone and
+              coordinates of a randomly chosen region, so an old one can claim
+              Shanghai on a German proxy. Nothing recorded which values were
+              chosen and which were rolled, so this is offered whenever both are
+              set rather than guessed at. */}
+          {isEdit && storedGeography && (
+            <div className="col-span-2 rounded-md border border-line bg-raised p-2.5">
+              <p className="text-ink">
+                This profile states where it is instead of taking it from its proxy.
+              </p>
+              <p className="mt-0.5 text-ink-faint">
+                A profile created today leaves both unset, so Camoufox derives the timezone, the
+                coordinates and the WebRTC address from the exit address. Profiles created earlier
+                were given a randomly chosen region, and nothing records which values were a
+                choice — so clear them if this one was not.
+              </p>
+              <div className="mt-2 flex justify-end">
+                <button
+                  type="button"
+                  className="btn btn-default"
+                  onClick={handleClearGeography}
+                  disabled={clearingGeography}
+                >
+                  {clearingGeography && <Loader2 size={13} className="animate-spin" />}
+                  Clear both, follow the proxy
+                </button>
+              </div>
+            </div>
+          )}
         </Section>
       </form>
     </Modal>
@@ -727,10 +818,14 @@ function PinnedMachine({
   fingerprint,
   onRefreshBrowser,
   refreshing,
+  onReconcileOs,
+  reconciling,
 }: {
   fingerprint?: FingerprintSummary | null
   onRefreshBrowser: () => void
   refreshing: boolean
+  onReconcileOs: (keepMachine: boolean) => void
+  reconciling: boolean
 }) {
   if (!fingerprint) {
     return (
@@ -802,8 +897,56 @@ function PinnedMachine({
           </button>
         </div>
       )}
+
+      {/* The OS dropdown can be changed long after the machine was pinned, and
+          nothing stops it — the pin is what a page sees, so the setting simply
+          stops meaning anything. The two ways out cost very different amounts,
+          so neither is preselected. */}
+      {fingerprint.os_mismatch && (
+        <div className="mt-2 rounded-md border border-line bg-raised p-2.5">
+          <div className="flex items-start gap-2.5">
+            <AlertTriangle size={14} className="mt-0.5 shrink-0 text-warn" />
+            <div>
+              <p className="text-ink">
+                This profile is set to {osLabel(fingerprint.settings_os)}, but its pinned machine is
+                a {osLabel(fingerprint.pinned_os)} one — and the machine is what every page sees.
+              </p>
+              <p className="mt-0.5 text-ink-faint">
+                Keeping the machine puts the setting back to {osLabel(fingerprint.pinned_os)} and
+                changes no fingerprint at all. Pinning a{' '}
+                {osLabel(fingerprint.settings_os)} machine instead gives this profile different
+                hardware — screen, GPU, cores, fonts and canvas — which any account already warmed
+                up on the old one will notice.
+              </p>
+            </div>
+          </div>
+          <div className="mt-2 flex justify-end gap-2">
+            <button
+              type="button"
+              className="btn btn-default"
+              onClick={() => onReconcileOs(true)}
+              disabled={reconciling}
+            >
+              {reconciling && <Loader2 size={13} className="animate-spin" />}
+              Keep this machine
+            </button>
+            <button
+              type="button"
+              className="btn btn-default"
+              onClick={() => onReconcileOs(false)}
+              disabled={reconciling}
+            >
+              New {osLabel(fingerprint.settings_os)} machine
+            </button>
+          </div>
+        </div>
+      )}
     </fieldset>
   )
+}
+
+function osLabel(os?: string | null): string {
+  return (os && OS_LABELS[os]) || os || 'unknown'
 }
 
 function Section({

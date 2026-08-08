@@ -214,6 +214,34 @@ def test_pinned_os_is_read_from_the_pin_not_the_settings():
     assert fingerprint_store.pinned_os(None) is None
 
 
+def test_summary_reports_a_setting_that_disagrees_with_the_pin():
+    """The dropdown can be changed long after the pin was made, and silently.
+
+    While a pin exists it is what a page sees, so a profile set to macOS on
+    Windows hardware behaves exactly as before — the setting simply stops meaning
+    anything, with nothing to say so.
+    """
+    pin = {"navigator.platform": "Win32", "navigator.userAgent": UA_NEW}
+
+    agreeing = fingerprint_store.summarize(pin, "windows")
+    assert agreeing["pinned_os"] == "windows"
+    assert agreeing["settings_os"] == "windows"
+    assert agreeing["os_mismatch"] is False
+
+    disagreeing = fingerprint_store.summarize(pin, "macos")
+    assert disagreeing["pinned_os"] == "windows"
+    assert disagreeing["settings_os"] == "macos"
+    assert disagreeing["os_mismatch"] is True
+
+
+def test_summary_claims_no_mismatch_when_either_side_is_unknown():
+    """Half an answer must not be reported as a contradiction."""
+    assert fingerprint_store.summarize({"screen.width": 800}, "macos")["os_mismatch"] is False
+    assert (
+        fingerprint_store.summarize({"navigator.platform": "Win32"}, None)["os_mismatch"] is False
+    )
+
+
 def test_get_preset_rejects_malformed_ids():
     """Only a plain run of ASCII digits names a preset.
 

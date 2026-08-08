@@ -131,6 +131,25 @@ class BrowserSettings(BaseModel):
     # Fonts
     fonts: list[str] | None = None
 
+    def has_geography(self) -> bool:
+        """Whether this profile states where it is instead of following its proxy."""
+        return bool(self.timezone or self.geolocation)
+
+    def clear_geography(self) -> bool:
+        """Drop the stated location so the proxy's exit address supplies it again.
+
+        Only the two fields Camoufox derives from that address. Languages and
+        locale are left alone: they are not geography — Camoufox applies them
+        after its IP lookup regardless, and an English browser is unremarkable
+        from any country — so clearing them would change the profile's identity
+        rather than free it to follow the proxy.
+        """
+        if not self.has_geography():
+            return False
+        self.timezone = None
+        self.geolocation = None
+        return True
+
     def to_camoufox_config(self) -> dict[str, Any]:
         """Build Camoufox ``config`` property overrides.
 

@@ -475,6 +475,185 @@ async def test_refresh_browser_version_keeps_the_machine(client, monkeypatch):
     assert stored.fingerprint["fonts:spacing_seed"] == 777
 
 
+WINDOWS_PIN = {
+    "navigator.userAgent": STALE_UA,
+    "navigator.platform": "Win32",
+    "navigator.oscpu": "Windows NT 10.0; Win64; x64",
+    "navigator.hardwareConcurrency": 12,
+    "screen.width": 2560,
+    "screen.height": 1440,
+    "webGl:renderer": "ANGLE (NVIDIA, GeForce GTX 980)",
+    "canvas:seed": 424242,
+}
+
+
+async def _pinned_windows_profile_set_to(client, os_name: str) -> str:
+    """A profile whose pin says Windows while its setting says something else."""
+    from camoufox_pm.api.dependencies import get_profile_manager
+
+    created = await client.post("/api/profiles", json={"name": f"drifted-{os_name}"})
+    profile_id = created.json()["id"]
+    manager = get_profile_manager()
+    profile = await manager.get_profile(profile_id)
+    profile.fingerprint = dict(WINDOWS_PIN)
+    profile.browser_settings.os = os_name
+    await manager.storage.update_profile(profile)
+    return profile_id
+
+
+@pytest.mark.asyncio
+async def test_a_setting_that_disagrees_with_the_pin_is_reported(client):
+    """Changing the OS of a pinned profile is allowed, but must not stay silent."""
+    profile_id = await _pinned_windows_profile_set_to(client, "windows")
+
+    updated = await client.put(f"/api/profiles/{profile_id}", json={"browser_os": "macos"})
+    assert updated.status_code == 200
+    summary = updated.json()["fingerprint"]
+    assert summary["settings_os"] == "macos"
+    assert summary["pinned_os"] == "windows"
+    assert summary["os_mismatch"] is True
+
+
+@pytest.mark.asyncio
+async def test_keeping_the_machine_moves_the_setting_and_nothing_else(client):
+    """The cheap way out: the profile is the computer it has always been."""
+    from camoufox_pm.api.dependencies import get_profile_manager
+
+    profile_id = await _pinned_windows_profile_set_to(client, "macos")
+
+    response = await client.post(
+        f"/api/profiles/{profile_id}/reconcile-os", json={"keep_machine": True}
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["browser_settings"]["os"] == "windows"
+    assert body["fingerprint"]["os_mismatch"] is False
+
+    stored = await get_profile_manager().get_profile(profile_id)
+    assert stored.fingerprint == WINDOWS_PIN, "no fingerprint may change on this path"
+
+
+@pytest.mark.asyncio
+async def test_keeping_the_setting_pins_a_machine_for_it(client, monkeypatch):
+    """The expensive way out: new hardware, resolved for the OS that was chosen."""
+    from camoufox_pm.api.dependencies import get_profile_manager
+
+    asked_for: dict = {}
+
+    def fake_resolve(options, preset=None):
+        asked_for.update(options)
+        return {
+            "navigator.userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:199.0)",
+            "navigator.platform": "MacIntel",
+            "navigator.hardwareConcurrency": 8,
+            "screen.width": 1440,
+            "screen.height": 900,
+            "canvas:seed": 111,
+        }
+
+    monkeypatch.setattr(fingerprint_store, "resolve", fake_resolve)
+    profile_id = await _pinned_windows_profile_set_to(client, "macos")
+
+    response = await client.post(
+        f"/api/profiles/{profile_id}/reconcile-os", json={"keep_machine": False}
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert asked_for["os"] == "macos", "the new machine must be resolved for the chosen OS"
+    assert body["fingerprint"]["pinned_os"] == "macos"
+    assert body["fingerprint"]["os_mismatch"] is False
+    # The stored screen described the machine that has just been replaced.
+    assert body["browser_settings"]["screen"] == "1440x900"
+
+    stored = await get_profile_manager().get_profile(profile_id)
+    assert stored.fingerprint["canvas:seed"] == 111, "this path is meant to change the hardware"
+
+
+@pytest.mark.asyncio
+async def test_reconciling_a_profile_that_already_agrees_is_refused(client):
+    """Otherwise a stale UI could replace the hardware of a healthy profile."""
+    profile_id = await _pinned_windows_profile_set_to(client, "windows")
+    response = await client.post(
+        f"/api/profiles/{profile_id}/reconcile-os", json={"keep_machine": False}
+    )
+    assert response.status_code == 400
+    assert "already set to windows" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_reconciling_needs_a_pin_and_a_profile(client):
+    created = await client.post("/api/profiles", json={"name": "unpinned"})
+    unpinned = await client.post(
+        f"/api/profiles/{created.json()['id']}/reconcile-os", json={"keep_machine": True}
+    )
+    assert unpinned.status_code == 400
+    assert "no pinned machine" in unpinned.json()["detail"]
+
+    missing = await client.post(
+        "/api/profiles/does-not-exist/reconcile-os", json={"keep_machine": True}
+    )
+    assert missing.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_clear_geography_hands_the_location_back_to_the_proxy(client):
+    """A profile from before geography followed the proxy can be freed to do so."""
+    from camoufox_pm.api.dependencies import get_profile_manager
+
+    old = await client.post(
+        "/api/profiles",
+        json={
+            "name": "shanghai",
+            "browser_settings": {
+                "timezone": "Asia/Shanghai",
+                "geolocation": {"lat": 31.23, "lon": 121.47},
+                "languages": ["zh-CN", "zh"],
+            },
+        },
+    )
+    profile_id = old.json()["id"]
+
+    response = await client.post(
+        "/api/profiles/clear-geography", json={"profile_ids": [profile_id]}
+    )
+    assert response.status_code == 200
+    assert response.json() == {"cleared": [profile_id], "unchanged": [], "not_found": []}
+
+    settings = (await client.get(f"/api/profiles/{profile_id}")).json()["browser_settings"]
+    assert settings["timezone"] is None
+    assert settings["geolocation"] is None
+    assert settings["languages"] == ["zh-CN", "zh"], "languages are identity, not geography"
+
+    profile = await get_profile_manager().get_profile(profile_id)
+    options = profile.to_camoufox_launch_options()
+    assert options["geoip"] is True, "the whole point: Camoufox derives it from the exit address"
+
+
+@pytest.mark.asyncio
+async def test_clear_geography_reports_each_profile_it_was_given(client):
+    """A selection is the unit here, so partial answers have to be readable."""
+    with_geo = await client.post(
+        "/api/profiles", json={"name": "berlin", "browser_settings": {"timezone": "Europe/Berlin"}}
+    )
+    without = await client.post("/api/profiles", json={"name": "follows-the-proxy"})
+
+    response = await client.post(
+        "/api/profiles/clear-geography",
+        json={"profile_ids": [with_geo.json()["id"], without.json()["id"], "nope"]},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["cleared"] == [with_geo.json()["id"]]
+    assert body["unchanged"] == [without.json()["id"]]
+    assert body["not_found"] == ["nope"]
+
+
+@pytest.mark.asyncio
+async def test_clear_geography_needs_at_least_one_profile(client):
+    response = await client.post("/api/profiles/clear-geography", json={"profile_ids": []})
+    assert response.status_code == 422
+
+
 @pytest.mark.asyncio
 async def test_refresh_browser_version_needs_a_pin_first(client):
     """Refreshing an unpinned profile would silently invent a machine."""

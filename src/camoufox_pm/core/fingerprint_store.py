@@ -333,11 +333,18 @@ def get_preset(preset_id: str) -> dict[str, Any] | None:
     return None
 
 
-def summarize(fingerprint: dict[str, Any] | None) -> dict[str, Any] | None:
+def summarize(
+    fingerprint: dict[str, Any] | None, settings_os: str | None = None
+) -> dict[str, Any] | None:
     """Describe a pinned fingerprint in the few values worth showing a user.
 
     The stored config is ~40 properties and tens of kilobytes; this is what the
     UI displays so someone can confirm the profile really has a fixed machine.
+
+    ``settings_os`` is the profile's own OS setting, reported next to the OS the
+    pin describes so the two can be seen to disagree. While a pin exists the
+    setting has no effect on what a page sees, so a disagreement is silent
+    otherwise.
     """
     if not fingerprint:
         return None
@@ -346,6 +353,7 @@ def summarize(fingerprint: dict[str, Any] | None) -> dict[str, Any] | None:
     height = fingerprint.get("screen.height")
     fonts = fingerprint.get("fonts")
     installed = installed_major()
+    pinned = pinned_os(fingerprint)
     return {
         "user_agent": fingerprint.get("navigator.userAgent"),
         "platform": fingerprint.get("navigator.platform"),
@@ -358,4 +366,7 @@ def summarize(fingerprint: dict[str, Any] | None) -> dict[str, Any] | None:
         "browser_major": browser_major(fingerprint),
         "installed_major": installed,
         "browser_outdated": is_outdated(fingerprint, installed),
+        "pinned_os": pinned,
+        "settings_os": settings_os,
+        "os_mismatch": bool(pinned and settings_os and pinned != settings_os),
     }

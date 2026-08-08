@@ -96,6 +96,25 @@ The user agent is resolved for the OS **the pin describes**, taken from its
 someone changed the dropdown after the machine was pinned, and following the
 setting would put a macOS browser on Windows hardware.
 
+### When the OS setting and the machine disagree
+
+The pin is what a page sees, so changing the `os` dropdown on a pinned profile
+changes nothing observable — the setting simply stops meaning anything. That is
+allowed (it is often the first step towards regenerating, and refusing it would
+break bulk edits), but it is no longer silent: the profile response reports
+`fingerprint.pinned_os`, `fingerprint.settings_os` and `fingerprint.os_mismatch`,
+the server logs a warning on the save, the form says so under the dropdown, and
+the Machine panel shows a banner offering the two ways out.
+
+| | What it does | What it costs |
+| --- | --- | --- |
+| **Keep this machine** | Puts the OS setting back to what the pin reports | Nothing — no fingerprint value changes |
+| **New \<OS\> machine** | Pins a fresh machine resolved for the OS setting | New screen, GPU, cores, fonts and noise seeds; a warmed-up account is now on different hardware |
+
+Neither is preselected, and `POST /api/profiles/{id}/reconcile-os` refuses when
+the two already agree, so a stale screen cannot replace the hardware of a healthy
+profile.
+
 ## Where the profile appears to be
 
 A pinned machine keeps the hardware honest. Geography is the other half, and it
@@ -116,9 +135,34 @@ used. Without that, Firefox falls back to *this computer's* timezone: measured,
 a profile with Tokyo coordinates reported `Europe/Moscow`, the host's own zone.
 
 Profiles created before this behaviour keep the timezone and coordinates they
-were given, and those were picked from a random region. They are not migrated —
-changing a stored fingerprint under a live account is worse than leaving it — so
-check such a profile and clear the two fields if they disagree with its proxy.
+were given, and those were picked from a random region. They are still not
+migrated automatically — changing a stored fingerprint under a live account is
+worse than leaving it — but the change is offered:
+
+- **In the profile form**, under Geolocation, whenever the saved profile states a
+  timezone or coordinates: *Clear both, follow the proxy*.
+- **In the profiles list**, as a bulk action on the current selection. The button
+  counts how many of the selected profiles actually state a location, so it says
+  what it will really change.
+- **`POST /api/profiles/clear-geography`** with `{"profile_ids": [...]}`, which
+  is what both use.
+
+**There is no attempt to guess which values were chosen on purpose.** Nothing
+recorded it, and the only distinguishable signal — values matching the old
+generator's region table — is exactly what someone who deliberately picked that
+city would have produced. So the action is offered wherever geography is set,
+explained, and never applied on its own.
+
+Only the timezone and the coordinates are cleared. Languages and `locale` are
+left alone: Camoufox applies languages after its IP lookup regardless, an
+English-language browser is unremarkable from any country, and changing them
+would alter the profile's identity rather than free it to follow the proxy.
+
+Clearing the coordinates is the part that matters beyond tidiness. Their presence
+forces `geoip=False`, and that same branch is what fills the timezone and the
+WebRTC address, so a profile carrying a random region derives none of the three
+from its proxy. With both cleared, `geoip` is back on and all three follow the
+exit address.
 
 ### Checking a proxy
 

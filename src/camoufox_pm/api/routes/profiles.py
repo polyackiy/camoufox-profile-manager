@@ -22,6 +22,8 @@ from camoufox_pm.api.models.profiles import (
     ActiveBrowsersResponse,
     BrowserCloseResponse,
     BrowsersCloseAllResponse,
+    ClearGeographyRequest,
+    ClearGeographyResponse,
     ProfileCloneRequest,
     ProfileCreateRequest,
     ProfileLaunchRequest,
@@ -32,6 +34,7 @@ from camoufox_pm.api.models.profiles import (
     ProfileUpdateRequest,
     ProxyCheckRequest,
     ProxyCheckResponse,
+    ReconcileOsRequest,
 )
 from camoufox_pm.api.models.system import ApiResponse, ExcelImportData
 from camoufox_pm.core import proxy_check
@@ -467,6 +470,54 @@ async def refresh_browser_version(profile_id: str):
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         logger.error(f"Failed to refresh the browser version for {profile_id}: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post(
+    "/profiles/{profile_id}/reconcile-os",
+    response_model=ProfileResponse,
+    summary="Reconcile the OS setting with the pinned machine",
+    description=(
+        "A profile's OS setting and its pinned machine can disagree, because the pin is "
+        "what a page sees and the setting is only a dropdown. Either put the setting back "
+        "to what the machine reports (no fingerprint change), or pin a new machine for the "
+        "setting — new screen, GPU, cores, fonts and noise seeds."
+    ),
+)
+async def reconcile_profile_os(profile_id: str, request: ReconcileOsRequest):
+    """Bring a profile's OS setting and its pinned machine back into agreement."""
+    try:
+        profile = await get_profile_manager().reconcile_os(profile_id, request.keep_machine)
+        if not profile:
+            raise HTTPException(status_code=404, detail=f"Profile with ID {profile_id} not found")
+        return ProfileResponse.from_profile(profile)
+    except HTTPException:
+        raise
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.error(f"Failed to reconcile the OS for {profile_id}: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post(
+    "/profiles/clear-geography",
+    response_model=ClearGeographyResponse,
+    summary="Clear stored timezone and coordinates",
+    description=(
+        "Unset the timezone and coordinates of the named profiles so both follow the "
+        "proxy's exit address again, as a profile created today does. Takes a list "
+        "because profiles created before that behaviour all carry a randomly chosen "
+        "region. Languages and locale are left alone."
+    ),
+)
+async def clear_profiles_geography(request: ClearGeographyRequest):
+    """Make the named profiles derive their location from their proxy again."""
+    try:
+        result = await get_profile_manager().clear_geography(request.profile_ids)
+        return ClearGeographyResponse(**result)
+    except Exception as exc:
+        logger.error(f"Failed to clear geography: {exc}")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 

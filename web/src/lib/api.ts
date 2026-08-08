@@ -59,6 +59,12 @@ export interface FingerprintSummary {
   installed_major?: number | null
   /** The pin claims an older browser than the one installed. */
   browser_outdated?: boolean
+  /** The OS the pinned machine itself reports. */
+  pinned_os?: string | null
+  /** The OS the profile's settings ask for. */
+  settings_os?: string | null
+  /** The setting names one operating system and the pinned machine another. */
+  os_mismatch?: boolean
 }
 
 export interface Profile {
@@ -224,6 +230,23 @@ export const profilesAPI = {
     return request<Profile>(`${API_PREFIX}/profiles/${id}/refresh-browser`, { method: 'POST' })
   },
 
+  /** keepMachine: move the OS setting to the pin. Otherwise: pin new hardware for the setting. */
+  reconcileOs(id: string, keepMachine: boolean): Promise<Profile> {
+    return request<Profile>(`${API_PREFIX}/profiles/${id}/reconcile-os`, {
+      method: 'POST',
+      body: JSON.stringify({ keep_machine: keepMachine }),
+    })
+  },
+
+  // Takes a list because the profiles this exists for — created when every one
+  // was given a random region — are all of them at once.
+  clearGeography(ids: string[]): Promise<ClearGeographyResult> {
+    return request<ClearGeographyResult>(`${API_PREFIX}/profiles/clear-geography`, {
+      method: 'POST',
+      body: JSON.stringify({ profile_ids: ids }),
+    })
+  },
+
   checkProxy(id: string): Promise<ProxyCheck> {
     return request<ProxyCheck>(`${API_PREFIX}/profiles/${id}/check-proxy`, { method: 'POST' })
   },
@@ -283,6 +306,12 @@ export const profilesAPI = {
     })
     return response.json() as Promise<ImportResult>
   },
+}
+
+export interface ClearGeographyResult {
+  cleared: string[]
+  unchanged: string[]
+  not_found: string[]
 }
 
 export interface ImportResult {
@@ -363,6 +392,12 @@ export const systemAPI = {
 }
 
 // --- Display helpers ---------------------------------------------------------
+
+/** Whether a profile states where it is instead of letting its proxy say. */
+export function hasGeography(profile: Profile): boolean {
+  const bs = profile.browser_settings ?? {}
+  return Boolean(bs.timezone || bs.geolocation)
+}
 
 export function formatProxyString(proxy?: ProxyConfig | null): string {
   if (!proxy || !proxy.server) return ''
