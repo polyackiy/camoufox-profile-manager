@@ -3,8 +3,9 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Layers, Settings, Users } from 'lucide-react'
+import { Layers, LogOut, Settings, Users } from 'lucide-react'
 
+import { useAuth } from '@/components/login-gate'
 import { systemAPI } from '@/lib/api'
 
 const NAV = [
@@ -19,6 +20,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   // trailingSlash is on for the static export, so normalise before comparing.
   const current = pathname.replace(/\/+$/, '') || '/'
   const [address, setAddress] = useState<string | null>(null)
+  const { username, logout } = useAuth()
 
   useEffect(() => {
     // Report where the server actually is rather than assuming loopback.
@@ -57,8 +59,24 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           })}
         </nav>
 
-        <div className="mt-auto px-4 py-3 font-mono text-[11px] text-ink-faint">
-          {address ?? '—'}
+        <div className="mt-auto">
+          {username && (
+            <div className="flex items-center justify-between gap-2 border-t border-line px-4 py-2">
+              <span className="truncate text-ink-dim" title={username}>
+                {username}
+              </span>
+              <button
+                type="button"
+                onClick={logout}
+                aria-label="Log out"
+                title="Log out"
+                className="rounded p-1 text-ink-faint transition-colors hover:bg-raised hover:text-ink"
+              >
+                <LogOut size={14} strokeWidth={1.75} />
+              </button>
+            </div>
+          )}
+          <div className="px-4 py-3 font-mono text-[11px] text-ink-faint">{address ?? '—'}</div>
         </div>
       </aside>
 

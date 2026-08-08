@@ -121,6 +121,28 @@ class DatabaseManager:
             )
         """)
 
+        # User accounts for the web UI. Their mere existence turns login on, so a
+        # database without rows here behaves exactly as before the table existed.
+        self._connection.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                id TEXT PRIMARY KEY,
+                username TEXT NOT NULL UNIQUE COLLATE NOCASE,
+                password_hash TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        # Login sessions, keyed by the SHA-256 of the cookie token — the token
+        # itself is never stored, so this table cannot be replayed if leaked.
+        self._connection.execute("""
+            CREATE TABLE IF NOT EXISTS sessions (
+                token_hash TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                expires_at TIMESTAMP NOT NULL
+            )
+        """)
+
         self._connection.commit()
 
     async def _create_indexes(self):
@@ -353,6 +375,85 @@ class DatabaseManager:
 
         return stats
 
+    # --- Users and sessions ---
+
+    async def create_user(self, user_id: str, username: str, password_hash: str) -> None:
+        """Create a user; raises ``ValueError`` when the username is taken."""
+        try:
+            self._connection.execute(
+                "INSERT INTO users (id, username, password_hash, created_at) VALUES (?, ?, ?, ?)",
+                (user_id, username, password_hash, datetime.now().isoformat()),
+            )
+        except sqlite3.IntegrityError as exc:
+            raise ValueError(f"User {username!r} already exists") from exc
+        self._connection.commit()
+        # Deliberately logs the name only, never the hash.
+        logger.info(f"User {username} created")
+
+    async def get_user_by_username(self, username: str) -> dict | None:
+        cursor = self._connection.execute(
+            "SELECT id, username, password_hash FROM users WHERE username = ?", (username,)
+        )
+        row = cursor.fetchone()
+        return dict(row) if row else None
+
+    async def update_user_password(self, username: str, password_hash: str) -> bool:
+        cursor = self._connection.execute(
+            "UPDATE users SET password_hash = ? WHERE username = ?", (password_hash, username)
+        )
+        self._connection.commit()
+        return cursor.rowcount > 0
+
+    async def delete_user(self, username: str) -> bool:
+        """Delete a user; the foreign key cascades their open sessions away."""
+        cursor = self._connection.execute("DELETE FROM users WHERE username = ?", (username,))
+        self._connection.commit()
+        return cursor.rowcount > 0
+
+    async def count_users(self) -> int:
+        cursor = self._connection.execute("SELECT COUNT(*) FROM users")
+        return cursor.fetchone()[0]
+
+    async def list_users(self) -> list[dict]:
+        """Usernames and creation times only — hashes stay in the table."""
+        cursor = self._connection.execute(
+            "SELECT username, created_at FROM users ORDER BY created_at"
+        )
+        return [dict(row) for row in cursor.fetchall()]
+
+    async def create_session(self, token_hash: str, user_id: str, expires_at: datetime) -> None:
+        self._connection.execute(
+            "INSERT INTO sessions (token_hash, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)",
+            (token_hash, user_id, datetime.now().isoformat(), expires_at.isoformat()),
+        )
+        self._connection.commit()
+
+    async def get_session(self, token_hash: str) -> dict | None:
+        cursor = self._connection.execute(
+            """
+            SELECT s.token_hash, s.user_id, s.expires_at, u.username
+            FROM sessions s JOIN users u ON u.id = s.user_id
+            WHERE s.token_hash = ?
+            """,
+            (token_hash,),
+        )
+        row = cursor.fetchone()
+        return dict(row) if row else None
+
+    async def delete_session(self, token_hash: str) -> bool:
+        cursor = self._connection.execute(
+            "DELETE FROM sessions WHERE token_hash = ?", (token_hash,)
+        )
+        self._connection.commit()
+        return cursor.rowcount > 0
+
+    async def delete_expired_sessions(self) -> int:
+        cursor = self._connection.execute(
+            "DELETE FROM sessions WHERE expires_at <= ?", (datetime.now().isoformat(),)
+        )
+        self._connection.commit()
+        return cursor.rowcount
+
     # --- Utilities ---
 
     def _row_to_profile(self, row) -> Profile:
@@ -450,6 +551,37 @@ class StorageManager:
 
     async def delete_profile_group(self, group_id: str) -> bool:
         return await self.db.delete_profile_group(group_id)
+
+    # User and session methods
+    async def create_user(self, user_id: str, username: str, password_hash: str) -> None:
+        await self.db.create_user(user_id, username, password_hash)
+
+    async def get_user_by_username(self, username: str) -> dict | None:
+        return await self.db.get_user_by_username(username)
+
+    async def update_user_password(self, username: str, password_hash: str) -> bool:
+        return await self.db.update_user_password(username, password_hash)
+
+    async def delete_user(self, username: str) -> bool:
+        return await self.db.delete_user(username)
+
+    async def count_users(self) -> int:
+        return await self.db.count_users()
+
+    async def list_users(self) -> list[dict]:
+        return await self.db.list_users()
+
+    async def create_session(self, token_hash: str, user_id: str, expires_at: datetime) -> None:
+        await self.db.create_session(token_hash, user_id, expires_at)
+
+    async def get_session(self, token_hash: str) -> dict | None:
+        return await self.db.get_session(token_hash)
+
+    async def delete_session(self, token_hash: str) -> bool:
+        return await self.db.delete_session(token_hash)
+
+    async def delete_expired_sessions(self) -> int:
+        return await self.db.delete_expired_sessions()
 
     async def close(self):
         """Close the database."""

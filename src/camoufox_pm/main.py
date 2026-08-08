@@ -11,14 +11,14 @@ from loguru import logger
 
 from camoufox_pm import __version__
 from camoufox_pm.api.dependencies import (
-    require_api_key,
+    require_auth,
     set_profile_manager,
     set_storage_manager,
 )
 from camoufox_pm.api.errors import install_error_handlers
 from camoufox_pm.api.middleware.logging import LoggingMiddleware
 from camoufox_pm.api.models.system import ErrorResponse, HealthResponse
-from camoufox_pm.api.routes import groups, profiles, system
+from camoufox_pm.api.routes import auth, groups, profiles, system
 from camoufox_pm.config import get_settings
 from camoufox_pm.core.database import StorageManager
 from camoufox_pm.core.profile_manager import ProfileManager
@@ -78,12 +78,20 @@ app.add_middleware(
 )
 app.add_middleware(LoggingMiddleware)
 
-# Optional API-key guard; a no-op when CPM_API_KEY is unset.
-protected = [Depends(require_api_key)]
+# Session-or-API-key guard; a no-op when neither users nor CPM_API_KEY exist.
+protected = [Depends(require_auth)]
 # /api/v1 is the canonical prefix. The same routers are also served under the
 # pre-0.2 unversioned /api so existing scripts keep working; those copies are
 # left out of the schema so a generated client sees each operation once.
 for _prefix, _in_schema in (("/api/v1", True), ("/api", False)):
+    # Unguarded on purpose: login has to work logged out, and /auth/session is
+    # how the UI decides whether to show the login screen.
+    app.include_router(
+        auth.router,
+        prefix=_prefix,
+        tags=["Auth"],
+        include_in_schema=_in_schema,
+    )
     app.include_router(
         profiles.router,
         prefix=_prefix,

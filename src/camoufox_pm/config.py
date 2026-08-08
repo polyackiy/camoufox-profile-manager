@@ -19,6 +19,13 @@ class Settings(BaseSettings):
     db_path: str = "data/profiles.db"
     secret_key: str | None = None
     webui_dir: str | None = None
+    # Lifetime of a login session. Sessions are stored server-side, so shortening
+    # this takes effect for existing sessions on their next request.
+    session_ttl_hours: int = 168
+    # Force the Secure flag on the session cookie. The flag is set automatically
+    # when the request itself arrived over HTTPS, but behind a TLS-terminating
+    # proxy the app sees plain HTTP — set this there.
+    secure_cookies: bool = False
 
     @field_validator("cors_origins", mode="before")
     @classmethod

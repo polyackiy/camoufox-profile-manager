@@ -118,3 +118,42 @@ async def test_proxy_password_is_encrypted_at_rest(storage, monkeypatch):
         assert loaded.proxy.password == "secret"
     finally:
         get_settings.cache_clear()
+
+
+@pytest.mark.asyncio
+async def test_a_pre_auth_database_gains_the_user_tables_without_losing_data(tmp_path):
+    """An install from before user accounts has no users/sessions tables; opening
+    it must add them and leave the existing rows exactly as they were."""
+    import sqlite3
+
+    from camoufox_pm.core.database import StorageManager
+
+    db_path = tmp_path / "old.db"
+    old = sqlite3.connect(str(db_path))
+    old.execute(
+        """
+        CREATE TABLE profiles (
+            id TEXT PRIMARY KEY, name TEXT NOT NULL, group_id TEXT,
+            status TEXT DEFAULT 'active', browser_settings TEXT NOT NULL,
+            proxy_config TEXT, extensions TEXT, storage_path TEXT, notes TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, last_used TIMESTAMP
+        )
+        """
+    )
+    old.execute(
+        "INSERT INTO profiles (id, name, browser_settings, created_at, updated_at) "
+        "VALUES ('p1', 'survivor', '{}', '2025-01-01T00:00:00', '2025-01-01T00:00:00')"
+    )
+    old.commit()
+    old.close()
+
+    storage = StorageManager(str(db_path))
+    await storage.initialize()
+    try:
+        assert (await storage.get_profile("p1")).name == "survivor"
+        assert await storage.count_users() == 0
+        await storage.create_user("u1", "alice", "hash")
+        assert await storage.count_users() == 1
+    finally:
+        await storage.close()

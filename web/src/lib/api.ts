@@ -354,6 +354,7 @@ export interface SystemConfig {
   port: number
   database_path: string
   api_key_set: boolean
+  user_auth_enabled: boolean
   encryption_enabled: boolean
   cors_origins: string[]
   camoufox_available: boolean
@@ -377,6 +378,32 @@ export const presetsAPI = {
       `${API_PREFIX}/fingerprints/presets${toQuery({ os })}`,
     )
     return body.data.presets
+  },
+}
+
+/** The caller's authentication state, from GET /auth/session. */
+export interface AuthSession {
+  user_auth_enabled: boolean
+  authenticated: boolean
+  username: string | null
+}
+
+// The session lives in an HttpOnly cookie the browser sends by itself on this
+// same-origin app; nothing here stores or reads a token.
+export const authAPI = {
+  session(): Promise<AuthSession> {
+    return request<AuthSession>(`${API_PREFIX}/auth/session`)
+  },
+
+  login(username: string, password: string): Promise<AuthSession> {
+    return request<AuthSession>(`${API_PREFIX}/auth/login`, {
+      method: 'POST',
+      body: JSON.stringify({ username, password }),
+    })
+  },
+
+  logout(): Promise<unknown> {
+    return request<unknown>(`${API_PREFIX}/auth/logout`, { method: 'POST' })
   },
 }
 

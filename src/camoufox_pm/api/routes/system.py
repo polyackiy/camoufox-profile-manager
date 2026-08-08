@@ -8,7 +8,7 @@ from fastapi import APIRouter, HTTPException
 from loguru import logger
 
 from camoufox_pm import __version__
-from camoufox_pm.api.dependencies import get_profile_manager
+from camoufox_pm.api.dependencies import get_profile_manager, get_storage_manager
 from camoufox_pm.api.models.system import (
     ApiResponse,
     DevicePreset,
@@ -215,6 +215,7 @@ async def get_system_config():
             port=settings.port,
             database_path=str(Path(settings.db_path).resolve()),
             api_key_set=bool(settings.api_key),
+            user_auth_enabled=await get_storage_manager().count_users() > 0,
             encryption_enabled=bool(settings.secret_key),
             cors_origins=settings.cors_origins,
             camoufox_available=CAMOUFOX_AVAILABLE,
