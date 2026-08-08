@@ -132,8 +132,50 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `--port` is no longer misreported as the configured default.
 - Removed the `/ws/monitor` WebSocket route: no client used it, it had no tests,
   and it was mounted without the API-key guard.
+- The parts that had never been exercised are now tested: deleting profile
+  directories, the browser session lifecycle, bulk spreadsheet import, the
+  destructive system endpoints and the command-line launcher. Six bugs came out
+  of writing them, listed below. `ProfileCleanupManager` takes the database path
+  separately from the data directory, and its CLI gained `--db-path`;
+  `create_profile` takes a `status`. What is left uncovered on purpose, and why,
+  is written down in CONTRIBUTING.
+- Removed `ExcelManager._prepare_profile_updates`, which nothing has ever called:
+  import only creates profiles.
 
 ### Fixed
+- **The cleanup endpoint could delete every profile directory on the machine.**
+  `POST /api/system/profiles/cleanup` and the diagnostic beside it built their
+  storage view from hard-coded defaults — `./data` and `./data/profiles.db` —
+  instead of the configured database. With `CPM_DB_PATH` pointing at any other
+  file name, they opened an empty database next to the real one, found nothing to
+  match the directories on disk against, and removed all of them. A profile
+  directory is the account: cookies, storage and saved logins go with it.
+- **A clone was the same machine as the profile it came from.** Cloning copied
+  the pinned fingerprint along with everything else, so the copy reported an
+  identical GPU, screen, core count, fonts and noise seeds — and a pin never
+  changes on its own, so it stayed that way. Two accounts that are provably one
+  computer is the one thing this tool exists to prevent. A clone now starts
+  unpinned and takes its own machine on first launch; asking it not to regenerate
+  the fingerprint still keeps the pin, which is the deliberate case.
+- **A rearranged spreadsheet imported into the wrong fields.** Import located
+  columns by position, so deleting the read-only ID column or dragging one
+  elsewhere — the two things bulk editing invites — shifted every field after it.
+  Nothing objected, because most of them are free text: a sheet with Locale moved
+  ahead of Timezone imported cleanly with those two values swapped, for every row.
+  Columns are now found by their header, and a file without a recognisable header
+  row is refused instead of imported as garbage.
+- **Excel import dropped the Notes and Status columns.** Both were exported, both
+  were read back out of the row, and neither was ever applied, so every imported
+  profile came back active and without its notes. An unrecognised status now
+  fails that row rather than quietly reactivating a profile someone had parked.
+- **Profile statistics were always empty.** `GET /api/profiles/{id}/stats` read
+  keys the manager never returned, so it reported no sessions, no last session
+  and no actions however much the profile had been used.
+- **Cloning an unknown profile answered 500 instead of 404**, reporting the
+  caller's own bad id as a server fault.
+- **A page of profiles could not be taken from the middle of the list.** SQLite
+  will not accept an `OFFSET` without a `LIMIT`, so `list_profiles(offset=...)`
+  on its own had the offset dropped and returned the first page.
 - **A new profile no longer picks a random country.** Every generated profile got
   a timezone, coordinates and languages from a randomly chosen region, so a fresh
   profile might claim Shanghai and then be given a German proxy — the manager was
