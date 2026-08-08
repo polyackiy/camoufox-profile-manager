@@ -304,6 +304,12 @@ class ProfileManager:
         if regenerate_fingerprint:
             fingerprint = await self.fingerprint_generator.generate_fingerprint()
             new_profile.browser_settings = fingerprint
+            # And drop the pinned machine, which the copy above brought along.
+            # Without this the clone reported the same GPU, screen, core count
+            # and noise seeds as its source for the rest of its life: two
+            # profiles that are provably one computer. The next launch pins a new
+            # one, exactly as it does for a profile that has never run.
+            new_profile.fingerprint = None
 
         # Create the directory for the new profile
         profile_dir = Path(new_profile.get_storage_path(str(self.profiles_dir)))
