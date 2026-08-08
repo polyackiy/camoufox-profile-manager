@@ -17,6 +17,7 @@ that is trivial to detect and worse than no spoofing at all.
 """
 
 import json
+import re
 from functools import lru_cache
 from typing import Any
 
@@ -54,6 +55,24 @@ _NEVER_FROZEN = frozenset(
         "addons",
     }
 )
+
+
+# Values that describe the browser *build* rather than the machine it runs on.
+# A real computer updates its browser while staying the same computer, so these
+# are the only parts a version refresh replaces. Everything else in the pin —
+# GPU, screen, cores, fonts, noise seeds — is the device and must survive.
+#
+# Only navigator.userAgent carries the version in Camoufox 152 (the HTTP
+# User-Agent header is derived from it, so freezing one keeps both in step, and
+# navigator.buildID is not emitted). buildID is listed for when it is.
+_BROWSER_VERSION_KEYS = frozenset(
+    {
+        "navigator.userAgent",
+        "navigator.buildID",
+    }
+)
+
+_UA_VERSION = re.compile(r"rv:(\d+)")
 
 
 def freeze(resolved: dict[str, Any]) -> dict[str, Any]:
@@ -164,6 +183,85 @@ def _presets() -> dict[str, list[dict[str, Any]]]:
         return {}
 
 
+# navigator.platform is the pin's own statement of which OS it is, independent of
+# whatever the profile's settings currently say.
+_PLATFORM_OS = {
+    "Win32": "windows",
+    "Win64": "windows",
+    "MacIntel": "macos",
+    "Linux x86_64": "linux",
+    "Linux i686": "linux",
+}
+
+
+def pinned_os(fingerprint: dict[str, Any] | None) -> str | None:
+    """The operating system a pinned fingerprint describes.
+
+    Read from the pin rather than the profile's settings, which can disagree with
+    it: someone may change the OS dropdown long after the machine was pinned.
+    Resolving a new user agent from the settings in that case would put a macOS
+    browser on Windows hardware.
+    """
+    if not fingerprint:
+        return None
+    platform = str(fingerprint.get("navigator.platform", ""))
+    if platform in _PLATFORM_OS:
+        return _PLATFORM_OS[platform]
+    oscpu = str(fingerprint.get("navigator.oscpu", "")).lower()
+    for needle, name in (("windows", "windows"), ("mac", "macos"), ("linux", "linux")):
+        if needle in oscpu:
+            return name
+    return None
+
+
+def browser_major(fingerprint: dict[str, Any] | None) -> int | None:
+    """The Firefox major version a pinned fingerprint claims, from its user agent."""
+    if not fingerprint:
+        return None
+    match = _UA_VERSION.search(str(fingerprint.get("navigator.userAgent", "")))
+    return int(match.group(1)) if match else None
+
+
+def installed_major() -> int | None:
+    """The Firefox major version of the browser on disk."""
+    try:
+        from camoufox.pkgman import installed_verstr
+
+        match = re.match(r"(\d+)", installed_verstr())
+        return int(match.group(1)) if match else None
+    except Exception:  # noqa: BLE001 - the browser may not be installed
+        return None
+
+
+def is_outdated(fingerprint: dict[str, Any] | None) -> bool:
+    """Whether a pin claims an older browser than the one now installed.
+
+    A pinned fingerprint never ages on its own, so a profile kept for months
+    keeps advertising the version it was created with. Real machines update, and
+    a browser several releases behind is itself unusual enough to notice.
+    """
+    pinned = browser_major(fingerprint)
+    current = installed_major()
+    return pinned is not None and current is not None and pinned < current
+
+
+def refresh_browser_version(pinned: dict[str, Any], resolved: dict[str, Any]) -> dict[str, Any]:
+    """Move a pin onto a newer browser without changing the machine.
+
+    Takes the browser-version values from ``resolved`` and keeps everything else
+    from ``pinned``, which is what a real device looks like after an update: same
+    GPU, screen, cores, fonts and noise seeds; newer user agent.
+    """
+    updated = dict(pinned)
+    for key in _BROWSER_VERSION_KEYS:
+        if key in resolved:
+            updated[key] = resolved[key]
+        else:
+            # The new build no longer emits it; a stale value would be worse.
+            updated.pop(key, None)
+    return updated
+
+
 def can_resolve() -> bool:
     """Whether a fingerprint can be resolved right now.
 
@@ -251,4 +349,8 @@ def summarize(fingerprint: dict[str, Any] | None) -> dict[str, Any] | None:
         "gpu": fingerprint.get("webGl:renderer"),
         "font_count": len(fonts) if isinstance(fonts, list) else None,
         "property_count": len(fingerprint),
+        # So the UI can offer an update without re-deriving this itself.
+        "browser_major": browser_major(fingerprint),
+        "installed_major": installed_major(),
+        "browser_outdated": is_outdated(fingerprint),
     }

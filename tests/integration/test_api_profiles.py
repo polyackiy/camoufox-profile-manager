@@ -398,6 +398,91 @@ async def test_unknown_preset_is_rejected(client):
     assert "preset" in response.json()["detail"].lower()
 
 
+STALE_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:100.0) Gecko/20100101 Firefox/100.0"
+FRESH_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:199.0) Gecko/20100101 Firefox/199.0"
+
+
+@pytest.mark.asyncio
+async def test_refresh_browser_version_keeps_the_machine(client, monkeypatch):
+    """A pin must be able to move to a newer browser without changing device.
+
+    A pin never ages on its own, so a profile kept for months keeps advertising
+    the browser it was created with — and a browser several releases behind is
+    itself unusual enough to notice.
+
+    ``resolve`` is stubbed so this covers the wiring without needing the browser
+    binary; ``tests/browser`` exercises it against a real Camoufox.
+    """
+    from camoufox_pm.api.dependencies import get_profile_manager
+
+    # A newly resolved fingerprint describes a completely different machine.
+    monkeypatch.setattr(
+        fingerprint_store,
+        "resolve",
+        lambda *a, **k: {
+            "navigator.userAgent": FRESH_UA,
+            "navigator.hardwareConcurrency": 2,
+            "screen.width": 800,
+            "screen.height": 600,
+            "webGl:renderer": "ANGLE (Intel, Intel(R) HD Graphics)",
+            "canvas:seed": 999999,
+            "fonts:spacing_seed": 5,
+        },
+    )
+    monkeypatch.setattr(fingerprint_store, "installed_major", lambda: 199)
+
+    created = await client.post("/api/profiles", json={"name": "ageing"})
+    profile_id = created.json()["id"]
+
+    manager = get_profile_manager()
+    profile = await manager.get_profile(profile_id)
+    # A pin as it would look after months on an older release.
+    profile.fingerprint = {
+        "navigator.userAgent": STALE_UA,
+        "navigator.hardwareConcurrency": 12,
+        "screen.width": 2560,
+        "screen.height": 1440,
+        "webGl:renderer": "ANGLE (NVIDIA, GeForce GTX 980)",
+        "canvas:seed": 424242,
+        "fonts:spacing_seed": 777,
+    }
+    await manager.storage.update_profile(profile)
+
+    stale = (await client.get(f"/api/profiles/{profile_id}")).json()["fingerprint"]
+    assert stale["browser_major"] == 100
+    assert stale["browser_outdated"] is True
+
+    response = await client.post(f"/api/profiles/{profile_id}/refresh-browser")
+    assert response.status_code == 200
+    refreshed = response.json()["fingerprint"]
+
+    assert refreshed["browser_major"] == 199, "the browser should have moved forward"
+    assert refreshed["browser_outdated"] is False
+    # The device is unchanged.
+    assert refreshed["screen"] == "2560x1440"
+    assert refreshed["hardware_concurrency"] == 12
+    assert refreshed["gpu"] == "ANGLE (NVIDIA, GeForce GTX 980)"
+
+    stored = await manager.get_profile(profile_id)
+    assert stored.fingerprint["canvas:seed"] == 424242, "changing the seed would alter the canvas"
+    assert stored.fingerprint["fonts:spacing_seed"] == 777
+
+
+@pytest.mark.asyncio
+async def test_refresh_browser_version_needs_a_pin_first(client):
+    """Refreshing an unpinned profile would silently invent a machine."""
+    created = await client.post("/api/profiles", json={"name": "unpinned"})
+    response = await client.post(f"/api/profiles/{created.json()['id']}/refresh-browser")
+    assert response.status_code == 400
+    assert "launch it once" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_refresh_browser_version_on_a_missing_profile_is_404(client):
+    response = await client.post("/api/profiles/does-not-exist/refresh-browser")
+    assert response.status_code == 404
+
+
 @pytest.mark.asyncio
 async def test_fingerprint_is_absent_until_the_first_launch(client):
     """A profile has no pinned machine until it is opened for the first time."""

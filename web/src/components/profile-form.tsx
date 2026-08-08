@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { Loader2, RefreshCw } from 'lucide-react'
+import { AlertTriangle, Loader2, RefreshCw } from 'lucide-react'
 
 import { Modal } from '@/components/modal'
 import { useToast } from '@/components/toast'
@@ -101,6 +101,11 @@ export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) 
   const [form, setForm] = useState<FormState>(EMPTY)
   const [saving, setSaving] = useState(false)
   const [regenerating, setRegenerating] = useState(false)
+  const [refreshingBrowser, setRefreshingBrowser] = useState(false)
+  // The `profile` prop is a snapshot from the list; regenerating or updating the
+  // browser returns a new machine, and the panel has to show it without waiting
+  // for the dialog to be reopened.
+  const [machine, setMachine] = useState<FingerprintSummary | null | undefined>(undefined)
   const [presets, setPresets] = useState<DevicePreset[]>([])
   const [presetId, setPresetId] = useState('')
   const toast = useToast()
@@ -108,6 +113,7 @@ export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) 
   useEffect(() => {
     if (open) {
       setForm(profile ? fromProfile(profile) : EMPTY)
+      setMachine(profile?.fingerprint)
       setPresetId('')
     }
   }, [open, profile])
@@ -223,12 +229,32 @@ export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) 
     }
   }
 
+  async function handleRefreshBrowser() {
+    if (!profile) return
+    setRefreshingBrowser(true)
+    try {
+      const updated = await profilesAPI.refreshBrowserVersion(profile.id)
+      setMachine(updated.fingerprint)
+      toast(
+        'ok',
+        `Browser updated to Firefox ${updated.fingerprint?.browser_major}`,
+        'The machine is unchanged.',
+      )
+      onSaved()
+    } catch (err) {
+      toast('error', 'Could not update the browser version', String(err))
+    } finally {
+      setRefreshingBrowser(false)
+    }
+  }
+
   async function handleRegenerate() {
     if (!profile) return
     setRegenerating(true)
     try {
       const updated = await profilesAPI.resetFingerprint(profile.id)
       setForm(fromProfile(updated))
+      setMachine(updated.fingerprint)
       toast('ok', 'Fingerprint regenerated')
       onSaved()
     } catch (err) {
@@ -437,7 +463,11 @@ export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) 
         </Section>
 
         {isEdit ? (
-          <PinnedMachine fingerprint={profile.fingerprint} />
+          <PinnedMachine
+            fingerprint={machine}
+            onRefreshBrowser={handleRefreshBrowser}
+            refreshing={refreshingBrowser}
+          />
         ) : (
           <fieldset>
             <legend className="mb-0.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-faint">
@@ -651,7 +681,15 @@ function shortGpu(gpu?: string | null): string {
  * The machine a profile is pinned to. Without this the profile would look like
  * different hardware every session, so it is worth showing that it does not.
  */
-function PinnedMachine({ fingerprint }: { fingerprint?: FingerprintSummary | null }) {
+function PinnedMachine({
+  fingerprint,
+  onRefreshBrowser,
+  refreshing,
+}: {
+  fingerprint?: FingerprintSummary | null
+  onRefreshBrowser: () => void
+  refreshing: boolean
+}) {
   if (!fingerprint) {
     return (
       <fieldset>
@@ -667,11 +705,12 @@ function PinnedMachine({ fingerprint }: { fingerprint?: FingerprintSummary | nul
   }
 
   const rows: [string, string | number | null | undefined][] = [
-    ['User agent', fingerprint.user_agent],
+    ['Browser', fingerprint.browser_major ? `Firefox ${fingerprint.browser_major}` : null],
     ['Screen', fingerprint.screen],
     ['CPU cores', fingerprint.hardware_concurrency],
     ['GPU', fingerprint.gpu],
     ['Fonts', fingerprint.font_count],
+    ['User agent', fingerprint.user_agent],
   ]
 
   return (
@@ -693,6 +732,34 @@ function PinnedMachine({ fingerprint }: { fingerprint?: FingerprintSummary | nul
             </div>
           ))}
       </div>
+
+      {/* A pin never ages by itself. A profile kept for months keeps claiming the
+          browser it was created with, and a version well behind is itself odd —
+          so offer the update a real machine would have taken. */}
+      {fingerprint.browser_outdated && (
+        <div className="mt-2 flex items-start gap-2.5 rounded-md border border-line bg-raised p-2.5">
+          <AlertTriangle size={14} className="mt-0.5 shrink-0 text-signal" />
+          <div className="flex-1">
+            <p className="text-ink">
+              This profile still reports Firefox {fingerprint.browser_major}; the installed browser
+              is {fingerprint.installed_major}.
+            </p>
+            <p className="mt-0.5 text-ink-faint">
+              Updating changes only the browser version. The screen, GPU, cores, fonts and canvas
+              stay exactly as they are — the same computer, with its browser updated.
+            </p>
+          </div>
+          <button
+            type="button"
+            className="btn btn-default shrink-0"
+            onClick={onRefreshBrowser}
+            disabled={refreshing}
+          >
+            {refreshing && <Loader2 size={13} className="animate-spin" />}
+            Update
+          </button>
+        </div>
+      )}
     </fieldset>
   )
 }

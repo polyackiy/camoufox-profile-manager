@@ -49,6 +49,12 @@ export interface FingerprintSummary {
   gpu?: string | null
   font_count?: number | null
   property_count?: number
+  /** Firefox major version this pin claims. */
+  browser_major?: number | null
+  /** Firefox major version of the browser on disk. */
+  installed_major?: number | null
+  /** The pin claims an older browser than the one installed. */
+  browser_outdated?: boolean
 }
 
 export interface Profile {
@@ -191,6 +197,10 @@ export const profilesAPI = {
 
   resetFingerprint(id: string): Promise<Profile> {
     return request<Profile>(`/api/profiles/${id}/reset-fingerprint`, { method: 'POST' })
+  },
+
+  refreshBrowserVersion(id: string): Promise<Profile> {
+    return request<Profile>(`/api/profiles/${id}/refresh-browser`, { method: 'POST' })
   },
 
   async exportExcel(): Promise<Blob> {

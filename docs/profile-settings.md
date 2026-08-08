@@ -79,6 +79,23 @@ contradicts the exit IP is easier to spot than no spoofing at all.
 *Regenerate fingerprint* clears the pin, so the next launch assigns new hardware.
 The pinned values are shown read-only in the profile form.
 
+### Keeping a pin from going stale
+
+A pin never ages by itself. A profile created on Firefox 152 still claims 152 a
+year later, and a browser several releases behind is itself unusual — real
+machines update.
+
+*Update* in the Machine panel (or `POST /api/profiles/{id}/refresh-browser`)
+moves the pin onto the installed browser and changes **only** the browser
+version. Screen, GPU, cores, fonts and the noise seeds stay exactly as they were,
+which is what a real computer looks like after a browser update. The button
+appears only when the pin is behind the browser on disk.
+
+The user agent is resolved for the OS **the pin describes**, taken from its
+`navigator.platform`, not from the profile's OS setting. The two can disagree if
+someone changed the dropdown after the machine was pinned, and following the
+setting would put a macOS browser on Windows hardware.
+
 ## Real device presets
 
 Camoufox bundles fingerprints captured from actual machines — 180 Windows, 67

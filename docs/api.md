@@ -108,6 +108,18 @@ GET  /api/profiles/{id}/stats
 `reset-fingerprint` generates new settings **and drops the pinned machine**, so
 the next launch assigns fresh hardware.
 
+```http
+POST /api/profiles/{id}/refresh-browser
+```
+
+Moves the pinned machine onto the installed browser version, changing only the
+browser: the hardware and the noise seeds are kept. Use it when a profile's pin
+has fallen behind the browser on disk — `fingerprint.browser_outdated` in the
+profile response says when. Returns `400` if the profile has no pin yet.
+
+The response's `fingerprint` summary carries `browser_major`, `installed_major`
+and `browser_outdated` so a client does not have to parse the user agent.
+
 ## Running browsers
 
 ```http

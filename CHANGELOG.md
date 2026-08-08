@@ -7,6 +7,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **A pinned machine can move onto a newer browser.** A pin never ages by
+  itself, so a profile created on one Firefox release kept claiming it — and a
+  browser several versions behind is itself unusual, since real machines update.
+  *Update* in the Machine panel replaces only the browser version and keeps the
+  screen, GPU, cores, fonts and noise seeds, which is what a real computer looks
+  like after an update. The profile response now reports `browser_major`,
+  `installed_major` and `browser_outdated`, and the button appears only when the
+  pin is behind. The user agent is resolved for the OS the *pin* describes rather
+  than the profile's setting: the two can disagree, and following the setting put
+  a macOS user agent on Windows hardware.
 - **`stable_canvas`, a per-profile setting.** By default a site sees a different
   canvas each session, which makes a long-lived account look like new hardware
   every visit. Turning this on keeps the canvas reproducible across launches. It
