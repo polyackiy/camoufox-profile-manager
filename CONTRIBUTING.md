@@ -61,6 +61,15 @@ uv run python scripts/build_webui.py
   HOME=$(mktemp -d) uv run pytest -m "not browser"
   ```
 
+- **The browser suite touches the real internet, and can flake.** It loads
+  `example.com` and `iana.org` to compare canvases per site, and resolves the
+  machine's exit address through the same public endpoints Camoufox uses. Running
+  it repeatedly can trip a rate limit, and a failure there looks like a product
+  bug when it is a network one — a full run failed three tests and passed all
+  twenty on the next attempt with no change in between. Re-run a failure in
+  isolation before believing it. This is why the suite is opt-in and excluded
+  from CI, and it is worth removing the dependency if someone finds a way to
+  compare cross-site canvases without two real sites.
 - **Prefer tests that observe real behaviour.** The fingerprint tests launch a
   browser and read what a page would actually see, rather than asserting on the
   options passed in. When a test guards a premise about Camoufox's behaviour, say

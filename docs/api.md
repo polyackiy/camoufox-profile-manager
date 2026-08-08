@@ -7,7 +7,7 @@ that is the authoritative schema. This page is the guided tour, and the
 
 Base URL: `http://127.0.0.1:8000` by default. Endpoints live under **`/api/v1`**.
 
-The unversioned `/api/...` paths from before 0.2 keep working as aliases — same
+The unversioned `/api/...` paths that predate 0.2.0 keep working as aliases — same
 routes, same behaviour — but are left out of the OpenAPI schema so a generated
 client sees each operation once. New code should use `/api/v1`.
 
@@ -49,8 +49,9 @@ GET  /api/v1/auth/session
 
 These three are the only unauthenticated API routes — login has to work logged
 out, and `GET /auth/session` is how the UI decides whether to show the login
-screen. All three answer `{user_auth_enabled, authenticated, username}`; login
-additionally sets the session cookie, and logout returns the action envelope.
+screen. Login and `GET /auth/session` answer
+`{user_auth_enabled, authenticated, username}`; login additionally sets the
+session cookie. Logout returns the action envelope and clears the cookie.
 
 - A successful login sets `cpm_session`: **HttpOnly** (invisible to page
   scripts), **SameSite=Lax**, `Path=/`, and **Secure** when the request came
@@ -74,13 +75,14 @@ additionally sets the session cookie, and logout returns the action envelope.
   you omit is left alone.** This matters most on `PUT /api/v1/profiles/{id}`:
   send `{"proxy_config": null}` to detach a proxy; omit the key to leave it.
 - Statuses: `400` for a bad request, `401` for missing or wrong credentials
-  (API key or login session), `404` for a missing resource, `409` for a state
-  conflict (exporting a running profile), `422` for values that fail
-  validation, `500` otherwise.
+  (API key or login session), `404` for a missing resource, `405` for a method
+  the path does not accept, `409` for a state conflict (exporting a running
+  profile), `422` for values that fail validation, `500` otherwise.
 
 ### Errors
 
-Every non-2xx response has one shape:
+Every non-2xx response from an `/api` route has one shape (`/health` is the
+exception — see [System](#system)):
 
 ```json
 {
@@ -94,7 +96,8 @@ Every non-2xx response has one shape:
 ```
 
 - `error.code` is a stable snake_case token: `bad_request`, `unauthorized`,
-  `not_found`, `conflict`, `validation_error`, `internal_error`.
+  `not_found`, `method_not_allowed`, `conflict`, `validation_error`,
+  `internal_error`.
 - `error.message` is always a single human-readable string — including for
   validation failures, which used to arrive as a list.
 - `error.details` carries the structured specifics when there are any; for
@@ -129,7 +132,7 @@ Deliberately **outside** the contract, at 1.0 and after:
 
 ### Deprecated, removed in 1.0
 
-Everything here works throughout `0.1.x` and is marked deprecated in the
+Everything here works throughout `0.2.x` and is marked deprecated in the
 OpenAPI schema:
 
 | Deprecated                                        | Use instead                          |
@@ -211,10 +214,17 @@ merged the same way, but is deprecated — it goes away in 1.0.
 ### Other actions
 
 ```http
-POST /api/v1/profiles/{id}/clone              {"new_name": "..."}
+POST /api/v1/profiles/{id}/clone              {"new_name": "...", "regenerate_fingerprint": true}
 POST /api/v1/profiles/{id}/reset-fingerprint
 GET  /api/v1/profiles/{id}/stats
 ```
+
+A clone gets **its own machine**, not a copy of the source's. `regenerate_fingerprint`
+defaults to true, which drops the pinned fingerprint so the copy's first launch
+resolves a new one — two profiles sharing a pin would report the same GPU, screen,
+core count and noise seeds forever, which is provably one computer. Pass
+`{"regenerate_fingerprint": false}` to copy the machine as well, and know what you
+are asking for.
 
 `reset-fingerprint` generates new settings **and drops the pinned machine**, so
 the next launch assigns fresh hardware.
@@ -232,7 +242,7 @@ The response's `fingerprint` summary carries `browser_major`, `installed_major`
 and `browser_outdated` so a client does not have to parse the user agent.
 
 ```http
-POST /api/profiles/{id}/reconcile-os     {"keep_machine": true}
+POST /api/v1/profiles/{id}/reconcile-os     {"keep_machine": true}
 ```
 
 Brings a profile's `os` setting and its pinned machine back into agreement. The
@@ -249,7 +259,7 @@ two already agree — regenerating hardware is irreversible for an account, so a
 stale client cannot trigger it by accident.
 
 ```http
-POST /api/profiles/clear-geography    {"profile_ids": ["a1b2c3d4", ...]}
+POST /api/v1/profiles/clear-geography    {"profile_ids": ["a1b2c3d4", ...]}
 ```
 
 Unsets `timezone` and `geolocation` on each profile named, so Camoufox derives
@@ -297,7 +307,7 @@ polling the process table.
 
 ```http
 GET  /api/v1/profiles/{id}/export      → application/zip
-POST /api/v1/profiles/import           multipart: file=<archive.zip>[&name=...]
+POST /api/v1/profiles/import[?name=…]  multipart: file=<archive.zip>
 ```
 
 The archive carries the profile, its pinned fingerprint and its browser data
@@ -315,9 +325,10 @@ can be restored next to the profile it came from.
 GET /api/v1/fingerprints/presets?os=windows
 ```
 
-The fingerprints Camoufox captured from real machines, as
-`{id, os, screen, hardware_concurrency, gpu, vendor, user_agent}`. Pass an `id`
-as `fingerprint_preset` when creating a profile.
+The fingerprints Camoufox captured from real machines. This one is wrapped in
+the action envelope: the catalogue arrives as `data.presets`, each entry
+`{id, os, screen, hardware_concurrency, gpu, vendor, user_agent}`, alongside
+`data.total`. Pass an `id` as `fingerprint_preset` when creating a profile.
 
 The catalogue reads without the browser installed; pinning one does not.
 

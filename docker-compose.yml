@@ -1,32 +1,26 @@
-# Run the whole stack with:  docker compose up
-# then open http://localhost:3000
+# Run it with:  docker compose up
+# then open http://localhost:8000
 #
-# Ports are published to loopback (127.0.0.1) only — the API has no auth by
-# default. To expose it beyond this host, set CPM_API_KEY (and CPM_SECRET_KEY to
-# encrypt proxy passwords) and change the bindings deliberately.
+# One service: the API and the web UI are served from one process on one port,
+# so there is no second container and no CORS to configure.
+#
+# The port is published to loopback (127.0.0.1) only, because the app is open by
+# default. Before exposing it beyond this host, create a user account
+# (`docker compose exec app uv run camoufox-pm user add <name>`) or set
+# CPM_API_KEY, and set CPM_SECRET_KEY to encrypt proxy passwords at rest.
 services:
-  api:
+  app:
     build: .
     environment:
       # CPM_API_KEY: "change-me"
       # CPM_SECRET_KEY: "generate-with-fernet"
-      CPM_CORS_ORIGINS: http://localhost:3000
+      # Set when a TLS-terminating proxy sits in front, so the session cookie
+      # keeps its Secure flag even though this process sees plain HTTP.
+      # CPM_SECURE_COOKIES: "1"
     volumes:
       - cpm-data:/data
     ports:
       - "127.0.0.1:8000:8000"
-    restart: unless-stopped
-
-  web:
-    build:
-      context: .
-      dockerfile: web/Dockerfile
-      args:
-        API_PROXY_TARGET: http://api:8000
-    ports:
-      - "127.0.0.1:3000:3000"
-    depends_on:
-      - api
     restart: unless-stopped
 
 volumes:

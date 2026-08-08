@@ -2,9 +2,9 @@
 
 from dataclasses import asdict
 from datetime import datetime
-from typing import Any
+from typing import Annotated, Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from camoufox_pm.core.models import Profile, ProfileStatus
 from camoufox_pm.core.proxy_check import Level, ProxyCheckResult
@@ -324,7 +324,11 @@ class ReconcileOsRequest(BaseModel):
 class ClearGeographyRequest(BaseModel):
     """Profiles whose stored timezone and coordinates should follow the proxy again."""
 
-    profile_ids: list[str] = Field(..., min_length=1, description="Profile IDs to clear")
+    # min_length on the items too: a client building ids from empty form state
+    # otherwise gets a cheerful 200 reporting "" as not_found.
+    profile_ids: list[Annotated[str, StringConstraints(min_length=1)]] = Field(
+        ..., min_length=1, description="Profile IDs to clear"
+    )
 
     model_config = ConfigDict(json_schema_extra={"example": {"profile_ids": ["a1b2c3d4"]}})
 

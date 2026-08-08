@@ -13,9 +13,10 @@ Each profile is **one long-lived machine**. It keeps the same fingerprint every
 session, along with its own cookies, storage and history, so an account opened
 from it in January still looks like the same computer in June.
 
-> **Status:** early release (`v0.1.1`). The core works and is covered by tests
-> that drive a real browser; expect the occasional rough edge and API changes
-> before `1.0`.
+> **Status:** `v0.2.0`. The core works and is covered by 361 tests, 20 of which
+> drive a real browser. The REST API is versioned at `/api/v1` and has a written
+> [stability contract](docs/api.md#stability-contract); expect the occasional
+> rough edge elsewhere before `1.0`.
 
 ![Camoufox Profile Manager web interface](docs/assets/screenshot-profiles.png)
 
@@ -30,14 +31,22 @@ from it in January still looks like the same computer in June.
 - **Real device fingerprints.** Create a profile from one of the 312 fingerprints
   Camoufox captured from actual machines, instead of a synthetic one.
 - **Profiles and groups** — create, edit, clone, delete, search, filter, bulk
-  actions, and grouping by client or purpose.
+  actions, and grouping by client or purpose. A clone gets its own machine by
+  default: two profiles sharing one fingerprint are provably one computer.
 - **Browser control** — launch and stop a browser per profile; closing the window
   yourself is noticed and the session is cleaned up.
 - **Scheduling** — open a profile on a schedule (warming), and keep its pinned
   browser version current automatically. Hardware never rotates on a timer, on
   purpose — [docs/scheduling.md](docs/scheduling.md).
-- **Proxies** — HTTP, HTTPS and SOCKS, with passwords encrypted at rest when
-  `CPM_SECRET_KEY` is set.
+- **Proxies, checked before you trust them.** HTTP, HTTPS and SOCKS, with
+  passwords encrypted at rest when `CPM_SECRET_KEY` is set. *Check proxy* reports
+  where the proxy really comes out and whether the profile agrees with it — a
+  timezone on a different clock from the exit country is the kind of
+  contradiction a page can measure in two lines of JavaScript.
+- **Multi-user, when you need it.** Nothing to configure for the usual case: the
+  app binds to loopback and is open. Set `CPM_API_KEY` for machine clients, or
+  create an account (`camoufox-pm user add`) and humans get a login screen —
+  argon2id hashes, HttpOnly session cookies, a logout that really invalidates.
 - **Move a profile anywhere.** Export a profile with its fingerprint *and* its
   browser data into one archive, and import it on another machine.
 - **Bulk editing via Excel** — [docs/excel.md](docs/excel.md).
@@ -89,11 +98,13 @@ Or build a standalone app that needs neither Python nor Node:
 ### With Docker
 
 ```bash
-docker compose up      # then open http://localhost:3000
+docker compose up      # then open http://localhost:8000
 ```
 
-Ports are published on loopback only. Launching real browsers inside a container
-needs a virtual display; profile management and the UI work as-is.
+One container serving the API and the UI on one port, like every other way of
+running it. The port is published on loopback only. Launching real browsers
+inside a container needs a virtual display; profile management, scheduling and
+the UI work as-is.
 
 ## First steps
 
@@ -156,16 +167,23 @@ User accounts for the web UI are managed from the CLI: `camoufox-pm user add
 ```
 src/camoufox_pm/
 ├── main.py             FastAPI app; serves the API and the bundled UI
-├── cli.py              the camoufox-pm command
+├── cli.py              the camoufox-pm command, including user accounts
 ├── config.py           environment-based settings
 ├── core/
-│   ├── models.py            profiles, groups, browser settings
+│   ├── models.py            profiles, groups, browser settings, schedules
 │   ├── database.py          SQLite storage and migrations
 │   ├── profile_manager.py   profile lifecycle and browser control
 │   ├── browser_session.py   running browsers
-│   ├── fingerprint_store.py pinning, and the real device presets
-│   └── profile_archive.py   whole-profile export and import
-└── api/                routes, request/response models, middleware
+│   ├── fingerprint_store.py pinning, refreshing, and the real device presets
+│   ├── fingerprint_generator.py  the high-level constraints a new profile starts from
+│   ├── proxy_check.py       where a proxy exits, and whether the profile agrees
+│   ├── scheduler.py         scheduled launches and browser refreshes
+│   ├── profile_archive.py   whole-profile export and import
+│   ├── excel_manager.py     bulk import and export
+│   ├── auth.py              password hashing and login sessions
+│   ├── crypto.py            proxy-password encryption at rest
+│   └── cleanup.py           finding and removing orphaned profile directories
+└── api/                routes, models, error shape, middleware
 web/                    Next.js web interface
 extras/chrome_migration/  optional Chrome → Camoufox migration
 ```

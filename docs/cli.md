@@ -6,6 +6,7 @@ Runs the API and the web UI as one process on one port, and opens the UI.
 
 ```
 usage: camoufox-pm [-h] [--host HOST] [--port PORT] [--no-browser] [--desktop]
+                   {user} ...
 ```
 
 | Flag | Default | What it does |

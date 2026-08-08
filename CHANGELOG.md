@@ -6,6 +6,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.2.0] - 2026-08-08
+
+The release where a profile became a machine you can keep. `0.1.x` could launch
+Camoufox with settings; it could not promise that the same profile looked like
+the same computer tomorrow. It does now, and everything below follows from that:
+pinning the fingerprint, moving a pin onto a newer browser without changing the
+hardware, checking that a proxy agrees with the profile, and refusing to rotate
+hardware on a timer because that would undo the whole point.
+
 ### Added
 - **User accounts and login, for deployments more than one person can reach.**
   The API key stays what it was — one shared machine secret — and humans now
@@ -173,6 +184,34 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   that runs with no Python or Node installed. `desktop.yml` builds macOS/Windows/
   Linux bundles on demand. Signing, installers, and auto-update are documented
   follow-ups (see `docs/accessibility-roadmap.md`).
+
+### Changed
+- Dependabot keeps the GitHub Actions and the web dependencies current. Python is
+  deliberately excluded: Dependabot has no uv ecosystem, and its pip updater would
+  leave `uv.lock` stale against a bumped `pyproject.toml`, which `uv sync --frozen`
+  refuses — a pull request that cannot build is worse than no pull request.
+- **Docker runs one container, not two.** The compose file still ran the old
+  two-process stack — a Python service on 8000 and a separate Next.js server on
+  3000, wired together with CORS — months after everything else moved to one
+  process serving the UI and the API on one port. The image now builds the UI in
+  a Node stage, copies the static export into the package and runs the same
+  `camoufox-pm` entry point a local install does; `web/Dockerfile` is gone and
+  there is no CORS to configure. Verified by building the image and creating a
+  profile through the running container.
+
+### Fixed
+- **An imported archive ignored a `name` sent as a form field.** Every other part
+  of that multipart request travels in the body, so a client author reaches for
+  the form field first — and got no error and no rename, because only the query
+  parameter was read. Both work now.
+- `POST /api/v1/profiles/clear-geography` refuses an empty profile id instead of
+  cheerfully reporting it as `not_found`.
+- **The app reported the wrong version.** `__version__` was a second copy of the
+  number in `pyproject.toml`, so a wheel built as `0.2.0` announced `0.1.1`
+  through `/health`, the OpenAPI schema and `--version`. It is read from the
+  installed package metadata now, with a test that fails if the two ever
+  disagree again — found by installing the release wheel into a clean
+  environment and asking it what it was.
 
 ### Deprecated
 - The flattened `browser_*` fields on `PUT /api/v1/profiles/{id}` — send the
@@ -362,6 +401,7 @@ First public release after a comprehensive revamp.
   Camoufox owns fingerprint generation for consistency.
 - Committed profile data, leaked proxy credentials, and duplicate/backup files.
 
-[Unreleased]: https://github.com/polyackiy/camoufox-profile-manager/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/polyackiy/camoufox-profile-manager/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/polyackiy/camoufox-profile-manager/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/polyackiy/camoufox-profile-manager/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/polyackiy/camoufox-profile-manager/releases/tag/v0.1.0
