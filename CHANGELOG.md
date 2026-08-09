@@ -6,7 +6,31 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+- **Chrome cookie migration was broken on Windows, and `v11` everywhere.** The
+  `v10`/`v11` tag does not name a cipher: on Windows those values are
+  AES-256-GCM, on macOS and Linux AES-128-CBC with an IV of sixteen spaces. The
+  decryptor applied CBC to all of them. On Windows that fails outright for
+  fifteen cookies in sixteen — and for the sixteenth, where the body happens to
+  be a whole number of AES blocks, it "succeeded" and wrote random bytes as the
+  cookie value. A 36-character session UUID is exactly that case. Separately,
+  `v11` was read as "12-byte IV, then CBC", which cannot work at all because CBC
+  needs a 16-byte IV, so `v11` never decrypted on any platform. The cipher is now
+  chosen by platform, PKCS#7 padding is validated instead of trusted, and a value
+  that cannot be decrypted is skipped rather than written mangled.
+- **…and the cookie-store schema on top of it.** From schema 24 (Chrome ~130) the
+  encrypted plaintext is `SHA256(host_key) || value`, not the value — a cookie
+  store change, so it applies to `v10`, `v11` and `v20` alike, on every platform.
+  Getting the cipher right but not this recovered *zero* cookies from any recent
+  Chrome, because the plaintext then begins with a digest. The schema version is
+  read from the database and the digest is verified against the row's own domain
+  before being stripped, exactly as Chrome does; that check also gives the CBC
+  platforms the integrity signal they otherwise lack. `v20` no longer strips the
+  prefix unconditionally, which was wrong for the Chrome 127–129 window that
+  wrote App-Bound cookies into a schema-23 store.
+- A migration that decrypts nothing now says so. Every failure was `debug` and
+  the summary counted unencrypted rows, so a wholly broken key reported
+  "Successfully decrypted 0 Chrome cookies".
 
 ## [0.2.0] - 2026-08-08
 

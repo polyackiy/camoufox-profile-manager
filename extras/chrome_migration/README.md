@@ -80,3 +80,30 @@ and re-authenticate the rest in Camoufox.
 You are responsible for complying with applicable laws and the terms of service of
 any site whose cookies you migrate. See the project [SECURITY.md](../../SECURITY.md)
 and [LICENSE](../../LICENSE).
+
+## How cookies are encrypted
+
+The `v10`/`v11` prefix on a cookie value does **not** name a cipher — it means
+something different depending on the platform that wrote it:
+
+| Platform | Cipher | Layout | Key |
+| --- | --- | --- | --- |
+| Windows | AES-256-GCM | `[v10\|v11][nonce:12][ciphertext][tag:16]` | DPAPI-unwrapped `os_crypt.encrypted_key` |
+| macOS, Linux | AES-128-CBC, IV of 16 spaces, PKCS#7 | `[v10\|v11][ciphertext]` | PBKDF2 over the Keychain/keyring password |
+| Windows, Chrome 127+ | AES-256-GCM (App-Bound) | `[v20][nonce:12][ciphertext][tag:16]` | see App-Bound Encryption below |
+
+On **Linux** `v11` differs from `v10` only in where the password comes from,
+never in the cipher — though this module currently derives the Linux key from
+Chrome's hardcoded `peanuts` password and does not read the keyring, so a real
+Linux `v11` cookie is skipped rather than decrypted. Chrome on **macOS** only
+ever writes `v10`, with 1003 PBKDF2 iterations against Linux's 1.
+
+There is a second layer above the cipher. From **cookie-store schema 24**
+(Chrome ~130) the encrypted plaintext is `SHA256(host_key) || value` rather than
+the value alone — a change in the cookie store, so it applies to `v10`, `v11` and
+`v20` alike, on every platform. The schema version is read from the database's
+`meta` table, and the digest is *verified* against the row's own domain before
+being stripped, as Chrome does. That verification doubles as the integrity check
+CBC otherwise lacks.
+
+A value that cannot be decrypted is skipped, never written mangled.

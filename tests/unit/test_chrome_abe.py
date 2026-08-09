@@ -9,6 +9,7 @@ here because it needs an elevated Windows host; see the module docstring.
 """
 
 import base64
+import hashlib
 import os
 import struct
 
@@ -45,11 +46,21 @@ def _wrap_master_key(aead, master_key: bytes) -> tuple[bytes, bytes]:
     return nonce, ct_and_tag
 
 
-def _encrypt_v20_cookie(master_key: bytes, value: str) -> bytes:
-    """Build a v20 encrypted_value: prefix + nonce + AES-256-GCM(prefix32 + value)."""
-    plaintext = os.urandom(32) + value.encode("utf-8")
+HOST_KEY = ".example.com"
+
+
+def _encrypt_v20_cookie(master_key: bytes, value: str, host_key: str | None = HOST_KEY) -> bytes:
+    """Build a v20 encrypted_value the way Chrome does.
+
+    From cookie-store schema 24 the plaintext is ``SHA256(host_key) || value``;
+    before that it is the bare value, which Chrome 127-129 could still write with
+    a v20 tag. Pass ``host_key=None`` for that older shape.
+    """
+    body = value.encode("utf-8")
+    if host_key is not None:
+        body = hashlib.sha256(host_key.encode("utf-8")).digest() + body
     nonce = os.urandom(12)
-    ct_and_tag = AESGCM(master_key).encrypt(nonce, plaintext, None)
+    ct_and_tag = AESGCM(master_key).encrypt(nonce, body, None)
     return abe.V20_COOKIE_PREFIX + nonce + ct_and_tag
 
 
@@ -173,9 +184,24 @@ def test_unwrap_master_key_tampered_tag_raises():
 # --- decrypt_v20_cookie_value ----------------------------------------------
 
 
-def test_decrypt_v20_cookie_value_strips_32_byte_prefix():
+def test_decrypt_v20_cookie_value_verifies_and_strips_the_domain_prefix():
+    """Schema 24 prepends SHA256(host_key). It is verified, not assumed: Chrome
+    itself drops a cookie whose digest does not match its domain."""
     master_key = os.urandom(32)
     enc_value = _encrypt_v20_cookie(master_key, "session=abc123")
+
+    assert abe.decrypt_v20_cookie_value(enc_value, master_key, HOST_KEY) == "session=abc123"
+
+    with pytest.raises(abe.V20DecryptionError):
+        abe.decrypt_v20_cookie_value(enc_value, master_key, ".other-site.com")
+
+
+def test_a_v20_cookie_from_a_pre_schema_24_store_has_no_prefix():
+    """Chrome 127-129 wrote v20 cookies into databases that still had schema 23.
+    Stripping 32 bytes there would take them off the front of the real value."""
+    master_key = os.urandom(32)
+    enc_value = _encrypt_v20_cookie(master_key, "session=abc123", host_key=None)
+
     assert abe.decrypt_v20_cookie_value(enc_value, master_key) == "session=abc123"
 
 
@@ -201,7 +227,7 @@ def test_full_chain_flag1_blob_to_cookie():
     assert recovered == master_key
 
     enc_value = _encrypt_v20_cookie(recovered, "auth=xyz")
-    assert abe.decrypt_v20_cookie_value(enc_value, recovered) == "auth=xyz"
+    assert abe.decrypt_v20_cookie_value(enc_value, recovered, HOST_KEY) == "auth=xyz"
 
 
 # --- ChromeCookieDecryptor honest degradation ------------------------------
@@ -221,4 +247,5 @@ def test_decryptor_decrypts_v20_with_master_key():
     master_key = os.urandom(32)
     decryptor.abe_master_key = master_key
     enc_value = _encrypt_v20_cookie(master_key, "logged_in=yes")
-    assert decryptor.decrypt_chrome_cookie_value(enc_value, os.urandom(16)) == "logged_in=yes"
+    value = decryptor.decrypt_chrome_cookie_value(enc_value, os.urandom(16), HOST_KEY)
+    assert value == "logged_in=yes"

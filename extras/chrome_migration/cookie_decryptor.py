@@ -13,8 +13,16 @@ from typing import Any
 
 from loguru import logger
 
+from .cookie_crypto import (
+    DOMAIN_PREFIX_SCHEMA_VERSION,
+    SUPPORTED_PREFIXES,
+    CookieDecryptionError,
+    decrypt_cookie_value,
+)
+
 try:
-    from Crypto.Cipher import AES
+    # Only the PBKDF2 key derivation still needs pycryptodome; the ciphers moved
+    # to `cryptography` in cookie_crypto, which is a core dependency.
     from Crypto.Protocol.KDF import PBKDF2
 
     CRYPTO_AVAILABLE = True
@@ -195,55 +203,47 @@ class ChromeCookieDecryptor:
             return None
 
     def decrypt_chrome_cookie_value(
-        self, encrypted_value: bytes, encryption_key: bytes
+        self, encrypted_value: bytes, encryption_key: bytes, host_key: str | None = None
     ) -> str | None:
-        """Decrypt a Chrome cookie value."""
+        """Decrypt a Chrome cookie value, or return None so it is skipped.
+
+        ``host_key`` is the cookie's domain, and is passed only for databases at
+        schema 24 or later, where Chrome prepends a verifiable ``SHA256(host_key)``
+        to the plaintext.
+        """
         try:
             if not encrypted_value or len(encrypted_value) < 16:
                 return None
 
-            # The first 3 bytes are the version. v10/v11 use the classic key
-            # (AES-128-CBC below); v20 is App-Bound Encryption and needs the
-            # separately resolved master key and an AES-256-GCM path. v20 runs on
-            # 'cryptography' (a core dependency), so it does not depend on the
-            # pycryptodome check that the v10/v11 CBC path below requires.
+            # The first three bytes are the version. v20 is App-Bound Encryption
+            # and needs its own master key; v10 and v11 use the classic key, but
+            # the cipher behind those two tags depends on the platform — see
+            # cookie_crypto for why reading the tag alone is not enough.
             version = encrypted_value[:3]
 
             if version == b"v20":
-                return self._decrypt_v20_cookie(encrypted_value)
+                return self._decrypt_v20_cookie(encrypted_value, host_key)
 
-            if not CRYPTO_AVAILABLE:
-                logger.error("pycryptodome is not installed")
-                return None
-
-            if version == b"v10":
-                # Old format (before Chrome 80)
-                iv = b" " * 16  # empty IV
-                encrypted_data = encrypted_value[3:]
-            elif version == b"v11":
-                # New format (Chrome 80+)
-                iv = encrypted_value[3:15]  # 12-byte IV
-                encrypted_data = encrypted_value[15:]
-            else:
+            if version not in SUPPORTED_PREFIXES:
                 logger.debug(f"Unknown encryption version: {version}")
                 return None
 
-            # Decrypt
-            cipher = AES.new(encryption_key, AES.MODE_CBC, iv)
-            decrypted = cipher.decrypt(encrypted_data)
-
-            # Remove padding
-            padding_length = decrypted[-1]
-            if padding_length <= 16:
-                decrypted = decrypted[:-padding_length]
-
-            return decrypted.decode("utf-8", errors="ignore")
+            try:
+                return decrypt_cookie_value(encrypted_value, encryption_key, self.system, host_key)
+            except CookieDecryptionError as exc:
+                # Skipping is the only safe outcome: CBC has no authentication,
+                # so a value that cannot be decrypted properly must never be
+                # written as if it had been.
+                logger.debug(f"Failed to decrypt cookie: {exc}")
+                return None
 
         except Exception as e:
             logger.debug(f"Failed to decrypt cookie: {e}")
             return None
 
-    def _decrypt_v20_cookie(self, encrypted_value: bytes) -> str | None:
+    def _decrypt_v20_cookie(
+        self, encrypted_value: bytes, host_key: str | None = None
+    ) -> str | None:
         """Decrypt an App-Bound Encryption (v20) cookie, or skip it honestly.
 
         Returns None when the master key is unavailable (non-Windows, not
@@ -264,7 +264,7 @@ class ChromeCookieDecryptor:
             return None
 
         try:
-            return decrypt_v20_cookie_value(encrypted_value, self.abe_master_key)
+            return decrypt_v20_cookie_value(encrypted_value, self.abe_master_key, host_key)
         except V20DecryptionError as e:
             logger.debug(f"Failed to decrypt v20 cookie: {e}")
             return None
@@ -307,15 +307,38 @@ class ChromeCookieDecryptor:
             logger.error(f"Failed to get decrypted cookies: {e}")
             return []
 
+    @staticmethod
+    def _cookie_schema_version(cursor) -> int:
+        """The cookie store's schema version, or 0 when it cannot be read.
+
+        Falling back to 0 means "assume no domain prefix", which is what every
+        database before schema 24 looks like. Guessing the other way would strip
+        32 bytes off the front of every real value.
+        """
+        try:
+            row = cursor.execute("SELECT value FROM meta WHERE key = 'version'").fetchone()
+            return int(row[0]) if row else 0
+        except (sqlite3.Error, TypeError, ValueError) as exc:
+            logger.debug(f"Could not read the cookie schema version: {exc}")
+            return 0
+
     def _extract_and_decrypt_cookies(
         self, db_path: str, encryption_key: bytes
     ) -> list[dict[str, Any]]:
         """Extract and decrypt cookies from the database."""
         cookies = []
+        encrypted_seen = 0
+        decrypted = 0
 
         try:
             conn = sqlite3.connect(db_path)
             cursor = conn.cursor()
+
+            # Schema 24 (Chrome ~130) prepends SHA256(host_key) to every encrypted
+            # plaintext. Reading the version is the only way to know whether a
+            # leading 32 bytes are a digest to verify or the value itself.
+            schema_version = self._cookie_schema_version(cursor)
+            has_domain_prefix = schema_version >= DOMAIN_PREFIX_SCHEMA_VERSION
 
             # Read all cookies
             cursor.execute("""
@@ -351,10 +374,16 @@ class ChromeCookieDecryptor:
                     cookie_value = value
                 # Otherwise try to decrypt
                 elif encrypted_value:
-                    cookie_value = self.decrypt_chrome_cookie_value(encrypted_value, encryption_key)
+                    encrypted_seen += 1
+                    cookie_value = self.decrypt_chrome_cookie_value(
+                        encrypted_value,
+                        encryption_key,
+                        host_key=host_key if has_domain_prefix else None,
+                    )
                     if not cookie_value:
                         logger.debug(f"Failed to decrypt cookie: {name}")
                         continue
+                    decrypted += 1
                 else:
                     continue
 
@@ -375,7 +404,19 @@ class ChromeCookieDecryptor:
 
             conn.close()
 
-            logger.info(f"Successfully decrypted {len(cookies)} Chrome cookies")
+            if encrypted_seen and not decrypted:
+                # Every single encrypted cookie failed. That is a wrong key or an
+                # unhandled format, not routine skipping, and it must not be
+                # reported as a success.
+                logger.error(
+                    f"Could not decrypt any of the {encrypted_seen} encrypted cookies "
+                    f"(schema {schema_version}). The migrated profile will have none of them."
+                )
+            elif encrypted_seen > decrypted:
+                logger.warning(
+                    f"Skipped {encrypted_seen - decrypted} of {encrypted_seen} encrypted cookies"
+                )
+            logger.info(f"Read {len(cookies)} Chrome cookies ({decrypted} decrypted)")
             return cookies
 
         except Exception as e:
