@@ -6,6 +6,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.2.1] - 2026-08-10
+
+A fix release. Three of the four came out of one thread: reading Chrome's cookie
+format properly, which turned out to be wrong in two independent layers. The
+fourth was found while taking screenshots for the README.
+
 ### Fixed
 - **A device preset could not be pinned behind an unreachable proxy.** Resolving
   the machine ran with Camoufox's IP lookup on, so it reached the internet
@@ -432,7 +440,8 @@ First public release after a comprehensive revamp.
   Camoufox owns fingerprint generation for consistency.
 - Committed profile data, leaked proxy credentials, and duplicate/backup files.
 
-[Unreleased]: https://github.com/polyackiy/camoufox-profile-manager/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/polyackiy/camoufox-profile-manager/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/polyackiy/camoufox-profile-manager/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/polyackiy/camoufox-profile-manager/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/polyackiy/camoufox-profile-manager/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/polyackiy/camoufox-profile-manager/releases/tag/v0.1.0
