@@ -13,7 +13,7 @@ Each profile is **one long-lived machine**. It keeps the same fingerprint every
 session, along with its own cookies, storage and history, so an account opened
 from it in January still looks like the same computer in June.
 
-> **Status:** `v0.2.0`, and in working order. 393 tests, 21 of which drive a real
+> **Status:** `v0.2.1`, and in working order. 393 tests, 21 of which drive a real
 > browser and check what a page actually sees; 90% coverage. The REST API is
 > versioned at `/api/v1` behind a written
 > [stability contract](docs/api.md#stability-contract), and every release is
