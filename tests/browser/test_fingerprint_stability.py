@@ -14,7 +14,7 @@ import pytest
 from camoufox import AsyncCamoufox
 
 from camoufox_pm.core import fingerprint_store
-from camoufox_pm.core.models import BrowserSettings, Profile
+from camoufox_pm.core.models import BrowserSettings, Profile, ProxyConfig, ProxyType
 
 IDENTITY = """() => {
   const gl = document.createElement('canvas').getContext('webgl');
@@ -308,3 +308,27 @@ async def test_profile_overrides_still_win_over_the_pin(tmp_path):
     seen = await observe(merged, tmp_path / "override")
 
     assert seen["cores"] == 12
+
+
+@pytest.mark.browser
+@pytest.mark.asyncio
+async def test_pinning_a_device_does_not_need_a_working_proxy(tmp_path):
+    """Pinning freezes hardware, and hardware has no geography in it.
+
+    Resolving used to run with geoip on, so it reached the internet *through*
+    the profile's proxy to geolocate it — and creating a profile from a device
+    preset failed outright when that proxy was unreachable, which says nothing
+    about its screen or its GPU.
+    """
+    profile = Profile(
+        name="pinned-behind-a-dead-proxy",
+        browser_settings=BrowserSettings(os="windows"),
+        proxy=ProxyConfig(type=ProxyType.HTTP, server="does-not-resolve.invalid:9999"),
+    )
+
+    pinned = fingerprint_store.resolve(profile.to_camoufox_launch_options())
+
+    assert pinned, "an unreachable proxy must not stop the machine being pinned"
+    assert pinned.get("navigator.platform"), "the hardware is what gets frozen"
+    # Geography stays out of the pin so it can follow the proxy at launch.
+    assert not any(key.startswith(("geolocation:", "timezone", "webrtc:")) for key in pinned)

@@ -13,12 +13,19 @@ Each profile is **one long-lived machine**. It keeps the same fingerprint every
 session, along with its own cookies, storage and history, so an account opened
 from it in January still looks like the same computer in June.
 
-> **Status:** `v0.2.0`. The core works and is covered by 361 tests, 20 of which
-> drive a real browser. The REST API is versioned at `/api/v1` and has a written
-> [stability contract](docs/api.md#stability-contract); expect the occasional
-> rough edge elsewhere before `1.0`.
+> **Status:** `v0.2.0`, and in working order. 392 tests, 20 of which drive a real
+> browser and check what a page actually sees; 90% coverage. The REST API is
+> versioned at `/api/v1` behind a written
+> [stability contract](docs/api.md#stability-contract), and every release is
+> installed from its own wheel and run before it is published.
+>
+> Two things to know before you rely on it. `1.0` will remove the fields listed
+> as deprecated in that contract. And [Chrome
+> migration](extras/chrome_migration/README.md) is a separate, experimental
+> extra: its Windows path is written to Chrome's documented format but has never
+> been run against a real Windows profile.
 
-![Camoufox Profile Manager web interface](docs/assets/screenshot-profiles.png)
+![The profiles list](docs/assets/screenshot-profiles.png)
 
 ## What it does
 
@@ -53,6 +60,32 @@ from it in January still looks like the same computer in June.
 - **REST API and web UI**, served on one port from one process.
 - **Optional Chrome migration** — import cookies and history from your own Chrome
   profiles ([`extras/chrome_migration`](extras/chrome_migration/README.md)).
+
+## What it looks like
+
+<table>
+<tr>
+<td width="50%"><img src="docs/assets/screenshot-machine.png" alt="The pinned machine on a profile"></td>
+<td width="50%">
+
+**The pinned machine.** This is the part that makes a profile an account rather
+than a browser window. Every value here was resolved once and is replayed on
+every launch — the screen, the CPU count, the GPU string, the font set, the user
+agent. *Regenerate* moves the profile to different hardware, deliberately, and
+tells you what that costs.
+
+The profile above is pinned to one of the 312 devices Camoufox captured from real
+machines, so the combination is one that actually exists rather than an assembly
+of plausible parts.
+
+</td>
+</tr>
+</table>
+
+| Scheduled work | System settings |
+| --- | --- |
+| ![Schedules](docs/assets/screenshot-schedules.png) | ![Settings](docs/assets/screenshot-settings.png) |
+| Warming launches and browser-version refreshes. Hardware never rotates on a timer — [why](docs/scheduling.md). | Reports the effective configuration and warns when proxy passwords are unencrypted or the API is open. |
 
 ## Install and run
 
@@ -161,6 +194,24 @@ User accounts for the web UI are managed from the CLI: `camoufox-pm user add
 | [docs/roadmap.md](docs/roadmap.md) | What is planned |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Working on the project |
 | [SECURITY.md](SECURITY.md) | Reporting a vulnerability |
+
+## Measured, not assumed
+
+Every claim above was checked against a running browser, and several of them
+turned out differently than expected. The measurements are in the repository, as
+tests that fail if the behaviour changes:
+
+| What was measured | Result |
+| --- | --- |
+| Does an unpinned profile keep its hardware between launches? | **No.** The same profile reported 1600x900 then 3440x1440, 12 then 32 CPU cores, an NVIDIA then an AMD GPU. This is why pinning exists. |
+| Is the canvas stable for a site across sessions? | **No, by default** — it is stable within a session and per site, and changes on the next launch. `stable_canvas` fixes that, at the cost of being identical across sites. Both are asserted in [browser tests](tests/browser/test_fingerprint_stability.py). |
+| Does Camoufox's `canvas:seed` property work? | **No.** It is declared and passed through, and nothing reads it. Reported upstream as [daijro/camoufox#721](https://github.com/daijro/camoufox/issues/721) with a reproduction. |
+| What happens if a profile sets coordinates? | Camoufox's IP lookup switches off, and Firefox then reports **the host machine's own timezone** — a real leak, found by reading the clock in a live browser. Fixed by filling that in ourselves. |
+
+The same discipline applies to the code: cleanup that could delete every profile
+directory, clones that shared a fingerprint with their source, and a release that
+reported the wrong version were all found by running the thing, not by reading
+it. See [CHANGELOG.md](CHANGELOG.md).
 
 ## Architecture
 
