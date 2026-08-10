@@ -109,9 +109,16 @@ def resolve(launch_options: dict[str, Any], preset: dict[str, Any] | None = None
     constraints = {
         key: value
         for key, value in launch_options.items()
-        if key not in ("user_data_dir", "persistent_context")
+        if key not in ("user_data_dir", "persistent_context", "proxy")
     }
     constraints["headless"] = True
+    # Resolve the machine offline. Only hardware is frozen — freeze() deliberately
+    # leaves timezone, coordinates and WebRTC out, and those follow the proxy at
+    # launch. Leaving geoip on made pinning reach the internet *through the proxy*
+    # to geolocate it, so creating a profile from a device preset failed outright
+    # whenever the proxy was unreachable, which has nothing to do with its screen
+    # or its GPU.
+    constraints["geoip"] = False
     if preset is not None:
         constraints["fingerprint_preset"] = preset
 

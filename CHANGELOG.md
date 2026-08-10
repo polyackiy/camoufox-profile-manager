@@ -7,6 +7,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Fixed
+- **A device preset could not be pinned behind an unreachable proxy.** Resolving
+  the machine ran with Camoufox's IP lookup on, so it reached the internet
+  *through* the profile's proxy — and creating a profile from a captured device
+  failed outright when that proxy was dead, which says nothing about its screen
+  or its GPU. Only hardware is frozen; geography is deliberately left out of the
+  pin and follows the proxy at launch, so the resolve is now offline. Found while
+  taking screenshots of the product for the README.
+
 - **Chrome cookie migration was broken on Windows, and `v11` everywhere.** The
   `v10`/`v11` tag does not name a cipher: on Windows those values are
   AES-256-GCM, on macOS and Linux AES-128-CBC with an IV of sixteen spaces. The
