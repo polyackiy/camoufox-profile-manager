@@ -13,10 +13,17 @@ Each profile is **one long-lived machine**. It keeps the same fingerprint every
 session, along with its own cookies, storage and history, so an account opened
 from it in January still looks like the same computer in June.
 
-> **Status:** `v0.2.0`. The core works and is covered by 361 tests, 20 of which
-> drive a real browser. The REST API is versioned at `/api/v1` and has a written
-> [stability contract](docs/api.md#stability-contract); expect the occasional
-> rough edge elsewhere before `1.0`.
+> **Status:** `v0.2.0`, and in working order. 392 tests, 20 of which drive a real
+> browser and check what a page actually sees; 90% coverage. The REST API is
+> versioned at `/api/v1` behind a written
+> [stability contract](docs/api.md#stability-contract), and every release is
+> installed from its own wheel and run before it is published.
+>
+> Two things to know before you rely on it. `1.0` will remove the fields listed
+> as deprecated in that contract. And [Chrome
+> migration](extras/chrome_migration/README.md) is a separate, experimental
+> extra: its Windows path is written to Chrome's documented format but has never
+> been run against a real Windows profile.
 
 ![Camoufox Profile Manager web interface](docs/assets/screenshot-profiles.png)
 
