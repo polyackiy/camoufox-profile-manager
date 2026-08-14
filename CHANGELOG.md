@@ -6,6 +6,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.3.0] - 2026-08-14
+
+A toolchain release. Next 16 removed the `next lint` the CI job called, which
+turned a routine dependency bump into a migration and pulled the rest of the
+frontend stack forward with it — ESLint 10 and lucide-react 1. Two of the three
+majors were blocked by a dependency that has not published in months, and both
+turned out to be workable rather than something to wait for. What a user sees is
+the same product with a handful of icons redrawn.
+
 ### Changed
 - **Icons are on lucide-react 1.** Nothing the UI imports was dropped in the
   major, but four of the names had been legacy aliases and now use the ones
@@ -478,7 +489,8 @@ First public release after a comprehensive revamp.
   Camoufox owns fingerprint generation for consistency.
 - Committed profile data, leaked proxy credentials, and duplicate/backup files.
 
-[Unreleased]: https://github.com/polyackiy/camoufox-profile-manager/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/polyackiy/camoufox-profile-manager/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/polyackiy/camoufox-profile-manager/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/polyackiy/camoufox-profile-manager/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/polyackiy/camoufox-profile-manager/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/polyackiy/camoufox-profile-manager/compare/v0.1.0...v0.1.1
