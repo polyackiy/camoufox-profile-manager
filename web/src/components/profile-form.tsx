@@ -122,6 +122,10 @@ export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) 
 
   useEffect(() => {
     if (open) {
+      // The dialog is kept mounted and refilled when it opens, so the form has
+      // to be reset here. Remounting it per profile with a key would avoid the
+      // effect but lose the open/close transition.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setForm(profile ? fromProfile(profile) : EMPTY)
       setMachine(profile?.fingerprint)
       setStoredGeography(profile ? hasGeography(profile) : false)

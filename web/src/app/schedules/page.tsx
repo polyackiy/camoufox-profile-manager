@@ -107,6 +107,9 @@ export default function SchedulesPage() {
   }, [])
 
   useEffect(() => {
+    // Clears the previous error synchronously before awaiting; see the note
+    // on the profiles page.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     load()
   }, [load])
 

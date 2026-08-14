@@ -6,7 +6,21 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-Nothing yet.
+### Changed
+- **The web UI is on Next 16.** Next 16 removes `next lint`, so linting now calls
+  the ESLint CLI directly; `eslint-config-next` 16 ships real flat configs, so the
+  `FlatCompat` shim and `@eslint/eslintrc` are gone. Next 16's rule set flagged
+  seven `set-state-in-effect` findings: the page-reset-on-filter-change is now
+  adjusted during render, which is React's documented pattern and avoids painting
+  the old page once before correcting itself, and the remaining six each carry a
+  written reason — reading `localStorage` after mount cannot happen during a
+  prerender, and a loader that clears the previous error before awaiting is doing
+  it on purpose.
+
+  **ESLint stays on 9 and TypeScript on 5**, both blocked upstream rather than by
+  anything here: `eslint-config-next@16` bundles `eslint-plugin-react@7.37.5`,
+  which supports ESLint `^9.7` and crashes on 10 — its own peer range claims
+  `>=9.0.0` — and `typescript-eslint` refuses to load under TypeScript 7.
 
 ## [0.2.1] - 2026-08-10
 

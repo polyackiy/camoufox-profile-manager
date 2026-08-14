@@ -28,6 +28,9 @@ export default function SettingsPage() {
   const toast = useToast()
 
   useEffect(() => {
+    // The key lives in localStorage, which does not exist when this page is
+    // prerendered into the static export, so it can only be read after mount.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setKey(getApiKey())
     async function load() {
       try {
