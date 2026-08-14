@@ -7,6 +7,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Changed
+- **Icons are on lucide-react 1.** Nothing the UI imports was dropped in the
+  major, but four of the names had been legacy aliases and now use the ones
+  lucide actually ships: `TriangleAlert`, `LoaderCircle`, `Ellipsis`, and
+  `RotateCcwClock` (kept locally as `History`, which is what it means beside a
+  History button). Five icons were redrawn upstream — the play triangle and the
+  pause bars are heavier and now match each other, and the gear, trash, and
+  calendar-clock are near-identical at the sizes the UI uses.
 - **The web UI is on Next 16.** Next 16 removes `next lint`, so linting now calls
   the ESLint CLI directly; `eslint-config-next` 16 ships real flat configs, so the
   `FlatCompat` shim and `@eslint/eslintrc` are gone. Next 16's rule set flagged

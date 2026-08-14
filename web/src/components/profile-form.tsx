@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, Check, Info, Loader2, RefreshCw, X } from 'lucide-react'
+import { Check, Info, LoaderCircle, RefreshCw, TriangleAlert, X } from 'lucide-react'
 
 import { Modal } from '@/components/modal'
 import { useToast } from '@/components/toast'
@@ -376,7 +376,7 @@ export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) 
             Cancel
           </button>
           <button type="submit" form="profile-form" className="btn btn-primary" disabled={saving}>
-            {saving && <Loader2 size={13} className="animate-spin" />}
+            {saving && <LoaderCircle size={13} className="animate-spin" />}
             {isEdit ? 'Save changes' : 'Create profile'}
           </button>
         </>
@@ -558,7 +558,7 @@ export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) 
               disabled={checkingProxy}
             >
               {checkingProxy ? (
-                <Loader2 size={13} className="animate-spin" />
+                <LoaderCircle size={13} className="animate-spin" />
               ) : (
                 <RefreshCw size={13} />
               )}
@@ -784,7 +784,7 @@ export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) 
                   onClick={handleClearGeography}
                   disabled={clearingGeography}
                 >
-                  {clearingGeography && <Loader2 size={13} className="animate-spin" />}
+                  {clearingGeography && <LoaderCircle size={13} className="animate-spin" />}
                   Clear both, follow the proxy
                 </button>
               </div>
@@ -880,7 +880,7 @@ function PinnedMachine({
           so offer the update a real machine would have taken. */}
       {fingerprint.browser_outdated && (
         <div className="mt-2 flex items-start gap-2.5 rounded-md border border-line bg-raised p-2.5">
-          <AlertTriangle size={14} className="mt-0.5 shrink-0 text-signal" />
+          <TriangleAlert size={14} className="mt-0.5 shrink-0 text-signal" />
           <div className="flex-1">
             <p className="text-ink">
               This profile still reports Firefox {fingerprint.browser_major}; the installed browser
@@ -897,7 +897,7 @@ function PinnedMachine({
             onClick={onRefreshBrowser}
             disabled={refreshing}
           >
-            {refreshing && <Loader2 size={13} className="animate-spin" />}
+            {refreshing && <LoaderCircle size={13} className="animate-spin" />}
             Update
           </button>
         </div>
@@ -910,7 +910,7 @@ function PinnedMachine({
       {fingerprint.os_mismatch && (
         <div className="mt-2 rounded-md border border-line bg-raised p-2.5">
           <div className="flex items-start gap-2.5">
-            <AlertTriangle size={14} className="mt-0.5 shrink-0 text-warn" />
+            <TriangleAlert size={14} className="mt-0.5 shrink-0 text-warn" />
             <div>
               <p className="text-ink">
                 This profile is set to {osLabel(fingerprint.settings_os)}, but its pinned machine is
@@ -932,7 +932,7 @@ function PinnedMachine({
               onClick={() => onReconcileOs(true)}
               disabled={reconciling}
             >
-              {reconciling && <Loader2 size={13} className="animate-spin" />}
+              {reconciling && <LoaderCircle size={13} className="animate-spin" />}
               Keep this machine
             </button>
             <button
@@ -1023,7 +1023,7 @@ function ProxyCheckResult({ result }: { result: ProxyCheck | null }) {
           {finding.level === 'info' ? (
             <Info size={13} className="mt-0.5 shrink-0" />
           ) : (
-            <AlertTriangle size={13} className="mt-0.5 shrink-0" />
+            <TriangleAlert size={13} className="mt-0.5 shrink-0" />
           )}
           <span>{finding.message}</span>
         </p>

@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { AlertTriangle, Check, Minus, Settings as SettingsIcon } from 'lucide-react'
+import { Check, Minus, Settings as SettingsIcon, TriangleAlert } from 'lucide-react'
 
 import { EmptyState } from '@/components/empty-state'
 import { useToast } from '@/components/toast'
@@ -217,7 +217,7 @@ function Toggle({
         {on ? (
           <Check size={14} className="mt-0.5 shrink-0 text-ok" />
         ) : warn ? (
-          <AlertTriangle size={14} className="mt-0.5 shrink-0 text-danger" />
+          <TriangleAlert size={14} className="mt-0.5 shrink-0 text-danger" />
         ) : (
           <Minus size={14} className="mt-0.5 shrink-0 text-ink-faint" />
         )}
