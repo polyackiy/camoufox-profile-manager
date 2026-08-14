@@ -82,7 +82,7 @@ order of how much they would hurt if left alone:
   full run can flake on a rate limit rather than a real fault. Serving the two
   origins locally would make it deterministic.
 - **TypeScript 7 waits on the tools, not on us.** The UI is on TypeScript 6.0.3,
-  the last release with a JavaScript compiler API. TypeScript 7 is the Go
+  the last TypeScript line with a JavaScript compiler API. TypeScript 7 is the Go
   rewrite: its package ships a `tsc` binary and no API — `require("typescript")`
   has no `createProgram` — and both `typescript-eslint` and Next's build-time
   type check need that API. TypeScript documents a side-by-side install that

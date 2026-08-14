@@ -7,7 +7,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Changed
-- **TypeScript 5.9 → 6.0.3**, the last release with a JavaScript compiler API.
+- **TypeScript 5.9 → 6.0.3**, the last TypeScript line with a JavaScript compiler API.
   TypeScript 7 is the Go rewrite and ships no API, which is what
   `typescript-eslint` and Next's build-time type check both run on, so 6.0 is as
   far as the toolchain goes for now. See the roadmap for the detail.
