@@ -81,12 +81,15 @@ order of how much they would hurt if left alone:
 - The browser test suite depends on reaching `example.com` and `iana.org`, so a
   full run can flake on a rate limit rather than a real fault. Serving the two
   origins locally would make it deterministic.
-- **TypeScript 7 is blocked upstream, not by us.** `typescript-eslint` declares
-  `typescript: >=4.8.4 <6.1.0` and refuses to load under TypeScript 7, so the
-  bump would break `npm run lint` on its own. Worth retrying when it publishes
-  support. (ESLint 10 was the same story until the config stopped asking
-  `eslint-plugin-react` to detect the React version — see the note in
-  [web/eslint.config.mjs](../web/eslint.config.mjs).)
+- **TypeScript 7 waits on the tools, not on us.** The UI is on TypeScript 6.0.3,
+  the last release with a JavaScript compiler API. TypeScript 7 is the Go
+  rewrite: its package ships a `tsc` binary and no API — `require("typescript")`
+  has no `createProgram` — and both `typescript-eslint` and Next's build-time
+  type check need that API. TypeScript documents a side-by-side install that
+  keeps the 6.0 API for tooling, but here it would buy only a faster standalone
+  `tsc` that CI never runs, for ~30 MB of platform binaries. Worth revisiting
+  when `typescript-eslint` supports TS 7 (their issue #10940) and Next type-checks
+  through it.
 - Proxy health at a glance in the profiles list, so a dead proxy is visible
   without opening each profile and pressing *Check proxy*.
 
