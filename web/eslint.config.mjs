@@ -4,8 +4,9 @@ import nextCoreWebVitals from "eslint-config-next/core-web-vitals";
 import nextTypeScript from "eslint-config-next/typescript";
 
 const config = [
-  // Not linted, and linting them is slow: `out` and `.next` are build output.
-  { ignores: [".next/**", "out/**", "node_modules/**", "next-env.d.ts"] },
+  // Nothing generated: `.next` and `out` are build output, `next-env.d.ts` is
+  // written by Next on every build. (`node_modules` is ignored by default.)
+  { ignores: [".next/**", "out/**", "next-env.d.ts"] },
   ...nextCoreWebVitals,
   ...nextTypeScript,
 ];

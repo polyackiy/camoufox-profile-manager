@@ -24,7 +24,7 @@ def _npm() -> str:
     """Resolve the npm executable (npm.cmd on Windows)."""
     npm = shutil.which("npm")
     if npm is None:
-        raise SystemExit("npm not found — install Node.js 20+")
+        raise SystemExit("npm not found — install Node.js 20.9+")
     return npm
 
 

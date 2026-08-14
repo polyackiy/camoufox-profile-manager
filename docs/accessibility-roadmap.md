@@ -13,7 +13,7 @@ use the tool.
 
 | Barrier | Impact on a non-technical user |
 | ------- | ------------------------------ |
-| Install uv, Python 3.10+, Node.js 20+ | Blocker — they won't know what these are |
+| Install uv, Python 3.10+, Node.js 20.9+ | Blocker — they won't know what these are |
 | Run the API and the web app as two separate processes | Blocker — two terminals, correct order |
 | `camoufox fetch` as a manual step | Confusing — silent failure if skipped |
 | Ports, `.env`, `API_PROXY_TARGET`, CORS | Blocker — env editing is not approachable |

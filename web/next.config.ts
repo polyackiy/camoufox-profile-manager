@@ -9,9 +9,15 @@ import type { NextConfig } from "next";
 const isExport = process.env.NEXT_EXPORT === "1";
 const apiTarget = process.env.API_PROXY_TARGET ?? "http://localhost:8000";
 
+// Next 16 writes AGENTS.md and CLAUDE.md into `web/` on the first `next dev`.
+// They are framework boilerplate that says nothing about this project, and they
+// would sit untracked in every working tree, so decline them in both modes.
+const shared = { agentRules: false } satisfies NextConfig;
+
 const nextConfig: NextConfig = isExport
-  ? { output: "export", trailingSlash: true, images: { unoptimized: true } }
+  ? { ...shared, output: "export", trailingSlash: true, images: { unoptimized: true } }
   : {
+      ...shared,
       async rewrites() {
         return [
           { source: "/api/:path*", destination: `${apiTarget}/api/:path*` },

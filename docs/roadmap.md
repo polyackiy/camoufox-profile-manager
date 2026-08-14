@@ -7,7 +7,6 @@ Track progress in [GitHub Issues](https://github.com/polyackiy/camoufox-profile-
 
 - The web UI runs on Next 16, with linting moved from the removed `next lint` to
   the ESLint CLI and the `FlatCompat` shim dropped for the native flat config.
-
 - Chrome cookies decrypt with the cipher the platform that wrote them actually
   used (AES-256-GCM on Windows, AES-128-CBC on macOS and Linux) *and* with the
   cookie-store schema they were written under — from schema 24 the plaintext

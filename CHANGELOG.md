@@ -22,6 +22,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   which supports ESLint `^9.7` and crashes on 10 — its own peer range claims
   `>=9.0.0` — and `typescript-eslint` refuses to load under TypeScript 7.
 
+  `next` and `eslint-config-next` are pinned to the same exact version rather
+  than a range, because a mismatched pair between them is a broken lint run, and
+  the lint script fails on warnings so a new accessibility warning stops CI the
+  way `next lint` used to.
+
+### Security
+- The web UI's dependency tree is clean again. `npm audit` reported eight
+  advisories against the Next 15 lockfile — one critical, six high, most of them
+  reached through the `sharp`/libvips chain that Next 15 pulled in — and reports
+  none against this one.
+
 ## [0.2.1] - 2026-08-10
 
 A fix release. Three of the four came out of one thread: reading Chrome's cookie

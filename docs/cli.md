@@ -80,7 +80,7 @@ These live in `scripts/` and are for working on the project, not for daily use.
 
 | Command | What it does |
 | ------- | ------------ |
-| `python scripts/build_webui.py` | Builds the Next.js UI as a static export and copies it into the package, so `camoufox-pm` can serve it. Needs Node.js 20+. |
+| `python scripts/build_webui.py` | Builds the Next.js UI as a static export and copies it into the package, so `camoufox-pm` can serve it. Needs Node.js 20.9+. |
 | `python scripts/build_desktop.py` | Builds a standalone desktop bundle with PyInstaller that needs neither Python nor Node. See [accessibility-roadmap.md](accessibility-roadmap.md). |
 | `python examples/seed_demo.py` | Creates a handful of demo profiles for a look around. |
 

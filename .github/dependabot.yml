@@ -25,8 +25,9 @@ updates:
       #
       # Majors are deliberately left out of the group and arrive one at a time.
       # Grouping everything produced a single pull request carrying Next 15→16,
-      # ESLint 9→10 and TypeScript 5→7, which failed CI and could not be split —
-      # Next 16 removes `next lint`, so that bump is a migration, not an upgrade.
+      # ESLint 9→10 and TypeScript 5→7, which failed CI and could not be split:
+      # Next 16 removed `next lint`, which made that bump a migration rather than
+      # an upgrade, and the other two turned out to be blocked on it.
       web-dependencies:
         patterns: ["*"]
         update-types: ["minor", "patch"]
