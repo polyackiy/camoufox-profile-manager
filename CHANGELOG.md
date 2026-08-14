@@ -24,10 +24,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   prerender, and a loader that clears the previous error before awaiting is doing
   it on purpose.
 
-  **ESLint stays on 9 and TypeScript on 5**, both blocked upstream rather than by
-  anything here: `eslint-config-next@16` bundles `eslint-plugin-react@7.37.5`,
-  which supports ESLint `^9.7` and crashes on 10 — its own peer range claims
-  `>=9.0.0` — and `typescript-eslint` refuses to load under TypeScript 7.
+  **ESLint is on 10**, which took working around a dependency that has not moved:
+  `eslint-config-next` asks `eslint-plugin-react` to detect the installed React
+  version, and detection in the bundled 7.37.5 — the last release, from April
+  2025 — calls the `context.getFilename()` ESLint 10 removed, which aborted the
+  entire run. The config now names the version instead, read from React itself,
+  so detection never runs. The resolved rule set is identical to the one ESLint 9
+  produced: same 113 rules at the same severities.
+
+  **TypeScript stays on 5**, still blocked upstream: `typescript-eslint` declares
+  `typescript: >=4.8.4 <6.1.0` and refuses to load under TypeScript 7.
 
   `next` and `eslint-config-next` are pinned to the same exact version rather
   than a range, because a mismatched pair between them is a broken lint run, and

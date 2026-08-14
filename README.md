@@ -240,7 +240,7 @@ extras/chrome_migration/  optional Chrome → Camoufox migration
 ```
 
 **Backend:** Python, FastAPI, SQLite, Camoufox + Playwright.
-**Frontend:** Next.js 15, React 19, TypeScript, Tailwind v4.
+**Frontend:** Next.js 16, React 19, TypeScript, Tailwind v4.
 
 ## Development
 

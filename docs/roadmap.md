@@ -5,8 +5,9 @@ Track progress in [GitHub Issues](https://github.com/polyackiy/camoufox-profile-
 
 ## Since 0.2.0
 
-- The web UI runs on Next 16, with linting moved from the removed `next lint` to
-  the ESLint CLI and the `FlatCompat` shim dropped for the native flat config.
+- The web UI runs on Next 16 and ESLint 10, with linting moved from the removed
+  `next lint` to the ESLint CLI and the `FlatCompat` shim dropped for the native
+  flat config.
 - Chrome cookies decrypt with the cipher the platform that wrote them actually
   used (AES-256-GCM on Windows, AES-128-CBC on macOS and Linux) *and* with the
   cookie-store schema they were written under — from schema 24 the plaintext
@@ -80,12 +81,12 @@ order of how much they would hurt if left alone:
 - The browser test suite depends on reaching `example.com` and `iana.org`, so a
   full run can flake on a rate limit rather than a real fault. Serving the two
   origins locally would make it deterministic.
-- **ESLint 10 and TypeScript 7 are blocked upstream, not by us.** Both were held
-  back during the Next 16 migration for reasons that are outside this repository:
-  `eslint-config-next@16` bundles `eslint-plugin-react@7.37.5`, which supports
-  ESLint `^9.7` and crashes on 10 despite the config's own peer range saying
-  `>=9.0.0`; and `typescript-eslint` refuses to load under TypeScript 7 outright.
-  Worth retrying when either publishes support.
+- **TypeScript 7 is blocked upstream, not by us.** `typescript-eslint` declares
+  `typescript: >=4.8.4 <6.1.0` and refuses to load under TypeScript 7, so the
+  bump would break `npm run lint` on its own. Worth retrying when it publishes
+  support. (ESLint 10 was the same story until the config stopped asking
+  `eslint-plugin-react` to detect the React version — see the note in
+  [web/eslint.config.mjs](../web/eslint.config.mjs).)
 - Proxy health at a glance in the profiles list, so a dead proxy is visible
   without opening each profile and pressing *Check proxy*.
 
