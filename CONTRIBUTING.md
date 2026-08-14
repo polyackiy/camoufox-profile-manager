@@ -15,7 +15,8 @@ uv sync --extra dev --extra chrome-migration
 uv run camoufox fetch
 ```
 
-The frontend is a Next.js app in `web/`:
+The frontend is a Next.js app in `web/`. It needs Node.js 20.19+ — ESLint 10's
+floor; building the bundle alone works from 20.9:
 
 ```bash
 cd web

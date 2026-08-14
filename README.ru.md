@@ -246,7 +246,7 @@ extras/chrome_migration/  опциональная миграция Chrome → C
 ```
 
 **Бэкенд:** Python, FastAPI, SQLite, Camoufox + Playwright.
-**Фронтенд:** Next.js 15, React 19, TypeScript, Tailwind v4.
+**Фронтенд:** Next.js 16, React 19, TypeScript, Tailwind v4.
 
 ## Разработка
 

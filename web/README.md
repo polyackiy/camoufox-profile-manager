@@ -1,6 +1,6 @@
 # Web UI
 
-The Camoufox Profile Manager front end: a Next.js 15 app that FastAPI serves as a
+The Camoufox Profile Manager front end: a Next.js 16 app that FastAPI serves as a
 static export, so the whole product runs as one process on one port.
 
 ## Running it
