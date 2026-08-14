@@ -8,8 +8,8 @@ import {
   ChevronRight,
   Copy,
   Download,
+  Ellipsis,
   Globe,
-  MoreHorizontal,
   PackageOpen,
   Pencil,
   Play,
@@ -719,7 +719,7 @@ export default function ProfilesPage() {
                             setMenuFor(menuFor === profile.id ? null : profile.id)
                           }}
                         >
-                          <MoreHorizontal size={15} />
+                          <Ellipsis size={15} />
                         </button>
 
                         {menuFor === profile.id && (

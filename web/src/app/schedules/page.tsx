@@ -3,11 +3,13 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
   CalendarClock,
-  History,
   Pause,
   Pencil,
   Play,
   Plus,
+  // lucide 1.0 renamed History to RotateCcwClock. The old name is the one that
+  // means anything next to a History button, so keep it locally.
+  RotateCcwClock as History,
   Trash2,
 } from 'lucide-react'
 

@@ -1,7 +1,7 @@
 'use client'
 
 import { createContext, useCallback, useContext, useEffect, useState } from 'react'
-import { AlertTriangle, Check, Info, X } from 'lucide-react'
+import { Check, Info, TriangleAlert, X } from 'lucide-react'
 
 type ToastKind = 'ok' | 'error' | 'info'
 
@@ -53,7 +53,7 @@ function ToastRow({ toast, onDismiss }: { toast: Toast; onDismiss: () => void })
     return () => clearTimeout(timer)
   }, [onDismiss, toast.kind])
 
-  const Icon = toast.kind === 'ok' ? Check : toast.kind === 'error' ? AlertTriangle : Info
+  const Icon = toast.kind === 'ok' ? Check : toast.kind === 'error' ? TriangleAlert : Info
   const tone =
     toast.kind === 'ok' ? 'text-ok' : toast.kind === 'error' ? 'text-danger' : 'text-ink-dim'
 
