@@ -36,6 +36,9 @@ export function LoginGate({ children }: { children: React.ReactNode }) {
   }, [])
 
   useEffect(() => {
+    // refresh() only sets state after awaiting the session probe; the rule
+    // cannot see through the async boundary and assumes the worst.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     refresh()
   }, [refresh])
 

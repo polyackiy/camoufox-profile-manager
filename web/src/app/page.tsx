@@ -117,6 +117,10 @@ export default function ProfilesPage() {
   }, [])
 
   useEffect(() => {
+    // loadProfiles clears the previous error synchronously before awaiting,
+    // which is the one render the rule objects to and is what makes a reload
+    // stop showing a stale failure.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadProfiles()
     loadGroups()
     loadRunning()
@@ -138,7 +142,15 @@ export default function ProfilesPage() {
     return () => document.removeEventListener('click', close)
   }, [])
 
-  useEffect(() => setPage(1), [search, statusFilter])
+  // Go back to the first page when the filters change. Adjusted during render
+  // rather than in an effect: an effect would paint the new results clamped to
+  // whatever page number survived, then snap to the first one, and React
+  // documents this as the way to derive state from a change in props or state.
+  const [filterForPage, setFilterForPage] = useState(() => ({ search, statusFilter }))
+  if (filterForPage.search !== search || filterForPage.statusFilter !== statusFilter) {
+    setFilterForPage({ search, statusFilter })
+    setPage(1)
+  }
 
   const groupNames = useMemo(
     () => new Map(groups.map((group) => [group.id, group.name])),

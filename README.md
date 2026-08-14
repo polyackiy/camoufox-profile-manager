@@ -89,7 +89,7 @@ of plausible parts.
 
 ## Install and run
 
-You need [uv](https://docs.astral.sh/uv/) and Python 3.10+. Node.js 20+ is only
+You need [uv](https://docs.astral.sh/uv/) and Python 3.10+. Node.js 20.9+ is only
 needed if you build the web UI yourself.
 
 ### From a release (no Node.js)

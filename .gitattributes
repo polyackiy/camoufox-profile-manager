@@ -1,0 +1,14 @@
+# Source stays diffable. Without this, one stray control byte reclassifies a
+# file as binary for good: `git diff` and `git blame` stop working on it, and a
+# merge conflict can only be resolved whole-file instead of hunk by hunk.
+*.py    text diff
+*.ts    text diff
+*.tsx   text diff
+*.js    text diff
+*.mjs   text diff
+*.css   text diff
+*.json  text diff
+*.md    text diff
+*.toml  text diff
+*.yml   text diff
+*.yaml  text diff
