@@ -15,6 +15,7 @@ from camoufox import AsyncCamoufox
 
 from camoufox_pm.core import fingerprint_store
 from camoufox_pm.core.models import BrowserSettings, Profile, ProxyConfig, ProxyType
+from tests.browser.support import offline_launch
 
 IDENTITY = """() => {
   const gl = document.createElement('canvas').getContext('webgl');
@@ -31,7 +32,7 @@ IDENTITY = """() => {
 
 async def observe(options, user_data_dir):
     """Launch with these options and report what a page would see."""
-    launch = dict(options)
+    launch = offline_launch(options)
     launch["headless"] = True
     launch["user_data_dir"] = str(user_data_dir)
     async with AsyncCamoufox(**launch) as browser:
@@ -121,15 +122,28 @@ CANVAS = """() => {
 }"""
 
 
-async def read_canvas(options, user_data_dir, url):
-    launch = dict(options)
+async def read_canvases(options, user_data_dir, *urls):
+    """Read the canvas at each URL within a single launch.
+
+    One session, several origins: that is the only way to observe the per-site
+    keying, since a fresh launch re-randomises and would mask it.
+    """
+    launch = offline_launch(options)
     launch["headless"] = True
     launch["user_data_dir"] = str(user_data_dir)
     async with AsyncCamoufox(**launch) as browser:
         page = await browser.new_page()
-        await page.goto(url, wait_until="domcontentloaded", timeout=45000)
-        value = await page.evaluate(CANVAS)
-        return hashlib.sha256(value.encode()).hexdigest()[:16]
+        seen = []
+        for url in urls:
+            await page.goto(url, wait_until="domcontentloaded", timeout=45000)
+            value = await page.evaluate(CANVAS)
+            seen.append(hashlib.sha256(value.encode()).hexdigest()[:16])
+        return seen
+
+
+async def read_canvas(options, user_data_dir, url):
+    """One canvas from one launch, which is what the cross-launch tests compare."""
+    return (await read_canvases(options, user_data_dir, url))[0]
 
 
 def pinned_options(profile):
@@ -141,7 +155,7 @@ def pinned_options(profile):
 
 @pytest.mark.browser
 @pytest.mark.asyncio
-async def test_stable_canvas_survives_a_relaunch(tmp_path):
+async def test_stable_canvas_survives_a_relaunch(tmp_path, local_sites):
     """The whole point of the setting: the canvas reads the same next session.
 
     Needs both halves — the pref stops the pixel randomisation, and the pinned
@@ -159,14 +173,14 @@ async def test_stable_canvas_survives_a_relaunch(tmp_path):
     profile.fingerprint = fingerprint_store.resolve(options)
     assert profile.fingerprint, "the pin carries the font seed this relies on"
 
-    first = await read_canvas(pinned_options(profile), tmp_path / "a", "https://example.com")
-    second = await read_canvas(pinned_options(profile), tmp_path / "a", "https://example.com")
+    first = await read_canvas(pinned_options(profile), tmp_path / "a", local_sites.first)
+    second = await read_canvas(pinned_options(profile), tmp_path / "a", local_sites.first)
     assert first == second, f"canvas drifted between launches: {first} vs {second}"
 
 
 @pytest.mark.browser
 @pytest.mark.asyncio
-async def test_a_randomised_canvas_profile_still_drifts(tmp_path):
+async def test_a_randomised_canvas_profile_still_drifts(tmp_path, local_sites):
     """Guards the default. If this starts passing, the setting is redundant."""
     profile = Profile(
         name="randomised-canvas",
@@ -176,14 +190,14 @@ async def test_a_randomised_canvas_profile_still_drifts(tmp_path):
     assert "firefox_user_prefs" not in options
 
     profile.fingerprint = fingerprint_store.resolve(options)
-    first = await read_canvas(pinned_options(profile), tmp_path / "b", "https://example.com")
-    second = await read_canvas(pinned_options(profile), tmp_path / "b", "https://example.com")
+    first = await read_canvas(pinned_options(profile), tmp_path / "b", local_sites.first)
+    second = await read_canvas(pinned_options(profile), tmp_path / "b", local_sites.first)
     assert first != second, "expected the default to keep randomising the canvas"
 
 
 @pytest.mark.browser
 @pytest.mark.asyncio
-async def test_stable_canvas_is_linkable_across_sites(tmp_path):
+async def test_stable_canvas_is_linkable_across_sites(tmp_path, local_sites):
     """The cost, asserted rather than only documented.
 
     A stable canvas is the same everywhere, so two sites can tell they are
@@ -197,9 +211,46 @@ async def test_stable_canvas_is_linkable_across_sites(tmp_path):
     profile.fingerprint = fingerprint_store.resolve(profile.to_camoufox_launch_options())
     assert profile.fingerprint
 
-    one = await read_canvas(pinned_options(profile), tmp_path / "c", "https://example.com")
-    two = await read_canvas(pinned_options(profile), tmp_path / "c", "https://www.iana.org")
+    one, two = await read_canvases(
+        pinned_options(profile), tmp_path / "c", local_sites.first, local_sites.second
+    )
     assert one == two, "a stable canvas is expected to be identical across sites"
+
+
+@pytest.mark.browser
+@pytest.mark.asyncio
+async def test_the_two_local_origins_are_different_sites(tmp_path, local_sites):
+    """Guards the fixture, and with it the linkability test above.
+
+    That test only means something if the browser counts the two origins as
+    different sites. With example.com and iana.org that went without saying;
+    with two loopback names it does not, and if they ever collapsed into one
+    site the assertion would pass while proving nothing.
+
+    One launch, three visits: randomisation is stable per site within a session,
+    so a hash that changes on the second origin and returns on the third is the
+    keying itself, not launch-to-launch drift.
+    """
+    profile = Profile(
+        name="two-sites",
+        browser_settings=BrowserSettings(os="windows", stable_canvas=False),
+    )
+    profile.fingerprint = fingerprint_store.resolve(profile.to_camoufox_launch_options())
+    assert profile.fingerprint
+
+    first, second, again = await read_canvases(
+        pinned_options(profile),
+        tmp_path / "sites",
+        local_sites.first,
+        local_sites.second,
+        local_sites.first,
+    )
+
+    assert first == again, f"the same site drifted inside one session: {first} vs {again}"
+    assert first != second, (
+        f"{local_sites.first} and {local_sites.second} look like one site to the browser, "
+        "so the linkability test above no longer proves anything"
+    )
 
 
 @pytest.mark.browser
@@ -271,7 +322,7 @@ async def test_refreshing_follows_the_pinned_os_not_the_settings(tmp_path):
 
 @pytest.mark.browser
 @pytest.mark.asyncio
-async def test_refreshing_keeps_the_canvas_identical(tmp_path):
+async def test_refreshing_keeps_the_canvas_identical(tmp_path, local_sites):
     """The seeds must survive a refresh, or the canvas silently changes."""
     profile = Profile(
         name="refresh-canvas",
@@ -280,13 +331,13 @@ async def test_refreshing_keeps_the_canvas_identical(tmp_path):
     profile.fingerprint = fingerprint_store.resolve(profile.to_camoufox_launch_options())
     assert profile.fingerprint
 
-    before = await read_canvas(pinned_options(profile), tmp_path / "c1", "https://example.com")
+    before = await read_canvas(pinned_options(profile), tmp_path / "c1", local_sites.first)
 
     profile.fingerprint = fingerprint_store.refresh_browser_version(
         profile.fingerprint,
         fingerprint_store.resolve(profile.to_camoufox_launch_options()),
     )
-    after = await read_canvas(pinned_options(profile), tmp_path / "c2", "https://example.com")
+    after = await read_canvas(pinned_options(profile), tmp_path / "c2", local_sites.first)
 
     assert before == after, "a version refresh must not move the canvas"
 

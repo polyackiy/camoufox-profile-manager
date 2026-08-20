@@ -5,6 +5,13 @@ and that same branch is what fills the timezone. Without the fill this exercises
 Firefox falls back to the host machine's own zone, which is the real machine
 showing through.
 
+The exit address is named rather than looked up. What belongs here is the part
+only a browser can answer — that the filled timezone is what Intl reports — and
+resolving an address over HTTP is neither that nor deterministic: it was the last
+thing in this suite needing the internet, and it made the assertion depend on
+where the machine sits. The lookup itself, including endpoints that answer with a
+page instead of an address, is covered in tests/unit/test_proxy_check.py.
+
 Run with:  uv run pytest -m browser
 """
 
@@ -13,12 +20,25 @@ from camoufox import AsyncCamoufox
 
 from camoufox_pm.core import proxy_check
 from camoufox_pm.core.models import BrowserSettings, Profile
+from tests.browser.support import GEOIP_ADDRESS, offline_launch
+
+
+@pytest.fixture
+def named_exit_address(monkeypatch):
+    """Answer the exit-address lookup without leaving the machine."""
+
+    async def fixed(proxy, timeout=None):
+        return GEOIP_ADDRESS, 1
+
+    monkeypatch.setattr(proxy_check, "resolve_exit_ip", fixed)
+    return GEOIP_ADDRESS
+
 
 CLOCK = "() => Intl.DateTimeFormat().resolvedOptions().timeZone"
 
 
 async def timezone_seen(options, user_data_dir):
-    launch = dict(options)
+    launch = offline_launch(options)
     launch["headless"] = True
     launch["user_data_dir"] = str(user_data_dir)
     async with AsyncCamoufox(**launch) as browser:
@@ -29,7 +49,7 @@ async def timezone_seen(options, user_data_dir):
 
 @pytest.mark.browser
 @pytest.mark.asyncio
-async def test_coordinates_no_longer_leak_this_computers_timezone(tmp_path):
+async def test_coordinates_no_longer_leak_this_computers_timezone(tmp_path, named_exit_address):
     """The fix, against the behaviour it replaces.
 
     Launches the same profile twice: once with the raw options, which is what
@@ -49,7 +69,7 @@ async def test_coordinates_no_longer_leak_this_computers_timezone(tmp_path):
     await proxy_check.fill_what_geoip_would_have(profile.proxy, filled)
     assert filled["config"].get("timezone"), "the exit address should have supplied a timezone"
     if filled["config"]["timezone"] == host:
-        pytest.skip("this machine sits in the timezone its own address resolves to")
+        pytest.skip(f"this machine sits in the timezone {named_exit_address} resolves to")
 
     spoofed = await timezone_seen(filled, tmp_path / "filled")
 
@@ -59,7 +79,7 @@ async def test_coordinates_no_longer_leak_this_computers_timezone(tmp_path):
 
 @pytest.mark.browser
 @pytest.mark.asyncio
-async def test_an_explicit_timezone_is_never_overwritten(tmp_path):
+async def test_an_explicit_timezone_is_never_overwritten(tmp_path, named_exit_address):
     """The user's own answer wins over anything the address suggests."""
     profile = Profile(
         name="explicit",
