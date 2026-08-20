@@ -384,7 +384,14 @@ async def check_profile_proxy(profile_id: str):
         raise HTTPException(status_code=404, detail=f"Profile with ID {profile_id} not found")
 
     result = await proxy_check.check(profile.proxy, profile.browser_settings)
-    return ProxyCheckResponse.from_result(result)
+
+    # Kept on the profile so the list can show this answer later. A check the
+    # user asked for is the only thing that writes it — nothing here polls.
+    stored = proxy_check.record(result)
+    profile.proxy_check = stored
+    await get_profile_manager().storage.update_profile(profile)
+
+    return ProxyCheckResponse.from_result(result, checked_at=stored.checked_at)
 
 
 @router.post(

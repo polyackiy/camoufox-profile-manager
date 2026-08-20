@@ -6,6 +6,21 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Proxy health in the profiles list.** A check now leaves its answer in the
+  row — the exit address, country and latency under the configured proxy, with a
+  dot that is green when the proxy answers and agrees with the profile, amber
+  when it answers but contradicts it, and red when it does not answer or when a
+  finding means the launch itself is wrong. The full detail is in the row's
+  tooltip. Selected profiles can be checked in one go, a few at a time so the
+  rows land as progress rather than one long wait.
+
+  Checks happen only when asked for; nothing polls. The answer is kept on the
+  profile so it survives a reload, and is dropped the moment the proxy
+  changes — an answer from the proxy that was there says nothing about the one
+  that is there now. A clone starts unchecked: it shares its source's proxy, but
+  it is not the profile that was checked.
+
 ### Changed
 - **The browser test suite runs offline.** It used to load `example.com` and
   `iana.org` to compare canvases per site, and launching asked the internet for

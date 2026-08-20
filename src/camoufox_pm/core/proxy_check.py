@@ -32,7 +32,7 @@ import httpx
 from camoufox.ip import valid_ipv4, valid_ipv6
 from loguru import logger
 
-from .models import BrowserSettings, ProxyConfig, ProxyType
+from .models import BrowserSettings, ProxyCheckFinding, ProxyCheckRecord, ProxyConfig, ProxyType
 
 Level = Literal["error", "warning", "info"]
 
@@ -94,6 +94,27 @@ class ProxyCheckResult:
     latency_ms: int | None = None
     location: ProxyLocation | None = None
     findings: list[Finding] = field(default_factory=list)
+
+
+def record(result: ProxyCheckResult, checked_at: datetime | None = None) -> ProxyCheckRecord:
+    """The part of a check worth keeping on the profile.
+
+    Stored so the list can show a proxy's last answer without asking again, which
+    is the whole point of checking on demand rather than on a timer.
+    """
+    return ProxyCheckRecord(
+        checked_at=checked_at or datetime.now(),
+        reachable=result.reachable,
+        error=result.error,
+        latency_ms=result.latency_ms,
+        ip=result.location.ip if result.location else None,
+        country=result.location.country if result.location else None,
+        timezone=result.location.timezone if result.location else None,
+        findings=[
+            ProxyCheckFinding(level=f.level, field=f.field, message=f.message)
+            for f in result.findings
+        ],
+    )
 
 
 def proxy_url(proxy: ProxyConfig) -> str:

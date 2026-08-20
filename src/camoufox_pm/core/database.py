@@ -14,6 +14,7 @@ from .models import (
     Profile,
     ProfileGroup,
     ProfileStatus,
+    ProxyCheckRecord,
     ProxyConfig,
     Schedule,
     ScheduleRun,
@@ -66,7 +67,7 @@ class DatabaseManager:
         never touches existing rows.
         """
         added_columns = {
-            "profiles": [("fingerprint", "TEXT")],
+            "profiles": [("fingerprint", "TEXT"), ("proxy_check", "TEXT")],
         }
         for table, columns in added_columns.items():
             cursor = self._connection.execute(f"PRAGMA table_info({table})")
@@ -95,7 +96,8 @@ class DatabaseManager:
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 last_used TIMESTAMP,
-                fingerprint TEXT
+                fingerprint TEXT,
+                proxy_check TEXT
             )
         """)
 
@@ -203,8 +205,8 @@ class DatabaseManager:
             INSERT OR REPLACE INTO profiles (
                 id, name, group_id, status, browser_settings, proxy_config,
                 extensions, storage_path, notes, created_at, updated_at, last_used,
-                fingerprint
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                fingerprint, proxy_check
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
             (
                 profile.id,
@@ -220,6 +222,7 @@ class DatabaseManager:
                 profile.updated_at.isoformat(),
                 profile.last_used.isoformat() if profile.last_used else None,
                 json.dumps(profile.fingerprint) if profile.fingerprint else None,
+                profile.proxy_check.model_dump_json() if profile.proxy_check else None,
             ),
         )
         self._connection.commit()
@@ -641,6 +644,11 @@ class DatabaseManager:
         fingerprint = (
             json.loads(row["fingerprint"]) if "fingerprint" in keys and row["fingerprint"] else None
         )
+        stored_check = (
+            ProxyCheckRecord.model_validate_json(row["proxy_check"])
+            if "proxy_check" in keys and row["proxy_check"]
+            else None
+        )
 
         return Profile(
             id=row["id"],
@@ -656,6 +664,7 @@ class DatabaseManager:
             updated_at=datetime.fromisoformat(row["updated_at"]),
             last_used=datetime.fromisoformat(row["last_used"]) if row["last_used"] else None,
             fingerprint=fingerprint,
+            proxy_check=stored_check,
         )
 
     async def close(self):

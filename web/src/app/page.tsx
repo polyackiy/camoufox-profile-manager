@@ -33,8 +33,10 @@ import {
   hasGeography,
   OS_LABELS,
   profilesAPI,
+  readProxyCheck,
   type Group,
   type Profile,
+  type ProxyCheckRecord,
 } from '@/lib/api'
 
 type SortKey = 'name' | 'id' | 'group' | 'os' | 'status' | 'last_used'
@@ -63,6 +65,7 @@ export default function ProfilesPage() {
   const [page, setPage] = useState(1)
   const perPage = 25
 
+  const [checkingProxies, setCheckingProxies] = useState<Set<string>>(new Set())
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [menuFor, setMenuFor] = useState<string | null>(null)
   const [formOpen, setFormOpen] = useState(false)
@@ -196,6 +199,12 @@ export default function ProfilesPage() {
     [profiles, selected],
   )
 
+  // Same rule as the clear above: a profile with no proxy has nothing to check.
+  const selectedWithProxy = useMemo(
+    () => profiles.filter((profile) => selected.has(profile.id) && profile.proxy_config).length,
+    [profiles, selected],
+  )
+
   const totalPages = Math.max(1, Math.ceil(visible.length / perPage))
   // Deleting the last rows of a page must not strand the user on an empty one.
   const currentPage = Math.min(page, totalPages)
@@ -306,30 +315,67 @@ export default function ProfilesPage() {
   }
 
   /**
-   * A proxy that answers is only half the question: the toast also carries the
-   * first thing a page could notice between the exit address and the profile,
-   * because a healthy proxy in the wrong country is still a giveaway.
+   * Check one proxy and leave the answer in its row.
+   *
+   * The row is the report, not a toast: a toast is gone in four seconds, and the
+   * question this answers — is this proxy alive, and does it agree with the
+   * profile — is one the list should keep showing. Only a failure to reach *our
+   * own API* is worth interrupting for, because then no row can say anything.
    */
-  async function checkProxy(profile: Profile) {
-    toast('info', 'Checking the proxy…', profile.name)
+  async function checkProxy(profile: Profile): Promise<ProxyCheckRecord | null> {
+    setCheckingProxies((current) => new Set(current).add(profile.id))
     try {
       const result = await profilesAPI.checkProxy(profile.id)
-      if (!result.reachable) {
-        toast('error', `${profile.name}: proxy unreachable`, result.error ?? undefined)
-        return
+      const record: ProxyCheckRecord = {
+        checked_at: result.checked_at ?? new Date().toISOString(),
+        reachable: result.reachable,
+        error: result.error,
+        latency_ms: result.latency_ms,
+        ip: result.location?.ip ?? null,
+        country: result.location?.country ?? null,
+        timezone: result.location?.timezone ?? null,
+        findings: result.findings,
       }
-      const where = [result.location?.country, result.location?.timezone]
-        .filter(Boolean)
-        .join(' · ')
-      const problem = result.findings.find((finding) => finding.level !== 'info')
-      const summary = `${result.location?.ip}${where ? ` — ${where}` : ''}${
-        result.latency_ms !== null ? ` · ${result.latency_ms} ms` : ''
-      }`
-      if (problem) toast('error', `${profile.name}: ${summary}`, problem.message)
-      else toast('ok', `${profile.name}: ${summary}`)
+      setProfiles((current) =>
+        current.map((row) => (row.id === profile.id ? { ...row, proxy_check: record } : row)),
+      )
+      return record
     } catch (err) {
       toast('error', 'Could not check the proxy', String(err))
+      return null
+    } finally {
+      setCheckingProxies((current) => {
+        const next = new Set(current)
+        next.delete(profile.id)
+        return next
+      })
     }
+  }
+
+  /**
+   * Check every selected profile that has a proxy.
+   *
+   * A few at a time: a hundred proxies opened at once is a hundred sockets and a
+   * self-inflicted timeout, and rows landing one by one reads as progress where
+   * a single wait reads as a hang.
+   */
+  async function checkSelectedProxies() {
+    const queue = profiles.filter((profile) => selected.has(profile.id) && profile.proxy_config)
+    if (!queue.length) return
+
+    // Counted before the workers start draining the queue.
+    const total = queue.length
+    let failed = 0
+    const workers = Array.from({ length: Math.min(5, total) }, async () => {
+      for (let next = queue.shift(); next; next = queue.shift()) {
+        const record = await checkProxy(next)
+        if (record && !record.reachable) failed += 1
+      }
+    })
+    await Promise.all(workers)
+
+    if (failed) toast('error', `${failed} of ${total} did not answer`, 'The rows carry the detail.')
+    else toast('ok', `${total} ${total === 1 ? 'proxy' : 'proxies'} answered`)
   }
 
   function askDelete(profile: Profile) {
@@ -539,6 +585,18 @@ export default function ProfilesPage() {
       {selected.size > 0 && (
         <div className="flex items-center gap-3 border-b border-line bg-raised px-5 py-2">
           <span>{selected.size} selected</span>
+          {selectedWithProxy > 0 && (
+            <button
+              className="btn btn-default h-7"
+              disabled={checkingProxies.size > 0}
+              onClick={checkSelectedProxies}
+            >
+              <Globe size={13} />
+              {checkingProxies.size > 0
+                ? `Checking… (${checkingProxies.size})`
+                : `Check proxies (${selectedWithProxy})`}
+            </button>
+          )}
           {selectedWithGeography > 0 && (
             <button className="btn btn-default h-7" onClick={askClearGeography}>
               <Globe size={13} />
@@ -683,8 +741,11 @@ export default function ProfilesPage() {
                     <StatusCell status={profile.status} running={isRunning} />
                   </td>
                   <td className="py-2.5 pr-4 text-ink-dim">{formatLastUsed(profile.last_used)}</td>
-                  <td className="py-2.5 pr-4 font-mono text-ink-faint">
-                    {formatProxyString(profile.proxy_config) || '—'}
+                  <td className="py-2.5 pr-4">
+                    <ProxyCell
+                      profile={profile}
+                      checking={checkingProxies.has(profile.id)}
+                    />
                   </td>
 
                   <td className="py-2.5 pr-5">
@@ -872,6 +933,54 @@ export default function ProfilesPage() {
         </p>
       </Modal>
     </>
+  )
+}
+
+/** The configured proxy, and under it the last answer it gave.
+ *
+ * Two lines rather than a column of its own: the table is already wide, and the
+ * second line only exists once there is something to say, so a list nobody has
+ * checked looks exactly as it did before.
+ */
+function ProxyCell({ profile, checking }: { profile: Profile; checking: boolean }) {
+  const configured = formatProxyString(profile.proxy_config) || '—'
+  const check = profile.proxy_check
+
+  return (
+    // Bounded, because a table cell grows to fit its content: an unreachable
+    // proxy reports a whole sentence, and without a cap one dead proxy pushed
+    // the row actions off the screen and gave the table a scrollbar.
+    <div className="max-w-[280px] leading-tight">
+      <div className="truncate font-mono text-ink-faint">{configured}</div>
+      {checking ? (
+        <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-ink-faint">
+          <span className="signal-pulse h-1.5 w-1.5 rounded-full bg-signal" />
+          Checking…
+        </div>
+      ) : check ? (
+        <ProxyResult check={check} />
+      ) : null}
+    </div>
+  )
+}
+
+function ProxyResult({ check }: { check: ProxyCheckRecord }) {
+  const { tone, detail } = readProxyCheck(check)
+  const dot = tone === 'ok' ? 'bg-ok' : tone === 'warn' ? 'bg-warn' : 'bg-danger'
+  // Latency and country only mean something when the proxy answered; when it did
+  // not, the reason is the only thing worth the space.
+  const parts = check.reachable
+    ? [check.ip, check.country, check.latency_ms !== null ? `${check.latency_ms} ms` : null]
+    : [check.error]
+
+  return (
+    <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-ink-faint" title={detail}>
+      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dot}`} />
+      {/* min-w-0 so this is the part that gives way: a flex item will not shrink
+          below its content without it, and the truncation never happens. */}
+      <span className="min-w-0 truncate font-mono">{parts.filter(Boolean).join(' · ')}</span>
+      <span className="shrink-0 text-ink-dim/70">· {formatLastUsed(check.checked_at)}</span>
+    </div>
   )
 }
 

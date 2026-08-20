@@ -155,3 +155,108 @@ async def test_a_working_proxy_the_database_cannot_place(client, monkeypatch):
         "longitude": None,
     }
     assert [f["level"] for f in body["findings"]] == ["info"]
+
+
+@pytest.mark.asyncio
+async def test_a_check_is_kept_on_the_profile(client, exit_in_tokyo):
+    """The list shows a proxy's last answer, so the answer has to outlive the request."""
+    created = await client.post(
+        "/api/profiles",
+        json={"name": "kept", "browser_settings": {"timezone": "Asia/Tokyo"}},
+    )
+    profile_id = created.json()["id"]
+    assert created.json()["proxy_check"] is None, "a new profile has never been checked"
+
+    checked = await client.post(f"/api/profiles/{profile_id}/check-proxy")
+    assert checked.json()["checked_at"] is not None
+
+    stored = (await client.get(f"/api/profiles/{profile_id}")).json()["proxy_check"]
+    assert stored["reachable"] is True
+    assert stored["ip"] == "203.0.113.7"
+    assert stored["country"] == "JP"
+    assert stored["latency_ms"] == 42
+    assert stored["checked_at"] == checked.json()["checked_at"]
+
+
+@pytest.mark.asyncio
+async def test_a_dead_proxy_is_kept_too(client, dead_proxy):
+    """Red is a result. A row that forgets it looks unchecked, which is worse."""
+    created = await client.post("/api/profiles", json={"name": "dead"})
+    profile_id = created.json()["id"]
+
+    await client.post(f"/api/profiles/{profile_id}/check-proxy")
+
+    stored = (await client.get(f"/api/profiles/{profile_id}")).json()["proxy_check"]
+    assert stored["reachable"] is False
+    assert stored["error"]
+    assert stored["ip"] is None
+
+
+@pytest.mark.asyncio
+async def test_changing_the_proxy_drops_the_stored_check(client, exit_in_tokyo):
+    """An answer from the proxy that was there says nothing about the one now."""
+    created = await client.post(
+        "/api/profiles",
+        json={
+            "name": "moved",
+            "proxy_config": {"type": "http", "server": "first.example.com:8080"},
+        },
+    )
+    profile_id = created.json()["id"]
+    await client.post(f"/api/profiles/{profile_id}/check-proxy")
+    assert (await client.get(f"/api/profiles/{profile_id}")).json()["proxy_check"] is not None
+
+    await client.put(
+        f"/api/profiles/{profile_id}",
+        json={"proxy_config": {"type": "http", "server": "second.example.com:8080"}},
+    )
+
+    assert (await client.get(f"/api/profiles/{profile_id}")).json()["proxy_check"] is None
+
+
+@pytest.mark.asyncio
+async def test_removing_the_proxy_drops_the_stored_check(client, exit_in_tokyo):
+    """No proxy is a different exit address, not the absence of a question."""
+    created = await client.post(
+        "/api/profiles",
+        json={
+            "name": "unproxied",
+            "proxy_config": {"type": "http", "server": "first.example.com:8080"},
+        },
+    )
+    profile_id = created.json()["id"]
+    await client.post(f"/api/profiles/{profile_id}/check-proxy")
+
+    await client.put(f"/api/profiles/{profile_id}", json={"proxy_config": None})
+
+    assert (await client.get(f"/api/profiles/{profile_id}")).json()["proxy_check"] is None
+
+
+@pytest.mark.asyncio
+async def test_an_unrelated_edit_keeps_the_stored_check(client, exit_in_tokyo):
+    """Renaming a profile does not make its proxy's answer stale."""
+    created = await client.post(
+        "/api/profiles",
+        json={"name": "before", "proxy_config": {"type": "http", "server": "p.example.com:8080"}},
+    )
+    profile_id = created.json()["id"]
+    await client.post(f"/api/profiles/{profile_id}/check-proxy")
+
+    await client.put(f"/api/profiles/{profile_id}", json={"name": "after"})
+
+    assert (await client.get(f"/api/profiles/{profile_id}")).json()["proxy_check"] is not None
+
+
+@pytest.mark.asyncio
+async def test_a_clone_starts_unchecked(client, exit_in_tokyo):
+    """The copy shares the proxy, but it is not the profile that was checked."""
+    created = await client.post(
+        "/api/profiles",
+        json={"name": "source", "proxy_config": {"type": "http", "server": "p.example.com:8080"}},
+    )
+    source_id = created.json()["id"]
+    await client.post(f"/api/profiles/{source_id}/check-proxy")
+
+    clone = await client.post(f"/api/profiles/{source_id}/clone", json={"new_name": "copy"})
+
+    assert clone.json()["proxy_check"] is None

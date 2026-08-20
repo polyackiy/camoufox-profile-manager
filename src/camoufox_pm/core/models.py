@@ -183,6 +183,33 @@ class BrowserSettings(BaseModel):
         return config
 
 
+class ProxyCheckFinding(BaseModel):
+    """One thing worth telling the user about this proxy and this profile."""
+
+    level: str
+    field: str
+    message: str
+
+
+class ProxyCheckRecord(BaseModel):
+    """The last answer a profile's proxy gave, kept so the list can show it.
+
+    Deliberately smaller than the live check: no coordinates, because the list
+    shows where the proxy comes out, not where on the map. Whether the dot is
+    green, amber or red is derived from `reachable` and the findings rather than
+    stored, so an old row cannot disagree with the rules that read it.
+    """
+
+    checked_at: datetime
+    reachable: bool
+    error: str | None = None
+    latency_ms: int | None = None
+    ip: str | None = None
+    country: str | None = None
+    timezone: str | None = None
+    findings: list[ProxyCheckFinding] = Field(default_factory=list)
+
+
 class Profile(BaseModel):
     """Browser profile."""
 
@@ -206,6 +233,11 @@ class Profile(BaseModel):
     # replayed from then on so the profile does not look like new hardware every
     # session. See core/fingerprint_store.py for what is frozen and what is not.
     fingerprint: dict[str, Any] | None = None
+
+    # The last time this profile's proxy was checked, so the list can show it
+    # without checking again. Cleared when the proxy changes: an answer from the
+    # old proxy says nothing about the new one.
+    proxy_check: ProxyCheckRecord | None = None
 
     def get_storage_path(self, base_path: str = "data/profiles") -> str:
         """Return (and lazily assign) the on-disk path for this profile's data."""
