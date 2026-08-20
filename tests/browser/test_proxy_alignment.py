@@ -20,7 +20,7 @@ from camoufox import AsyncCamoufox
 
 from camoufox_pm.core import proxy_check
 from camoufox_pm.core.models import BrowserSettings, Profile
-from tests.browser.support import GEOIP_ADDRESS
+from tests.browser.support import GEOIP_ADDRESS, offline_launch
 
 
 @pytest.fixture
@@ -38,7 +38,7 @@ CLOCK = "() => Intl.DateTimeFormat().resolvedOptions().timeZone"
 
 
 async def timezone_seen(options, user_data_dir):
-    launch = dict(options)
+    launch = offline_launch(options)
     launch["headless"] = True
     launch["user_data_dir"] = str(user_data_dir)
     async with AsyncCamoufox(**launch) as browser:

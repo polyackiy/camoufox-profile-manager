@@ -5,6 +5,7 @@ loaded more than once depending on the rootdir, and importing one directly is a
 pytest pitfall rather than a convention.
 """
 
+import errno
 import http.server
 import socket
 import socketserver
@@ -23,14 +24,22 @@ PAGE = b"<!doctype html><meta charset=utf-8><title>test page</title><p>test page
 def offline_launch(options: dict[str, Any]) -> dict[str, Any]:
     """These launch options with the one thing that reaches the internet replaced.
 
-    A real launch passes `geoip=True`, and Camoufox then fetches this machine's
-    public address over HTTP before *every* launch — a network round trip per
-    test, and a different answer on every machine. Naming an address keeps the
-    whole path: Camoufox still geolocates it and sets the timezone, coordinates,
-    locale and WebRTC address from it, just against the database on disk.
+    A real launch passes `geoip=True`, and Camoufox then asks the internet what
+    this machine's public address is. The answer is cached per process, so it is
+    one lookup per run rather than one per launch — but a *failed* lookup is not
+    cached, so with no internet every launch retries and fails, and the answer
+    differs by machine anyway.
+
+    Naming an address keeps the whole path. Camoufox gates only the HTTP lookup
+    on `geoip is True`; everything after it — geolocation, timezone, locale, the
+    WebRTC candidate and the IPv6 pref that goes with it — runs the same either
+    way, against the database on disk. `geoip=False` would take a different
+    branch and change what the browser does, which is why it is not used here.
 
     Left alone when a test set geoip itself; profiles with coordinates turn it
-    off, and that is the behaviour under test.
+    off, and that is the behaviour under test. Note it also short-circuits the
+    lookup Camoufox makes *through a proxy* — no browser test launches with one
+    today, and one that did would want its own answer here.
     """
     launch = dict(options)
     if launch.get("geoip") is True:
@@ -88,10 +97,14 @@ def serve_local_sites() -> Iterator[LocalSites]:
     servers = [_serve(socket.AF_INET, "127.0.0.1", port)]
     try:
         servers.append(_serve(socket.AF_INET6, "::1", port))
-    except OSError:
+    except OSError as error:
         # No IPv6 here, so `localhost` resolves to 127.0.0.1 and the first
-        # server answers both names.
-        pass
+        # server answers both names. Anything else — the port taken on ::1
+        # between the probe and the bind — must not be swallowed: `localhost`
+        # may resolve to ::1, and the tests would then fail on a 45-second
+        # navigation timeout with nothing pointing back at this fixture.
+        if error.errno not in (errno.EAFNOSUPPORT, errno.EADDRNOTAVAIL):
+            raise
 
     try:
         yield LocalSites(f"http://127.0.0.1:{port}/", f"http://localhost:{port}/")

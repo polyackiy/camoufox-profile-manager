@@ -211,8 +211,9 @@ async def test_stable_canvas_is_linkable_across_sites(tmp_path, local_sites):
     profile.fingerprint = fingerprint_store.resolve(profile.to_camoufox_launch_options())
     assert profile.fingerprint
 
-    one = await read_canvas(pinned_options(profile), tmp_path / "c", local_sites.first)
-    two = await read_canvas(pinned_options(profile), tmp_path / "c", local_sites.second)
+    one, two = await read_canvases(
+        pinned_options(profile), tmp_path / "c", local_sites.first, local_sites.second
+    )
     assert one == two, "a stable canvas is expected to be identical across sites"
 
 

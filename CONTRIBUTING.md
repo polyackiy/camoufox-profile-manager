@@ -63,18 +63,26 @@ uv run python scripts/build_webui.py
   ```
 
 - **The browser suite runs offline. Keep it that way.** It used to load
-  `example.com` and `iana.org`, and every launch fetched the machine's public
-  address, so a run could fail on a rate limit and look like a product bug — one
-  full run failed three tests and passed all twenty on the next attempt with
-  nothing changed. Now the pages come from a loopback server
+  `example.com` and `iana.org`, and launching asked the internet for this
+  machine's public address, so a run could fail on a rate limit and look like a
+  product bug — one full run failed three tests and passed all twenty on the next
+  attempt with nothing changed. Now the pages come from a loopback server
   ([tests/browser/support.py](tests/browser/support.py)) and the exit address is
   named instead of looked up. A new test that reaches the internet brings that
   back; if one truly needs to, say why in the test. The claim is a command
   rather than a promise:
 
   ```bash
-  uv run pytest -m browser --no-network   # fails any test that leaves the machine
+  uv run pytest -m browser --no-network   # refuses any connection off this machine
   ```
+
+  Two things to know about its reach. It guards the *test* process; the browser
+  is a child of its own, and what keeps its page loads local is that the tests
+  only ever hand it loopback URLs. And it will refuse the one-off downloads a
+  cold machine still needs — Camoufox fetches uBlock Origin into its addon cache
+  the first time anything launches, alongside `camoufox fetch` for the browser
+  itself. Both are once per machine, not per run; warm them first, as you would
+  before running this suite at all.
 - **Prefer tests that observe real behaviour.** The fingerprint tests launch a
   browser and read what a page would actually see, rather than asserting on the
   options passed in. When a test guards a premise about Camoufox's behaviour, say

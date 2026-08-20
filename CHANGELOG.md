@@ -8,15 +8,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 - **The browser test suite runs offline.** It used to load `example.com` and
-  `iana.org` to compare canvases per site, and every launch fetched the machine's
-  public address through Camoufox's geoip lookup, so a run could fail on someone
-  else's rate limit and look like a product bug. Pages now come from a loopback
-  server and the exit address is named rather than looked up. Verified by running
-  the suite with every outbound connection blocked: all 22 pass with nothing but
-  loopback reachable. That check ships as `pytest --no-network`, so the claim
-  stays a command rather than a comment that rots. One test was added to keep the
-  substitution honest — the cross-site assertion only means something if the
-  browser really does treat the two local origins as different sites.
+  `iana.org` to compare canvases per site, and launching asked the internet for
+  this machine's public address through Camoufox's geoip lookup, so a run could
+  fail on someone else's rate limit and look like a product bug. Pages now come
+  from a loopback server and the exit address is named rather than looked up —
+  which keeps the geoip path rather than switching it off, since Camoufox gates
+  only the HTTP lookup on `geoip is True` and resolves everything else from the
+  database on disk. Verified by running the suite with every outbound connection
+  blocked: all 22 pass with nothing but loopback reachable. That check ships as
+  `pytest --no-network`, which raises past `except Exception` so a module that
+  swallows failures by design cannot hide a connection from it. Two tests keep
+  the claims honest: the cross-site assertion only means something if the browser
+  really treats the two local origins as different sites, and the guard only
+  means something if it outranks the code it polices.
 - **TypeScript 5.9 → 6.0.3**, the last TypeScript line with a JavaScript compiler API.
   TypeScript 7 is the Go rewrite and ships no API, which is what
   `typescript-eslint` and Next's build-time type check both run on, so 6.0 is as
