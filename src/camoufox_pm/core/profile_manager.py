@@ -743,6 +743,10 @@ class ProfileManager:
         # The group id belongs to the source instance and would dangle here; the
         # user can reassign the profile to a local group.
         profile.group = None
+        # The archive may carry a proxy check made on another machine, on another
+        # network, at some point in the past. Whatever it said, it did not say it
+        # here — same reasoning as a clone, and stronger.
+        profile.proxy_check = None
         data_dir = Path(profile.get_storage_path(str(self.profiles_dir)))
 
         # Extraction writes into the directory before it can fail, and a profile

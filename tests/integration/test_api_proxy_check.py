@@ -6,6 +6,8 @@ settings, that an unsaved one can be checked while it is still being typed, and
 that a dead proxy is reported rather than raised.
 """
 
+import asyncio
+
 import pytest
 
 from camoufox_pm.core import proxy_check
@@ -260,3 +262,118 @@ async def test_a_clone_starts_unchecked(client, exit_in_tokyo):
     clone = await client.post(f"/api/profiles/{source_id}/clone", json={"new_name": "copy"})
 
     assert clone.json()["proxy_check"] is None
+
+
+@pytest.fixture
+def slow_exit(monkeypatch):
+    """A check that takes long enough for the user to edit the profile under it."""
+
+    async def resolve(proxy, timeout=proxy_check.DEFAULT_TIMEOUT):
+        await asyncio.sleep(0.3)
+        return TOKYO.ip, 42
+
+    monkeypatch.setattr(proxy_check, "resolve_exit_ip", resolve)
+    monkeypatch.setattr(proxy_check, "locate", lambda ip: TOKYO)
+
+
+@pytest.mark.asyncio
+async def test_an_edit_during_a_check_is_not_reverted(client, slow_exit):
+    """A check can take thirty seconds against a proxy that never answers.
+
+    Writing back the profile it read before that wait would undo whatever the
+    user did in the meantime — which is not hypothetical: the natural flow is a
+    bulk check, a red row, and a rename or a new proxy while the rest still runs.
+    """
+    created = await client.post(
+        "/api/profiles",
+        json={"name": "before", "proxy_config": {"type": "http", "server": "p.example.com:8080"}},
+    )
+    profile_id = created.json()["id"]
+
+    checking = asyncio.create_task(client.post(f"/api/profiles/{profile_id}/check-proxy"))
+    await asyncio.sleep(0.1)
+    await client.put(f"/api/profiles/{profile_id}", json={"name": "renamed", "notes": "typed"})
+    await checking
+
+    profile = (await client.get(f"/api/profiles/{profile_id}")).json()
+    assert profile["name"] == "renamed", "the rename was reverted by the check"
+    assert profile["notes"] == "typed"
+    assert profile["proxy_check"] is not None, "the check still belongs to this proxy"
+
+
+@pytest.mark.asyncio
+async def test_a_proxy_changed_during_a_check_keeps_no_answer(client, slow_exit):
+    """The answer describes the proxy that was there when the question was asked."""
+    created = await client.post(
+        "/api/profiles",
+        json={"name": "moved", "proxy_config": {"type": "http", "server": "old.example.com:8080"}},
+    )
+    profile_id = created.json()["id"]
+
+    checking = asyncio.create_task(client.post(f"/api/profiles/{profile_id}/check-proxy"))
+    await asyncio.sleep(0.1)
+    await client.put(
+        f"/api/profiles/{profile_id}",
+        json={"proxy_config": {"type": "http", "server": "new.example.com:8080"}},
+    )
+    answer = await checking
+
+    profile = (await client.get(f"/api/profiles/{profile_id}")).json()
+    assert profile["proxy_config"]["server"] == "new.example.com:8080", "the edit was reverted"
+    assert profile["proxy_check"] is None, "an answer about the old proxy was kept"
+    # The caller still gets its answer; it is simply recorded nowhere.
+    assert answer.json()["reachable"] is True
+    assert answer.json()["checked_at"] is None
+
+
+@pytest.mark.asyncio
+async def test_a_check_does_not_count_as_an_edit(client, exit_in_tokyo):
+    """A bulk check must not make a whole selection look modified."""
+    created = await client.post("/api/profiles", json={"name": "untouched"})
+    profile_id = created.json()["id"]
+    before = created.json()["updated_at"]
+
+    await client.post(f"/api/profiles/{profile_id}/check-proxy")
+
+    assert (await client.get(f"/api/profiles/{profile_id}")).json()["updated_at"] == before
+
+
+@pytest.mark.asyncio
+async def test_an_imported_profile_starts_unchecked(client, exit_in_tokyo):
+    """An archive can carry an answer given on another machine, on another network."""
+    created = await client.post(
+        "/api/profiles",
+        json={"name": "source", "proxy_config": {"type": "http", "server": "p.example.com:8080"}},
+    )
+    source_id = created.json()["id"]
+    await client.post(f"/api/profiles/{source_id}/check-proxy")
+
+    exported = await client.get(f"/api/profiles/{source_id}/export")
+    imported = await client.post(
+        "/api/profiles/import",
+        files={"file": ("p.zip", exported.content, "application/zip")},
+    )
+
+    assert imported.status_code == 201, imported.text
+    assert imported.json()["proxy_check"] is None
+
+
+@pytest.mark.asyncio
+async def test_an_unreadable_stored_check_costs_a_dot_not_the_list(client, exit_in_tokyo):
+    """The column is cosmetic; it must not be able to take the profiles screen down."""
+    from camoufox_pm.api.dependencies import get_profile_manager
+
+    created = await client.post("/api/profiles", json={"name": "corrupt"})
+    profile_id = created.json()["id"]
+    await client.post(f"/api/profiles/{profile_id}/check-proxy")
+
+    connection = get_profile_manager().storage.db._connection
+    connection.execute(
+        "UPDATE profiles SET proxy_check = ? WHERE id = ?", ("{not json", profile_id)
+    )
+    connection.commit()
+
+    listed = await client.get("/api/profiles")
+    assert listed.status_code == 200
+    assert any(row["id"] == profile_id for row in listed.json()["profiles"])
+    assert (await client.get(f"/api/profiles/{profile_id}")).json()["proxy_check"] is None

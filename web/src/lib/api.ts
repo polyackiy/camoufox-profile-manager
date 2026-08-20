@@ -533,20 +533,32 @@ export function formatProxyString(proxy?: ProxyConfig | null): string {
  */
 export function readProxyCheck(check: ProxyCheckRecord): {
   tone: 'ok' | 'warn' | 'danger'
+  label: string
   detail: string
 } {
   const notes = check.findings.filter((finding) => finding.level !== 'info')
   const worst = notes.find((finding) => finding.level === 'error') ?? notes[0]
+  // Repeats what the row shows on purpose: the line truncates, and an IPv6 exit
+  // address is long enough to be cut off mid-address, taking the country and the
+  // latency with it. The tooltip is the only place left to read them.
   const lines = [
     check.reachable ? 'Proxy answered' : 'Proxy did not answer',
     check.error,
-    check.timezone ? `Exit timezone ${check.timezone}` : null,
+    check.ip,
+    [check.country, check.timezone].filter(Boolean).join(' · ') || null,
+    check.latency_ms !== null ? `${check.latency_ms} ms` : null,
     ...notes.map((finding) => finding.message),
     `Checked ${formatLastUsed(check.checked_at).toLowerCase()}`,
   ].filter(Boolean)
 
+  const tone = !check.reachable || worst?.level === 'error' ? 'danger' : worst ? 'warn' : 'ok'
+
   return {
-    tone: !check.reachable || worst?.level === 'error' ? 'danger' : worst ? 'warn' : 'ok',
+    tone,
+    // Green and amber differ only in hue at six pixels, which is exactly the
+    // pair a deuteranope cannot separate. The table's other indicator pairs its
+    // dot with a word; this one says the word to screen readers.
+    label: tone === 'ok' ? 'Healthy' : tone === 'warn' ? 'Needs attention' : 'Failing',
     detail: lines.join('\n'),
   }
 }

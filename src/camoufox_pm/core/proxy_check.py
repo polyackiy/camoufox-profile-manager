@@ -24,7 +24,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from math import asin, cos, radians, sin, sqrt
-from typing import Any, Literal
+from typing import Any
 from urllib.parse import quote
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -32,9 +32,14 @@ import httpx
 from camoufox.ip import valid_ipv4, valid_ipv6
 from loguru import logger
 
-from .models import BrowserSettings, ProxyCheckFinding, ProxyCheckRecord, ProxyConfig, ProxyType
-
-Level = Literal["error", "warning", "info"]
+from .models import (
+    BrowserSettings,
+    Level,
+    ProxyCheckFinding,
+    ProxyCheckRecord,
+    ProxyConfig,
+    ProxyType,
+)
 
 # Three of the endpoints Camoufox asks for the exit address, so a check sees the
 # address the browser will. We make the request ourselves rather than calling
@@ -103,7 +108,7 @@ def record(result: ProxyCheckResult, checked_at: datetime | None = None) -> Prox
     is the whole point of checking on demand rather than on a timer.
     """
     return ProxyCheckRecord(
-        checked_at=checked_at or datetime.now(),
+        checked_at=checked_at or datetime.now(timezone.utc),
         reachable=result.reachable,
         error=result.error,
         latency_ms=result.latency_ms,

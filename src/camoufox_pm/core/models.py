@@ -5,7 +5,7 @@ import secrets
 import string
 from datetime import datetime
 from enum import Enum
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -183,10 +183,16 @@ class BrowserSettings(BaseModel):
         return config
 
 
+# What a finding means, defined here because both the live check and the record
+# kept on a profile carry one — two definitions would be two types for the same
+# value in the same API response.
+Level = Literal["error", "warning", "info"]
+
+
 class ProxyCheckFinding(BaseModel):
     """One thing worth telling the user about this proxy and this profile."""
 
-    level: str
+    level: Level
     field: str
     message: str
 

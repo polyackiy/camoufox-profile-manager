@@ -365,17 +365,32 @@ export default function ProfilesPage() {
 
     // Counted before the workers start draining the queue.
     const total = queue.length
-    let failed = 0
+    // Three outcomes, not two: a check that never reached our own API left its
+    // row untouched, and reporting that as success is how a summary ends up
+    // contradicting the table it summarises.
+    let clean = 0
+    let flagged = 0
+    let unchecked = 0
     const workers = Array.from({ length: Math.min(5, total) }, async () => {
       for (let next = queue.shift(); next; next = queue.shift()) {
         const record = await checkProxy(next)
-        if (record && !record.reachable) failed += 1
+        if (!record) unchecked += 1
+        else if (readProxyCheck(record).tone === 'ok') clean += 1
+        else flagged += 1
       }
     })
     await Promise.all(workers)
 
-    if (failed) toast('error', `${failed} of ${total} did not answer`, 'The rows carry the detail.')
-    else toast('ok', `${total} ${total === 1 ? 'proxy' : 'proxies'} answered`)
+    // Worded from the same rule the dots use, so a red row is never counted as
+    // an answer just because the proxy replied.
+    const parts = [
+      flagged ? `${flagged} need attention` : null,
+      unchecked ? `${unchecked} could not be checked` : null,
+    ].filter(Boolean)
+
+    if (parts.length)
+      toast('error', parts.join(', '), `of ${total} selected. The rows carry the detail.`)
+    else toast('ok', `${clean} ${clean === 1 ? 'proxy is' : 'proxies are'} healthy`)
   }
 
   function askDelete(profile: Profile) {
@@ -829,7 +844,10 @@ export default function ProfilesPage() {
                               icon={<Globe size={13} />}
                               label="Check proxy"
                               onClick={() => {
-                                checkProxy(profile)
+                                // The set holds ids, not a count, so a second
+                                // check of the same row would clear the first
+                                // one's "Checking…" when it finished.
+                                if (!checkingProxies.has(profile.id)) checkProxy(profile)
                                 closeMenu(profile.id)
                               }}
                             />
@@ -965,7 +983,7 @@ function ProxyCell({ profile, checking }: { profile: Profile; checking: boolean 
 }
 
 function ProxyResult({ check }: { check: ProxyCheckRecord }) {
-  const { tone, detail } = readProxyCheck(check)
+  const { tone, label, detail } = readProxyCheck(check)
   const dot = tone === 'ok' ? 'bg-ok' : tone === 'warn' ? 'bg-warn' : 'bg-danger'
   // Latency and country only mean something when the proxy answered; when it did
   // not, the reason is the only thing worth the space.
@@ -976,6 +994,7 @@ function ProxyResult({ check }: { check: ProxyCheckRecord }) {
   return (
     <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-ink-faint" title={detail}>
       <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dot}`} />
+      <span className="sr-only">{label}.</span>
       {/* min-w-0 so this is the part that gives way: a flex item will not shrink
           below its content without it, and the truncation never happens. */}
       <span className="min-w-0 truncate font-mono">{parts.filter(Boolean).join(' · ')}</span>

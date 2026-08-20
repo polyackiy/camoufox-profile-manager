@@ -387,11 +387,20 @@ async def check_profile_proxy(profile_id: str):
 
     # Kept on the profile so the list can show this answer later. A check the
     # user asked for is the only thing that writes it — nothing here polls.
+    #
+    # Read back rather than writing the profile fetched above: the check just
+    # spent seconds on the network, and anything edited in the meantime would be
+    # reverted by writing a stale copy. If the proxy itself moved, the answer is
+    # about a proxy this profile no longer has, so it is dropped rather than
+    # shown — the same rule that clears the record on an edit.
     stored = proxy_check.record(result)
-    profile.proxy_check = stored
-    await get_profile_manager().storage.update_profile(profile)
+    manager = get_profile_manager()
+    current = await manager.get_profile(profile_id)
+    if current and current.proxy == profile.proxy:
+        await manager.storage.set_proxy_check(profile_id, stored)
+        return ProxyCheckResponse.from_result(result, checked_at=stored.checked_at)
 
-    return ProxyCheckResponse.from_result(result, checked_at=stored.checked_at)
+    return ProxyCheckResponse.from_result(result)
 
 
 @router.post(

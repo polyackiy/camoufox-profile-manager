@@ -19,7 +19,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   profile so it survives a reload, and is dropped the moment the proxy
   changes — an answer from the proxy that was there says nothing about the one
   that is there now. A clone starts unchecked: it shares its source's proxy, but
-  it is not the profile that was checked.
+  it is not the profile that was checked, and an imported archive can carry an
+  answer given on another machine entirely.
+
+  A check writes only its own field, and never `updated_at`: asking a proxy a
+  question is not an edit, and a check can take thirty seconds against a proxy
+  that never answers — long enough that writing back the profile it started from
+  would revert a rename or a new proxy typed in the meantime.
 
 ### Changed
 - **The browser test suite runs offline.** It used to load `example.com` and
