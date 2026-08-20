@@ -5,6 +5,9 @@ Track progress in [GitHub Issues](https://github.com/polyackiy/camoufox-profile-
 
 ## Since 0.2.0
 
+- The browser suite no longer touches the internet: pages come from a loopback
+  server, and the exit address a launch would look up is named instead. A run
+  can no longer fail on someone else's rate limit.
 - The web UI runs on Next 16 and ESLint 10, with linting moved from the removed
   `next lint` to the ESLint CLI and the `FlatCompat` shim dropped for the native
   flat config.
@@ -78,9 +81,6 @@ order of how much they would hurt if left alone:
   fields, `browser_session_id`, and the top-level `detail` in errors all go away
   in `1.0`, and the unversioned `/api` prefix in `2.0`. See the deprecation table
   in [api.md](api.md#stability-contract).
-- The browser test suite depends on reaching `example.com` and `iana.org`, so a
-  full run can flake on a rate limit rather than a real fault. Serving the two
-  origins locally would make it deterministic.
 - **TypeScript 7 waits on the tools, not on us.** The UI is on TypeScript 6.0.3,
   the last TypeScript line with a JavaScript compiler API. TypeScript 7 is the Go
   rewrite: its package ships a `tsc` binary and no API — `require("typescript")`

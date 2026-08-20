@@ -13,6 +13,7 @@ from camoufox import AsyncCamoufox
 
 from camoufox_pm.core.browser_session import BrowserSessionManager
 from camoufox_pm.core.models import BrowserSettings, Profile, WebRTCMode
+from tests.browser.support import offline_launch
 
 
 @pytest.mark.browser
@@ -36,7 +37,7 @@ async def test_profile_launch_options_drive_the_browser(tmp_path):
         name="smoke",
         browser_settings=BrowserSettings(os="windows", hardware_concurrency=4),
     )
-    options = profile.to_camoufox_launch_options()
+    options = offline_launch(profile.to_camoufox_launch_options())
     options["headless"] = True
     options["user_data_dir"] = str(tmp_path / "profile")
 
@@ -53,7 +54,7 @@ async def test_timezone_applies(tmp_path):
     profile = Profile(
         name="tz", browser_settings=BrowserSettings(os="windows", timezone="Europe/Berlin")
     )
-    options = profile.to_camoufox_launch_options()
+    options = offline_launch(profile.to_camoufox_launch_options())
     options["headless"] = True
     options["user_data_dir"] = str(tmp_path / "tz")
 
@@ -69,7 +70,7 @@ async def test_timezone_applies(tmp_path):
 async def test_webrtc_mode_none_removes_the_api(tmp_path):
     """webrtc_mode="none" must actually remove RTCPeerConnection."""
     profile = Profile(name="no-rtc", browser_settings=BrowserSettings(webrtc_mode=WebRTCMode.NONE))
-    options = profile.to_camoufox_launch_options()
+    options = offline_launch(profile.to_camoufox_launch_options())
     options["headless"] = True
     options["user_data_dir"] = str(tmp_path / "no-rtc")
     assert options["block_webrtc"] is True
@@ -90,7 +91,7 @@ async def test_webrtc_stays_available_in_other_modes(tmp_path):
             webrtc_mode=WebRTCMode.REPLACE, webrtc_public_ip="203.0.113.7"
         ),
     )
-    options = profile.to_camoufox_launch_options()
+    options = offline_launch(profile.to_camoufox_launch_options())
     options["headless"] = True
     options["user_data_dir"] = str(tmp_path / "rtc")
     assert "block_webrtc" not in options
@@ -112,7 +113,7 @@ async def test_closing_the_browser_prunes_the_session(tmp_path):
     async def on_exit(profile_id):
         exits.append(profile_id)
 
-    options = Profile(name="life").to_camoufox_launch_options()
+    options = offline_launch(Profile(name="life").to_camoufox_launch_options())
     options["headless"] = True
     options["user_data_dir"] = str(tmp_path / "life")
 

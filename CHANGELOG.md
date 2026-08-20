@@ -7,6 +7,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Changed
+- **The browser test suite runs offline.** It used to load `example.com` and
+  `iana.org` to compare canvases per site, and every launch fetched the machine's
+  public address through Camoufox's geoip lookup, so a run could fail on someone
+  else's rate limit and look like a product bug. Pages now come from a loopback
+  server and the exit address is named rather than looked up. Verified by running
+  the suite with every outbound connection blocked: all 22 pass with nothing but
+  loopback reachable. That check ships as `pytest --no-network`, so the claim
+  stays a command rather than a comment that rots. One test was added to keep the
+  substitution honest — the cross-site assertion only means something if the
+  browser really does treat the two local origins as different sites.
 - **TypeScript 5.9 → 6.0.3**, the last TypeScript line with a JavaScript compiler API.
   TypeScript 7 is the Go rewrite and ships no API, which is what
   `typescript-eslint` and Next's build-time type check both run on, so 6.0 is as
