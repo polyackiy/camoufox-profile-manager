@@ -24,7 +24,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from math import asin, cos, radians, sin, sqrt
-from typing import Any, Literal
+from typing import Any
 from urllib.parse import quote
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -32,9 +32,14 @@ import httpx
 from camoufox.ip import valid_ipv4, valid_ipv6
 from loguru import logger
 
-from .models import BrowserSettings, ProxyConfig, ProxyType
-
-Level = Literal["error", "warning", "info"]
+from .models import (
+    BrowserSettings,
+    Level,
+    ProxyCheckFinding,
+    ProxyCheckRecord,
+    ProxyConfig,
+    ProxyType,
+)
 
 # Three of the endpoints Camoufox asks for the exit address, so a check sees the
 # address the browser will. We make the request ourselves rather than calling
@@ -94,6 +99,27 @@ class ProxyCheckResult:
     latency_ms: int | None = None
     location: ProxyLocation | None = None
     findings: list[Finding] = field(default_factory=list)
+
+
+def record(result: ProxyCheckResult, checked_at: datetime | None = None) -> ProxyCheckRecord:
+    """The part of a check worth keeping on the profile.
+
+    Stored so the list can show a proxy's last answer without asking again, which
+    is the whole point of checking on demand rather than on a timer.
+    """
+    return ProxyCheckRecord(
+        checked_at=checked_at or datetime.now(timezone.utc),
+        reachable=result.reachable,
+        error=result.error,
+        latency_ms=result.latency_ms,
+        ip=result.location.ip if result.location else None,
+        country=result.location.country if result.location else None,
+        timezone=result.location.timezone if result.location else None,
+        findings=[
+            ProxyCheckFinding(level=f.level, field=f.field, message=f.message)
+            for f in result.findings
+        ],
+    )
 
 
 def proxy_url(proxy: ProxyConfig) -> str:

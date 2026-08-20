@@ -13,7 +13,7 @@ Each profile is **one long-lived machine**. It keeps the same fingerprint every
 session, along with its own cookies, storage and history, so an account opened
 from it in January still looks like the same computer in June.
 
-> **Status:** `v0.3.0`, and in working order. 396 tests — 22 drive a real browser
+> **Status:** `v0.3.0`, and in working order. 407 tests — 22 drive a real browser
 > and check what a page actually sees, and 2 run only under `--no-network`, which
 > is how the browser suite proves it needs no internet; 90% coverage. The REST API is
 > versioned at `/api/v1` behind a written
@@ -50,7 +50,9 @@ from it in January still looks like the same computer in June.
   passwords encrypted at rest when `CPM_SECRET_KEY` is set. *Check proxy* reports
   where the proxy really comes out and whether the profile agrees with it — a
   timezone on a different clock from the exit country is the kind of
-  contradiction a page can measure in two lines of JavaScript.
+  contradiction a page can measure in two lines of JavaScript. The answer stays
+  in the profiles list — exit address, country and latency under the proxy, green
+  or amber or red — and a selection can be checked in one go.
 - **Multi-user, when you need it.** Nothing to configure for the usual case: the
   app binds to loopback and is open. Set `CPM_API_KEY` for machine clients, or
   create an account (`camoufox-pm user add`) and humans get a login screen —

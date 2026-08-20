@@ -8,12 +8,14 @@ from datetime import datetime
 from pathlib import Path
 
 from loguru import logger
+from pydantic import ValidationError
 
 from .crypto import decrypt, encrypt
 from .models import (
     Profile,
     ProfileGroup,
     ProfileStatus,
+    ProxyCheckRecord,
     ProxyConfig,
     Schedule,
     ScheduleRun,
@@ -66,7 +68,7 @@ class DatabaseManager:
         never touches existing rows.
         """
         added_columns = {
-            "profiles": [("fingerprint", "TEXT")],
+            "profiles": [("fingerprint", "TEXT"), ("proxy_check", "TEXT")],
         }
         for table, columns in added_columns.items():
             cursor = self._connection.execute(f"PRAGMA table_info({table})")
@@ -95,7 +97,8 @@ class DatabaseManager:
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 last_used TIMESTAMP,
-                fingerprint TEXT
+                fingerprint TEXT,
+                proxy_check TEXT
             )
         """)
 
@@ -203,8 +206,8 @@ class DatabaseManager:
             INSERT OR REPLACE INTO profiles (
                 id, name, group_id, status, browser_settings, proxy_config,
                 extensions, storage_path, notes, created_at, updated_at, last_used,
-                fingerprint
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                fingerprint, proxy_check
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
             (
                 profile.id,
@@ -220,6 +223,7 @@ class DatabaseManager:
                 profile.updated_at.isoformat(),
                 profile.last_used.isoformat() if profile.last_used else None,
                 json.dumps(profile.fingerprint) if profile.fingerprint else None,
+                profile.proxy_check.model_dump_json() if profile.proxy_check else None,
             ),
         )
         self._connection.commit()
@@ -239,6 +243,22 @@ class DatabaseManager:
         profile.updated_at = datetime.now()
         await self.save_profile(profile)
         logger.debug(f"Profile {profile.name} updated")
+
+    async def set_proxy_check(self, profile_id: str, record: ProxyCheckRecord | None) -> None:
+        """Write only the proxy check, leaving every other column alone.
+
+        A check takes seconds — up to thirty against a proxy that never answers —
+        and `save_profile` replaces the whole row. Writing back a Profile read
+        before that wait would revert anything edited during it, which is the
+        hazard already noted in profile_manager.launch_browser. This also keeps a
+        check from touching `updated_at`: asking a proxy a question is not an
+        edit, and a bulk check should not make a selection look modified.
+        """
+        self._connection.execute(
+            "UPDATE profiles SET proxy_check = ? WHERE id = ?",
+            (record.model_dump_json() if record else None, profile_id),
+        )
+        self._connection.commit()
 
     async def delete_profile(self, profile_id: str) -> bool:
         """Delete a profile, and the schedules that would otherwise fire against it."""
@@ -641,6 +661,15 @@ class DatabaseManager:
         fingerprint = (
             json.loads(row["fingerprint"]) if "fingerprint" in keys and row["fingerprint"] else None
         )
+        stored_check = None
+        if "proxy_check" in keys and row["proxy_check"]:
+            try:
+                stored_check = ProxyCheckRecord.model_validate_json(row["proxy_check"])
+            except ValidationError as error:
+                # A cosmetic column must not be able to take down the list: this
+                # runs for every row, so raising here 500s the whole screen over
+                # one unreadable value. Losing the dot is the right cost.
+                logger.warning(f"Profile {row['id']}: unreadable proxy check, ignoring ({error})")
 
         return Profile(
             id=row["id"],
@@ -656,6 +685,7 @@ class DatabaseManager:
             updated_at=datetime.fromisoformat(row["updated_at"]),
             last_used=datetime.fromisoformat(row["last_used"]) if row["last_used"] else None,
             fingerprint=fingerprint,
+            proxy_check=stored_check,
         )
 
     async def close(self):
@@ -686,6 +716,9 @@ class StorageManager:
 
     async def update_profile(self, profile: Profile):
         await self.db.update_profile(profile)
+
+    async def set_proxy_check(self, profile_id: str, record: ProxyCheckRecord | None) -> None:
+        await self.db.set_proxy_check(profile_id, record)
 
     async def delete_profile(self, profile_id: str) -> bool:
         return await self.db.delete_profile(profile_id)

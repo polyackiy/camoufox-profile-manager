@@ -175,6 +175,8 @@ class ProfileManager:
         if not profile:
             return None
 
+        proxy_before = profile.proxy
+
         # Update profile fields
         for key, value in updates.items():
             # Map proxy_config -> proxy for API compatibility
@@ -206,6 +208,13 @@ class ProfileManager:
                                 value["webrtc_mode"] = WebRTCMode.REPLACE
                         value = BrowserSettings(**value)
                 setattr(profile, key, value)
+
+        # An answer from the proxy that was there says nothing about the one that
+        # is there now — including "no proxy at all", which is a different exit
+        # address, not the absence of one. Drop it rather than show it as current.
+        if "proxy_config" in updates or "proxy" in updates:
+            if profile.proxy != proxy_before:
+                profile.proxy_check = None
 
         # Changing the OS of a pinned profile is not refused: the setting is not
         # what a page sees while a pin exists, so nothing breaks, and refusing
@@ -311,6 +320,9 @@ class ProfileManager:
         profile_data["updated_at"] = datetime.now()
         profile_data["last_used"] = None
         profile_data["storage_path"] = None
+        # The copy shares the source's proxy, so the answer would still be true —
+        # but it would read as "this profile was checked", and it never was.
+        profile_data["proxy_check"] = None
 
         new_profile = Profile(**profile_data)
 
@@ -731,6 +743,10 @@ class ProfileManager:
         # The group id belongs to the source instance and would dangle here; the
         # user can reassign the profile to a local group.
         profile.group = None
+        # The archive may carry a proxy check made on another machine, on another
+        # network, at some point in the past. Whatever it said, it did not say it
+        # here — same reasoning as a clone, and stronger.
+        profile.proxy_check = None
         data_dir = Path(profile.get_storage_path(str(self.profiles_dir)))
 
         # Extraction writes into the directory before it can fail, and a profile

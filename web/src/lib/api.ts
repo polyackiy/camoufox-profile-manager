@@ -80,6 +80,8 @@ export interface Profile {
   updated_at?: string
   last_used?: string | null
   fingerprint?: FingerprintSummary | null
+  /** Null until the proxy is checked, and again whenever the proxy changes. */
+  proxy_check?: ProxyCheckRecord | null
 }
 
 export interface ProfilesResponse {
@@ -184,6 +186,20 @@ export interface ProxyCheck {
   error: string | null
   latency_ms: number | null
   location: ProxyLocation | null
+  findings: ProxyFinding[]
+  /** Null when checking a proxy that is not saved yet, which is recorded nowhere. */
+  checked_at: string | null
+}
+
+/** The last answer a profile's proxy gave, as the list shows it. */
+export interface ProxyCheckRecord {
+  checked_at: string
+  reachable: boolean
+  error: string | null
+  latency_ms: number | null
+  ip: string | null
+  country: string | null
+  timezone: string | null
   findings: ProxyFinding[]
 }
 
@@ -506,6 +522,45 @@ export function formatProxyString(proxy?: ProxyConfig | null): string {
   if (!proxy || !proxy.server) return ''
   const scheme = proxy.type ? `${proxy.type}://` : ''
   return `${scheme}${proxy.server}`
+}
+
+/** How a checked proxy reads: what colour it is, and why.
+ *
+ * Derived rather than stored, so a row written by an older version cannot
+ * disagree with the rules here. An error-level finding is red even when the
+ * proxy answered — SOCKS credentials that Camoufox will drop means the launch
+ * is wrong, which is not a milder problem than an unreachable proxy.
+ */
+export function readProxyCheck(check: ProxyCheckRecord): {
+  tone: 'ok' | 'warn' | 'danger'
+  label: string
+  detail: string
+} {
+  const notes = check.findings.filter((finding) => finding.level !== 'info')
+  const worst = notes.find((finding) => finding.level === 'error') ?? notes[0]
+  // Repeats what the row shows on purpose: the line truncates, and an IPv6 exit
+  // address is long enough to be cut off mid-address, taking the country and the
+  // latency with it. The tooltip is the only place left to read them.
+  const lines = [
+    check.reachable ? 'Proxy answered' : 'Proxy did not answer',
+    check.error,
+    check.ip,
+    [check.country, check.timezone].filter(Boolean).join(' · ') || null,
+    check.latency_ms !== null ? `${check.latency_ms} ms` : null,
+    ...notes.map((finding) => finding.message),
+    `Checked ${formatLastUsed(check.checked_at).toLowerCase()}`,
+  ].filter(Boolean)
+
+  const tone = !check.reachable || worst?.level === 'error' ? 'danger' : worst ? 'warn' : 'ok'
+
+  return {
+    tone,
+    // Green and amber differ only in hue at six pixels, which is exactly the
+    // pair a deuteranope cannot separate. The table's other indicator pairs its
+    // dot with a word; this one says the word to screen readers.
+    label: tone === 'ok' ? 'Healthy' : tone === 'warn' ? 'Needs attention' : 'Failing',
+    detail: lines.join('\n'),
+  }
 }
 
 export function formatLastUsed(value?: string | null): string {

@@ -285,6 +285,14 @@ not raised as a 5xx. The second form takes an unsaved proxy, which is what the
 profile form uses so a proxy can be checked before the profile exists; omit
 `proxy_config` to check the direct connection.
 
+Checking a **saved** profile also keeps the answer on it, so the profiles list can
+show a proxy's last state without asking again. It comes back as `proxy_check` on
+the profile — `checked_at`, `reachable`, `error`, `latency_ms`, `ip`, `country`,
+`timezone` and the same `findings` — and as `checked_at` on the check response
+itself. It is `null` until the profile is checked, and again whenever its proxy
+changes, because an answer from the previous proxy says nothing about the new one.
+Nothing writes it but a check that was asked for; there is no polling.
+
 ## Running browsers
 
 ```http

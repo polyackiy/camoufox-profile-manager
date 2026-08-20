@@ -6,7 +6,7 @@ from typing import Annotated, Any
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
-from camoufox_pm.core.models import Profile, ProfileStatus
+from camoufox_pm.core.models import Profile, ProfileStatus, ProxyCheckRecord
 from camoufox_pm.core.proxy_check import Level, ProxyCheckResult
 
 
@@ -147,6 +147,13 @@ class ProfileResponse(BaseModel):
             "by the API contract."
         ),
     )
+    proxy_check: ProxyCheckRecord | None = Field(
+        None,
+        description=(
+            "The last answer this profile's proxy gave, or null if it has not been "
+            "checked since the proxy was last changed. Only a check writes it."
+        ),
+    )
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -173,6 +180,7 @@ class ProfileResponse(BaseModel):
                 profile.fingerprint,
                 profile.browser_settings.os if profile.browser_settings else None,
             ),
+            proxy_check=profile.proxy_check,
         )
 
 
@@ -367,10 +375,20 @@ class ProxyCheckResponse(BaseModel):
     latency_ms: int | None = None
     location: ProxyLocationResponse | None = None
     findings: list[ProxyFindingResponse] = Field(default_factory=list)
+    checked_at: datetime | None = Field(
+        None,
+        description=(
+            "When this answer was recorded on the profile. Null for a check of a "
+            "proxy that is not saved yet, which is recorded nowhere."
+        ),
+    )
 
     @classmethod
-    def from_result(cls, result: ProxyCheckResult) -> "ProxyCheckResponse":
+    def from_result(
+        cls, result: ProxyCheckResult, checked_at: datetime | None = None
+    ) -> "ProxyCheckResponse":
         return cls(
+            checked_at=checked_at,
             reachable=result.reachable,
             error=result.error,
             latency_ms=result.latency_ms,

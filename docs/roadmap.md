@@ -5,6 +5,9 @@ Track progress in [GitHub Issues](https://github.com/polyackiy/camoufox-profile-
 
 ## Since 0.2.0
 
+- Proxy health is visible in the profiles list: a check leaves its answer in the
+  row — exit address, country, latency, and a green, amber or red dot — and a
+  selection can be checked in one go. On demand only; nothing polls.
 - The browser suite no longer touches the internet: pages come from a loopback
   server, and the exit address a launch would look up is named instead. A run
   can no longer fail on someone else's rate limit.
@@ -90,8 +93,6 @@ order of how much they would hurt if left alone:
   `tsc` that CI never runs, for ~30 MB of platform binaries. Worth revisiting
   when `typescript-eslint` supports TS 7 (their issue #10940) and Next type-checks
   through it.
-- Proxy health at a glance in the profiles list, so a dead proxy is visible
-  without opening each profile and pressing *Check proxy*.
 
 ## Later / ideas
 
