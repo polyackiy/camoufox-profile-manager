@@ -27,6 +27,8 @@ class Settings(BaseSettings):
     data_dir: str | None = None
     # How long a lease lasts without a heartbeat. The heartbeat renews every 30s,
     # so this is the time a crashed instance's leases take to free themselves.
+    # Floored well above that interval: a TTL at or below it expires leases under
+    # live browsers, and 0 or negative turns mutual exclusion off silently.
     lease_ttl: int = 120
     secret_key: str | None = None
     webui_dir: str | None = None
@@ -37,6 +39,18 @@ class Settings(BaseSettings):
     # when the request itself arrived over HTTPS, but behind a TLS-terminating
     # proxy the app sees plain HTTP — set this there.
     secure_cookies: bool = False
+
+    @field_validator("lease_ttl")
+    @classmethod
+    def _lease_ttl_outlives_the_heartbeat(cls, value: int) -> int:
+        # 60s is two heartbeat intervals: anything at or below one interval
+        # expires a lease the owning instance is still renewing, so a browser
+        # keeps running while another machine is free to take its profile.
+        if value < 60:
+            raise ValueError(
+                "CPM_LEASE_TTL must be at least 60 seconds (heartbeat renews every 30s)"
+            )
+        return value
 
     @field_validator("cors_origins", mode="before")
     @classmethod

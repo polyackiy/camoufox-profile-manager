@@ -37,10 +37,13 @@ def _cleanup_manager() -> ProfileCleanupManager:
     ``./data/profiles.db`` whatever ``CPM_DB_PATH`` says. With the database
     configured under any other name, the cleanup opened an empty one beside it,
     concluded that every profile directory on disk was an orphan, and deleted
-    them all.
+    them all. With PostgreSQL there is no database file at all, so the data
+    directory (explicit, or the SQLite path's parent for compatibility) is
+    what cleanup reconciles.
     """
-    db_path = Path(get_settings().db_path)
-    return ProfileCleanupManager(str(db_path.parent), str(db_path))
+    settings = get_settings()
+    data_dir = settings.data_dir or str(Path(settings.db_path).parent)
+    return ProfileCleanupManager(data_dir, settings.db_path)
 
 
 @router.get(

@@ -36,7 +36,10 @@ async def lifespan(app: FastAPI):
     storage_manager = StorageManager(settings.db_path)
     await storage_manager.initialize()
 
-    data_dir = str(Path(settings.db_path).parent)
+    # Profile browser data is separate from the database: with PostgreSQL there
+    # is no db_path to derive a directory from (it would land at "/"), and even
+    # on SQLite an explicit CPM_DATA_DIR beats assuming the database's parent.
+    data_dir = settings.data_dir or str(Path(settings.db_path).parent)
     profile_manager = ProfileManager(storage_manager, data_dir)
     await profile_manager.initialize()
 
@@ -55,6 +58,21 @@ async def lifespan(app: FastAPI):
     finally:
         logger.info("Shutting down API...")
         await scheduler.stop()
+        # Order matters: the heartbeat renews by holder id, so a beat racing
+        # the release below reads our own cleared lease as a takeover and
+        # closes a live browser. Stop renewing first, then hand the leases back.
+        await profile_manager.browser_sessions.stop_heartbeat()
+        # Close the browsers first: their leases are released as part of the
+        # close, and release_all_leases deliberately skips profiles that are
+        # still live, so leaving them open would leak every lease we hold.
+        try:
+            await profile_manager.browser_sessions.close_all()
+        except Exception as exc:  # noqa: BLE001 - shutdown must not raise
+            logger.warning(f"Failed to close browsers on shutdown: {exc}")
+        # Then hand back anything left: a lease must not outlive the process
+        # that took it, or a normal restart locks its own profiles out for the
+        # full TTL. Best-effort per profile and never raises.
+        await profile_manager.release_all_leases()
         await storage_manager.close()
 
 

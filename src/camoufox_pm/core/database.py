@@ -55,17 +55,37 @@ def _default_db_url() -> str | None:
 def _mask_dsn(db_url: str) -> str:
     """Redact the password in a DSN before logging (CWE-532).
 
-    A password-less URL passes through unchanged.
+    A password-less URL passes through unchanged. psycopg also accepts libpq
+    keyword/value DSNs ("host=... password=..."), which urlparse cannot read at
+    all, so those are redacted by key before the URL path is tried.
     """
+    if "://" not in db_url and "=" in db_url:
+        return " ".join(
+            f"{token.split('=', 1)[0]}=***"
+            if token.split("=", 1)[0].strip().lower() == "password"
+            else token
+            for token in db_url.split()
+        )
     parts = urlparse(db_url)
+    # libpq also reads the password from the query string
+    # ("postgresql:///db?password=..."), where urlparse leaves parts.password
+    # None — masking only the netloc would log it verbatim.
+    query = parts.query
+    if query:
+        query = "&".join(
+            f"{pair.split('=', 1)[0]}=***"
+            if pair.split("=", 1)[0].lower() == "password" and "=" in pair
+            else pair
+            for pair in query.split("&")
+        )
     if parts.password is None:
-        return db_url
+        return db_url if query == parts.query else urlunparse(parts._replace(query=query))
     netloc = parts.hostname or ""
     if parts.username:
         netloc = f"{unquote(parts.username)}@{netloc}"
     if parts.port:
         netloc = f"{netloc}:{parts.port}"
-    return urlunparse(parts._replace(netloc=netloc))
+    return urlunparse(parts._replace(netloc=netloc, query=query))
 
 
 def _sqlite_expiry_passed(lock_expires: str | None) -> bool:
