@@ -1,10 +1,13 @@
 """Shared pytest fixtures, and the switch that proves the suite runs offline."""
 
 import ipaddress
+import os
 import socket
+import uuid
 
 import pytest
 
+from camoufox_pm.api import dependencies  # noqa: F401  (import cost only)
 from camoufox_pm.core.database import StorageManager
 from camoufox_pm.core.profile_manager import ProfileManager
 
@@ -110,3 +113,75 @@ async def profile_manager(tmp_path):
     await manager.initialize()
     yield manager
     await storage.close()
+
+
+# -- PostgreSQL backend --------------------------------------------------------------
+
+# Selected with `-m postgres`; the URL comes from CPM_TEST_DB_URL. The Nix build
+# runs the default suite hermetically and a VM test runs these against a real
+# server, mirroring how the `browser` marker is wired.
+
+
+def _postgres_url() -> str | None:
+    return os.environ.get("CPM_TEST_DB_URL")
+
+
+def pytest_collection_modifyitems(config, items):
+    """Deselect postgres tests unless a server URL is configured."""
+    if config.getoption("-m") and "postgres" in config.getoption("-m"):
+        return
+    if _postgres_url():
+        return
+    skip = pytest.mark.skip(reason="needs a PostgreSQL server: set CPM_TEST_DB_URL")
+    for item in items:
+        if "postgres" in item.keywords:
+            item.add_marker(skip)
+
+
+@pytest.fixture
+async def postgres_backend():
+    """A PostgresDatabaseManager against a scratch schema, torn down after."""
+    # Deferred: psycopg is an optional dependency, and importing the backend at
+    # module level would make the default SQLite suite fail to collect without it.
+    from camoufox_pm.core.storage import PostgresDatabaseManager
+
+    url = _postgres_url()
+    if not url:
+        pytest.skip("needs a PostgreSQL server: set CPM_TEST_DB_URL")
+    schema = f"cfpm_test_{uuid.uuid4().hex[:12]}"
+    manager = PostgresDatabaseManager(url)
+    await manager.initialize()
+    manager._connection.execute(f"CREATE SCHEMA {schema}")
+    manager._connection.execute(f"SET search_path TO {schema}, public")
+    # The schema starts empty, so an unqualified name would still resolve to
+    # public.profiles; create the tables inside the scratch schema so every
+    # write this fixture sees lands there, never in the shared public one.
+    await manager._create_tables()
+    manager._test_schema = schema
+    yield manager
+    # pg_profile_manager closes the storage in its own teardown (fixture
+    # finalisation runs in reverse order); a dropped connection cannot execute,
+    # so fall back to a fresh connection for the schema teardown.
+    schema_dropped = False
+    if manager._connection is not None:
+        manager._connection.execute(f"DROP SCHEMA {schema} CASCADE")
+        schema_dropped = True
+    await manager.close()
+    if not schema_dropped:
+        # Deferred: psycopg is optional; this teardown path only runs when it
+        # was importable at fixture setup, so the module stays safe without it.
+        import psycopg
+
+        conn = psycopg.connect(url, client_encoding="UTF8")
+        conn.autocommit = True
+        conn.execute(f"DROP SCHEMA {schema} CASCADE")
+        conn.close()
+
+
+@pytest.fixture
+async def pg_profile_manager(postgres_backend, tmp_path, monkeypatch):
+    """A ProfileManager whose storage is the scratch Postgres backend."""
+    manager = ProfileManager(postgres_backend, str(tmp_path))
+    await manager.initialize()
+    yield manager
+    await manager.storage.close()
