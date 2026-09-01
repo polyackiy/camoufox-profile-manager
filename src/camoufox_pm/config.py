@@ -17,6 +17,17 @@ class Settings(BaseSettings):
     cors_origins: Annotated[list[str], NoDecode] = ["http://localhost:3000"]
     api_key: str | None = None
     db_path: str = "data/profiles.db"
+    # PostgreSQL connection URL. Unset (the default) keeps the SQLite file above;
+    # set, every instance pointed at the same database shares profiles — which
+    # is what the row-level leases (CPM_LEASE_TTL) exist to make safe.
+    db_url: str | None = None
+    # Where profile browser data lives. Only derived from db_path's directory
+    # when this is not set explicitly: with Postgres there is no db_path, and
+    # deriving from it would put profile storage at "/".
+    data_dir: str | None = None
+    # How long a lease lasts without a heartbeat. The heartbeat renews every 30s,
+    # so this is the time a crashed instance's leases take to free themselves.
+    lease_ttl: int = 120
     secret_key: str | None = None
     webui_dir: str | None = None
     # Lifetime of a login session. Sessions are stored server-side, so shortening

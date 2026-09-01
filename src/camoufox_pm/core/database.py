@@ -6,11 +6,20 @@ import json
 import sqlite3
 from datetime import datetime
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
+from urllib.parse import unquote, urlparse, urlunparse
 
 from loguru import logger
 from pydantic import ValidationError
 
+from camoufox_pm.config import get_settings
+
+if TYPE_CHECKING:
+    # Import cycle: storage.py imports StorageManager from this module.
+    from .storage import PostgresDatabaseManager
+
 from .crypto import decrypt, encrypt
+from .errors import StaleWriteError
 from .models import (
     Profile,
     ProfileGroup,
@@ -36,6 +45,51 @@ def _deserialize_proxy(data: dict) -> ProxyConfig:
     if data.get("password"):
         data["password"] = decrypt(data["password"])
     return ProxyConfig(**data)
+
+
+def _default_db_url() -> str | None:
+    """The PostgreSQL DSN when ``CPM_DB_URL`` is configured, else ``None``."""
+    return get_settings().db_url
+
+
+def _mask_dsn(db_url: str) -> str:
+    """Redact the password in a DSN before logging (CWE-532).
+
+    A password-less URL passes through unchanged.
+    """
+    parts = urlparse(db_url)
+    if parts.password is None:
+        return db_url
+    netloc = parts.hostname or ""
+    if parts.username:
+        netloc = f"{unquote(parts.username)}@{netloc}"
+    if parts.port:
+        netloc = f"{netloc}:{parts.port}"
+    return urlunparse(parts._replace(netloc=netloc))
+
+
+def _sqlite_expiry_passed(lock_expires: str | None) -> bool:
+    """Whether a stored SQLite lock expiry is in the past.
+
+    ``datetime('now', ...)`` stores UTC; a value written by a different path
+    may carry Python's isoformat shape, local time. An unparseable value counts
+    as unexpired — refusing a launch because of an unreadable expiry is the
+    safe direction.
+    """
+    if not lock_expires:
+        return False
+    text = str(lock_expires)
+    parsed = None
+    for candidate in (text, text.replace(" ", "T", 1) + "+00:00"):
+        try:
+            parsed = datetime.fromisoformat(candidate)
+            break
+        except ValueError:
+            continue
+    if parsed is None:
+        return False
+    now = datetime.now(parsed.tzinfo) if parsed.tzinfo else datetime.utcnow()
+    return parsed < now
 
 
 class DatabaseManager:
@@ -68,7 +122,17 @@ class DatabaseManager:
         never touches existing rows.
         """
         added_columns = {
-            "profiles": [("fingerprint", "TEXT"), ("proxy_check", "TEXT")],
+            "profiles": [
+                ("fingerprint", "TEXT"),
+                ("proxy_check", "TEXT"),
+                # Lease columns. SQLite cannot express "add if missing", so each
+                # is added only when the PRAGMA scan above does not find it.
+                # Unused on this backend: the lease calls are Postgres-only, and
+                # the columns exist so a database is shaped the same everywhere.
+                ("locked_by", "TEXT"),
+                ("lock_expires", "TIMESTAMP"),
+                ("row_version", "BIGINT NOT NULL DEFAULT 0"),
+            ],
         }
         for table, columns in added_columns.items():
             cursor = self._connection.execute(f"PRAGMA table_info({table})")
@@ -98,7 +162,10 @@ class DatabaseManager:
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 last_used TIMESTAMP,
                 fingerprint TEXT,
-                proxy_check TEXT
+                proxy_check TEXT,
+                locked_by TEXT,
+                lock_expires TIMESTAMP,
+                row_version BIGINT NOT NULL DEFAULT 0
             )
         """)
 
@@ -199,15 +266,99 @@ class DatabaseManager:
 
     # --- Profiles ---
 
-    async def save_profile(self, profile: Profile):
-        """Save a profile to the database."""
+    async def save_profile(self, profile: Profile, expected_row_version: int | None = None):
+        """Save a profile to the database.
+
+        With ``expected_row_version`` the write lands only when the stored
+        ``row_version`` still matches what the caller read, and bumps it; zero
+        rows updated raises ``StaleWriteError`` rather than clobbering the
+        winner. That is what makes editing one profile from two machines (or
+        two web UIs) safe. Without a version the row is replaced as before.
+
+        Either way the lease columns survive: a save must never break or take
+        another holder's lease, and must not reset a version a concurrent
+        editor is relying on.
+        """
+        profile.updated_at = datetime.now()
+        if expected_row_version is None:
+            await self._save_profile_unversioned(profile)
+        else:
+            # One guarded statement: an UPDATE whose guard compares the stored
+            # row_version with the one the caller read, and bumps the counter
+            # when it still matches. Zero rows means the stored version had
+            # already moved on. Unlike the unversioned path this never
+            # creates a row — there is nothing to guard on a row that does
+            # not exist.
+            cursor = self._connection.execute(
+                """
+                UPDATE profiles SET
+                    name = ?, group_id = ?, status = ?, browser_settings = ?,
+                    proxy_config = ?, extensions = ?, storage_path = ?, notes = ?,
+                    created_at = ?, updated_at = ?, last_used = ?, fingerprint = ?,
+                    proxy_check = ?, row_version = row_version + 1
+                WHERE id = ? AND row_version = ?
+                """,
+                (
+                    profile.name,
+                    profile.group,
+                    profile.status.value if hasattr(profile.status, "value") else profile.status,
+                    json.dumps(profile.browser_settings.model_dump()),
+                    json.dumps(_serialize_proxy(profile.proxy)) if profile.proxy else None,
+                    json.dumps(profile.extensions),
+                    profile.storage_path,
+                    profile.notes,
+                    profile.created_at.isoformat(),
+                    profile.updated_at.isoformat(),
+                    profile.last_used.isoformat() if profile.last_used else None,
+                    json.dumps(profile.fingerprint) if profile.fingerprint else None,
+                    profile.proxy_check.model_dump_json() if profile.proxy_check else None,
+                    profile.id,
+                    expected_row_version,
+                ),
+            )
+            if cursor.rowcount == 0:
+                raise StaleWriteError(profile.id, expected_row_version)
+            # Keep the caller's copy in step with the row: the next edit reads
+            # its row_version, and it must be the one this write produced.
+            profile.row_version = expected_row_version + 1
+
+        self._connection.commit()
+        logger.debug(f"Profile {profile.name} saved")
+
+    async def _save_profile_unversioned(self, profile: Profile) -> None:
+        """Insert or replace the whole row, preserving the lease columns.
+
+        The SQLite translation of the old INSERT OR REPLACE. The lease and
+        row-version columns survive via a re-read of the existing row: a save
+        must never break or take another holder's lease, and must not reset a
+        version a concurrent editor is relying on. A creation reads those
+        subselects as NULL — the defaults — because the row does not exist
+        yet.
+        """
         self._connection.execute(
             """
-            INSERT OR REPLACE INTO profiles (
+            INSERT INTO profiles (
                 id, name, group_id, status, browser_settings, proxy_config,
                 extensions, storage_path, notes, created_at, updated_at, last_used,
-                fingerprint, proxy_check
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                fingerprint, proxy_check, locked_by, lock_expires, row_version
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                      (SELECT locked_by FROM profiles WHERE id = ?),
+                      (SELECT lock_expires FROM profiles WHERE id = ?),
+                      COALESCE((SELECT row_version FROM profiles WHERE id = ?), 0))
+            ON CONFLICT(id) DO UPDATE SET
+                name = excluded.name,
+                group_id = excluded.group_id,
+                status = excluded.status,
+                browser_settings = excluded.browser_settings,
+                proxy_config = excluded.proxy_config,
+                extensions = excluded.extensions,
+                storage_path = excluded.storage_path,
+                notes = excluded.notes,
+                created_at = excluded.created_at,
+                updated_at = excluded.updated_at,
+                last_used = excluded.last_used,
+                fingerprint = excluded.fingerprint,
+                proxy_check = excluded.proxy_check
         """,
             (
                 profile.id,
@@ -224,10 +375,11 @@ class DatabaseManager:
                 profile.last_used.isoformat() if profile.last_used else None,
                 json.dumps(profile.fingerprint) if profile.fingerprint else None,
                 profile.proxy_check.model_dump_json() if profile.proxy_check else None,
+                profile.id,
+                profile.id,
+                profile.id,
             ),
         )
-        self._connection.commit()
-        logger.debug(f"Profile {profile.name} saved")
 
     async def get_profile(self, profile_id: str) -> Profile | None:
         """Get a profile by ID."""
@@ -238,11 +390,11 @@ class DatabaseManager:
             return self._row_to_profile(row)
         return None
 
-    async def update_profile(self, profile: Profile):
-        """Update a profile."""
-        profile.updated_at = datetime.now()
-        await self.save_profile(profile)
-        logger.debug(f"Profile {profile.name} updated")
+    async def update_profile(self, profile: Profile, expected_row_version: int | None = None):
+        """Update a profile, optionally guarded by optimistic concurrency."""
+        await self.save_profile(profile, expected_row_version)
+        if expected_row_version is None:
+            logger.debug(f"Profile {profile.name} updated")
 
     async def set_proxy_check(self, profile_id: str, record: ProxyCheckRecord | None) -> None:
         """Write only the proxy check, leaving every other column alone.
@@ -620,6 +772,129 @@ class DatabaseManager:
 
     # --- Utilities ---
 
+    # -- Leases --------------------------------------------------------------
+
+    async def acquire_lease(self, profile_id: str, holder: str, ttl_seconds: int) -> bool:
+        """Try to lease a profile in one atomic statement.
+
+        The same conditional UPDATE the Postgres backend runs; SQLite
+        serialises writers on the database, which is a stronger guarantee than
+        the row lock Postgres needs for it. Re-acquiring with the same holder
+        id succeeds: a restart on the same host must be able to pick its lease
+        up again rather than wait out its own TTL.
+
+        Returns ``False`` — without touching the row — when it is held
+        elsewhere and not expired; callers turn that into ``ProfileLocked``.
+        """
+        cursor = self._connection.execute(
+            """
+            UPDATE profiles
+               SET locked_by = ?,
+                   lock_expires = datetime('now', '+' || ? || ' seconds')
+             WHERE id = ?
+               AND (locked_by IS NULL
+                    OR julianday(lock_expires) < julianday('now')
+                    OR locked_by = ?)
+            RETURNING id
+            """,
+            (holder, ttl_seconds, profile_id, holder),
+        )
+        acquired = cursor.fetchone() is not None
+        # Commit or the lease stays inside this connection's open transaction,
+        # invisible to every other process — the opposite of its purpose.
+        self._connection.commit()
+        return acquired
+
+    async def renew_lease(self, profile_ids: list[str], holder: str, ttl_seconds: int) -> int:
+        """Push the expiry of this holder's leases out; returns how many held.
+
+        A profile missing from the result has been taken over (or expired) —
+        the caller treats the lease as lost rather than trying to win it back.
+        """
+        placeholders = ",".join("?" for _ in profile_ids)
+        cursor = self._connection.execute(
+            f"""
+            UPDATE profiles
+               SET lock_expires = datetime('now', '+' || ? || ' seconds')
+             WHERE id IN ({placeholders}) AND locked_by = ?
+            """,
+            (ttl_seconds, *profile_ids, holder),
+        )
+        renewed = cursor.rowcount
+        self._connection.commit()
+        return renewed
+
+    async def release_lease(self, profile_id: str, holder: str) -> bool:
+        """Clear the lease, but only if we still hold it.
+
+        Guarded by the holder id: after a stolen lease the new holder's lease
+        must not be broken by this holder's slow teardown.
+        """
+        cursor = self._connection.execute(
+            "UPDATE profiles SET locked_by = NULL, lock_expires = NULL "
+            "WHERE id = ? AND locked_by = ?",
+            (profile_id, holder),
+        )
+        released = cursor.rowcount > 0
+        self._connection.commit()
+        return released
+
+    async def force_release_lease(self, profile_id: str) -> str | None:
+        """Clear the lease whatever it says; returns the holder it was taken from.
+
+        Read then clear: SQLite's RETURNING sees the new row, so the cleared
+        column would come back NULL. Single-writer, so the two statements
+        cannot interleave.
+
+        Deliberately absent from the HTTP API: a "force unlock" button is the
+        fastest route to the two-machines-one-identity corruption the lease
+        exists to prevent. It lives behind the CLI, where using it is a
+        deliberate act on the host itself.
+        """
+        row = self._connection.execute(
+            "SELECT locked_by FROM profiles WHERE id = ? AND locked_by IS NOT NULL",
+            (profile_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        self._connection.execute(
+            "UPDATE profiles SET locked_by = NULL, lock_expires = NULL WHERE id = ?",
+            (profile_id,),
+        )
+        self._connection.commit()
+        return row["locked_by"]
+
+    async def get_lease(self, profile_id: str) -> tuple[str | None, str | None] | None:
+        """Return ``(locked_by, lock_expires)`` for a profile, or ``None``."""
+        cursor = self._connection.execute(
+            "SELECT locked_by, lock_expires FROM profiles WHERE id = ?", (profile_id,)
+        )
+        row = cursor.fetchone()
+        if row is None:
+            return None
+        return row["locked_by"], row["lock_expires"]
+
+    async def get_lease_holders(self) -> list[dict]:
+        """Every lease in the store, expired ones included, for inspection tools."""
+        cursor = self._connection.execute(
+            """
+            SELECT id, name, locked_by, lock_expires
+            FROM profiles
+            WHERE locked_by IS NOT NULL
+            ORDER BY id
+            """
+        )
+        return [
+            {
+                "id": row["id"],
+                "name": row["name"],
+                "locked_by": row["locked_by"],
+                "lock_expires": row["lock_expires"],
+                "expired": _sqlite_expiry_passed(row["lock_expires"]),
+            }
+            for row in cursor.fetchall()
+        ]
+
     def _row_to_schedule(self, row) -> Schedule:
         """Convert a database row into a Schedule object."""
         return Schedule(
@@ -686,6 +961,7 @@ class DatabaseManager:
             last_used=datetime.fromisoformat(row["last_used"]) if row["last_used"] else None,
             fingerprint=fingerprint,
             proxy_check=stored_check,
+            row_version=row["row_version"],
         )
 
     async def close(self):
@@ -697,25 +973,44 @@ class DatabaseManager:
 
 
 class StorageManager:
-    """StorageManager backed by the SQLite database."""
+    """The storage façade: SQLite by default, PostgreSQL when ``CPM_DB_URL`` is set.
+
+    Every caller talks to this class; ``DatabaseManager`` (SQLite) and
+    ``PostgresDatabaseManager`` (storage.py) are the only backend-coupled
+    pieces.
+    """
 
     def __init__(self, db_path: str = "data/profiles.db"):
-        self.db = DatabaseManager(db_path)
-        logger.info(f"StorageManager initialized with database: {db_path}")
+        # One attribute, two backends: mypy sees only the last assignment's
+        # type, so the union is asserted here rather than at every call site.
+        self.db: DatabaseManager | PostgresDatabaseManager
+        db_url = _default_db_url()
+        self.db_url: str | None = db_url
+        if db_url:
+            # Deferred: storage.py imports StorageManager from this module at
+            # its top level, so importing it here would be a cycle.
+            from .storage import PostgresDatabaseManager as _PostgresBackend
+
+            self.db = _PostgresBackend(db_url)
+            # Redacted: the URL carries the DSN password (CWE-532).
+            logger.info(f"StorageManager initialized with PostgreSQL: {_mask_dsn(db_url)}")
+        else:
+            self.db = DatabaseManager(db_path)
+            logger.info(f"StorageManager initialized with database: {db_path}")
 
     async def initialize(self):
         """Initialize the database."""
         await self.db.initialize()
 
     # Profile methods
-    async def save_profile(self, profile: Profile):
-        await self.db.save_profile(profile)
+    async def save_profile(self, profile: Profile, expected_row_version: int | None = None):
+        await self.db.save_profile(profile, expected_row_version)
 
     async def get_profile(self, profile_id: str) -> Profile | None:
         return await self.db.get_profile(profile_id)
 
-    async def update_profile(self, profile: Profile):
-        await self.db.update_profile(profile)
+    async def update_profile(self, profile: Profile, expected_row_version: int | None = None):
+        await self.db.update_profile(profile, expected_row_version)
 
     async def set_proxy_check(self, profile_id: str, record: ProxyCheckRecord | None) -> None:
         await self.db.set_proxy_check(profile_id, record)
@@ -797,6 +1092,25 @@ class StorageManager:
 
     async def list_schedule_runs(self, schedule_id: str, limit: int = 20) -> list[ScheduleRun]:
         return await self.db.list_schedule_runs(schedule_id, limit)
+
+    # Lease methods
+    async def acquire_lease(self, profile_id: str, holder: str, ttl_seconds: int) -> bool:
+        return await self.db.acquire_lease(profile_id, holder, ttl_seconds)
+
+    async def renew_lease(self, profile_ids: list[str], holder: str, ttl_seconds: int) -> int:
+        return await self.db.renew_lease(profile_ids, holder, ttl_seconds)
+
+    async def release_lease(self, profile_id: str, holder: str) -> bool:
+        return await self.db.release_lease(profile_id, holder)
+
+    async def force_release_lease(self, profile_id: str) -> str | None:
+        return await self.db.force_release_lease(profile_id)
+
+    async def get_lease(self, profile_id: str) -> tuple[str | None, Any] | None:
+        return await self.db.get_lease(profile_id)
+
+    async def get_lease_holders(self) -> list[dict]:
+        return await self.db.get_lease_holders()
 
     async def close(self):
         """Close the database."""

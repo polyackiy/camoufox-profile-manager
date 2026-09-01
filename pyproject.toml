@@ -43,6 +43,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# psycopg is imported lazily and guarded; only Postgres (CPM_DB_URL) users need it.
+postgres = ["psycopg[binary]>=3.1"]
 chrome-migration = [
     "pycryptodome>=3.19",
     "pyyaml>=6.0",
@@ -124,6 +126,7 @@ asyncio_mode = "auto"
 testpaths = ["tests"]
 markers = [
     "browser: real Camoufox launch (opt-in, slow, requires 'camoufox fetch')",
+    "postgres: real PostgreSQL backend (opt-in; needs CPM_TEST_DB_URL, see tests/conftest.py)",
 ]
 
 [tool.mypy]

@@ -245,6 +245,13 @@ class Profile(BaseModel):
     # old proxy says nothing about the new one.
     proxy_check: ProxyCheckRecord | None = None
 
+    # Optimistic-concurrency counter, bumped by every version-checked save.
+    # Storage-only: a caller reads a profile, edits it, and writes back against
+    # the version it read; a concurrent save in between makes the write fail
+    # (StaleWriteError) instead of silently clobbering it. Not part of the API
+    # model on purpose — it is storage bookkeeping, not profile data.
+    row_version: int = 0
+
     def get_storage_path(self, base_path: str = "data/profiles") -> str:
         """Return (and lazily assign) the on-disk path for this profile's data."""
         if not self.storage_path:
