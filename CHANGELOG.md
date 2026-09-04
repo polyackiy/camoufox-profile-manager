@@ -6,7 +6,24 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.4.0] - 2026-09-04
+
+One feature and two fixes, and a test suite that learned to measure the right
+observer. Neither fix was reported by a user: one came from an outside
+contributor, the other out of measuring what a page actually receives — the same
+question that turned out to be what the tests were getting wrong.
+
 ### Fixed
+- **The Edit dialog stopped stealing focus mid-typing.** The profiles page polls
+  running browsers every five seconds, and each poll handed the dialog a new
+  `onClose` identity, which tore down and rebuilt its focus trap — moving focus
+  back to the auto-focused Name field. Typing a proxy password put the rest of it
+  into the profile's name. Reported and fixed by
+  [@catorch](https://github.com/catorch) in
+  [#45](https://github.com/polyackiy/camoufox-profile-manager/pull/45); measured
+  before and after by watching `document.activeElement` across two poll cycles.
 - **A pinned machine now decides every property that names the operating
   system.** Camoufox builds a fingerprint from a device preset without
   `navigator.appVersion`, so that one value was generated per launch from the
@@ -58,6 +75,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   TypeScript 7 is the Go rewrite and ships no API, which is what
   `typescript-eslint` and Next's build-time type check both run on, so 6.0 is as
   far as the toolchain goes for now. See the roadmap for the detail.
+- **The browser tests assert what a page sees, not what automation sees.** Three
+  timezone assertions read `Intl` through `page.evaluate`, which since Camoufox
+  152.0.4-beta.29 runs in an isolated world with a realm of its own — so they
+  reported the host's zone the day that build became stable, while real pages
+  were correctly spoofed all along. A test reading through automation's lens
+  measures the one observer that does not matter. Verified green on beta.28,
+  beta.29 and beta.30.
+- Web UI dependencies moved with their minors: Next 16.3.3, ESLint 10.9.1,
+  lucide-react 1.35 (all thirty icons the UI uses are byte-identical to 1.31),
+  and the `@types` packages.
 
 ## [0.3.0] - 2026-08-14
 
@@ -540,7 +567,8 @@ First public release after a comprehensive revamp.
   Camoufox owns fingerprint generation for consistency.
 - Committed profile data, leaked proxy credentials, and duplicate/backup files.
 
-[Unreleased]: https://github.com/polyackiy/camoufox-profile-manager/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/polyackiy/camoufox-profile-manager/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/polyackiy/camoufox-profile-manager/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/polyackiy/camoufox-profile-manager/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/polyackiy/camoufox-profile-manager/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/polyackiy/camoufox-profile-manager/compare/v0.1.1...v0.2.0
