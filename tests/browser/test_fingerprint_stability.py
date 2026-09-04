@@ -261,10 +261,15 @@ async def test_the_pinned_machine_decides_the_operating_system_a_page_reads(tmp_
         )
         platform, app_version = (await page.title()).split("|")
 
+    # Asserted against the pin's own user agent rather than a fixed string: a
+    # fifth of the bundled Linux presets say "X11; Ubuntu", and the coherence is
+    # the property under test, not any particular token.
+    expected = fingerprint_store._app_version_from_user_agent(pinned["navigator.userAgent"])
+
     assert "Linux" in platform, f"the pinned machine is Linux, the page saw {platform}"
-    assert app_version == "5.0 (X11)", (
-        f"platform says {platform} while appVersion says {app_version} — "
-        "the setting overrode the pinned machine on one property"
+    assert app_version == expected, (
+        f"the pinned user agent implies {expected}, the page read {app_version} "
+        f"beside platform {platform} — the setting overrode the pinned machine"
     )
 
 

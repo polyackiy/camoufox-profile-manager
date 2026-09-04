@@ -88,31 +88,57 @@ def freeze(resolved: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-# Firefox reports navigator.appVersion as "5.0 (<OS token>)" and nothing more,
-# so the platform decides it. Camoufox's generated fingerprints carry one; the
-# ones built from a device preset do not, and an absent value falls through to
-# the *host's* — a Linux preset pinned on a macOS machine reported
-# "5.0 (Macintosh)" beside platform "Linux x86_64", which any page can read in
-# two properties. Worse for a pin: the value would follow whichever machine the
-# profile is opened on, so the same profile would not be the same computer.
-# Reported and fixed upstream in daijro/camoufox#753; filled here so profiles
-# pinned before that lands are whole.
-_APP_VERSION_BY_PLATFORM = {
-    "MacIntel": "5.0 (Macintosh)",
-    "Win32": "5.0 (Windows)",
-}
+# Tokens that name the machine rather than the platform. Firefox leaves every
+# one of them out of navigator.appVersion.
+_APP_VERSION_DROPPED = ("Win64", "x64", "Mobile", "Tablet")
+_USER_AGENT_PLATFORM = re.compile(r"Mozilla/5\.0 \(([^)]*)\)")
+
+
+def _app_version_from_user_agent(user_agent: str) -> str | None:
+    """The appVersion Firefox reports for a browser sending this user agent.
+
+    "5.0 (<OS tokens>)": the parenthesised part of the user agent without the
+    architecture or the Gecko revision, with Windows collapsed to its family
+    name. Derived from the user agent rather than from navigator.platform
+    because a fifth of the bundled Linux presets carry a distro token —
+    "X11; Ubuntu" — that a platform lookup flattens to "X11", which no real
+    Firefox reports. Checked against 800 captured fingerprints: exact on every
+    one, Android and Ubuntu included.
+    """
+    block = _USER_AGENT_PLATFORM.match(user_agent or "")
+    if not block:
+        return None
+    kept = []
+    for token in (part.strip() for part in block.group(1).split(";")):
+        if (
+            token.startswith("rv:")
+            or token in _APP_VERSION_DROPPED
+            or token.startswith("Linux ")
+            or token.startswith("Intel Mac OS X")
+        ):
+            continue
+        kept.append("Windows" if token.startswith("Windows") else token)
+    return f"5.0 ({'; '.join(kept)})" if kept else None
 
 
 def _fill_app_version(pin: dict[str, Any]) -> None:
-    """Give a pin the appVersion its own platform implies, if it has none."""
+    """Give a pin the appVersion its own user agent implies, if it has none.
+
+    Camoufox's generated fingerprints carry one; the ones built from a device
+    preset do not, and an absent value falls through to the *host's* — a Linux
+    preset pinned on a macOS machine reported "5.0 (Macintosh)" beside platform
+    "Linux x86_64", which any page can read in two properties. Worse for a pin:
+    the value would follow whichever machine opened the profile, so the same
+    profile would not be the same computer. Reported and fixed upstream in
+    daijro/camoufox#753; filled here so profiles pinned before that lands are
+    whole.
+    """
     if "navigator.appVersion" in pin:
         return
-    platform = pin.get("navigator.platform")
-    if not isinstance(platform, str):
+    user_agent = pin.get("navigator.userAgent")
+    if not isinstance(user_agent, str):
         return
-    derived = _APP_VERSION_BY_PLATFORM.get(platform)
-    if derived is None and "linux" in platform.lower():
-        derived = "5.0 (X11)"
+    derived = _app_version_from_user_agent(user_agent)
     if derived:
         pin["navigator.appVersion"] = derived
 

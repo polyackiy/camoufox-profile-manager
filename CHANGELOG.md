@@ -6,7 +6,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+- **A pinned Ubuntu machine now says Ubuntu in both places.** The value filled
+  into a preset's `navigator.appVersion` in 0.4.0 came from a lookup on
+  `navigator.platform`, which flattens the eighteen bundled Ubuntu presets to
+  `5.0 (X11)` while their user agent says `X11; Ubuntu`. Smaller than the host
+  leaking, but a contradiction of the same kind, and one Firefox never emits. It
+  is now derived from the profile's own pinned user agent — the same tokens
+  minus the architecture and the Gecko revision, with Windows collapsed to its
+  family name. Checked against 800 captured Firefox fingerprints: exact on every
+  one, Android and Ubuntu included. Found while answering a question on the
+  upstream report.
 
 ## [0.4.0] - 2026-09-04
 
