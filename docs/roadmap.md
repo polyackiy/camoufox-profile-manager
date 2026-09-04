@@ -5,6 +5,11 @@ Track progress in [GitHub Issues](https://github.com/polyackiy/camoufox-profile-
 
 ## Since 0.2.0
 
+- The browser tests assert what a *page* sees, not what automation sees. Three
+  timezone assertions read through `page.evaluate`, which since Camoufox
+  152.0.4-beta.29 runs in an isolated world with a realm of its own — so they
+  reported the host's zone while real pages were correctly spoofed. Verified
+  green on beta.28, beta.29 and beta.30.
 - Proxy health is visible in the profiles list: a check leaves its answer in the
   row — exit address, country, latency, and a green, amber or red dot — and a
   selection can be checked in one go. On demand only; nothing polls.
@@ -77,14 +82,6 @@ Track progress in [GitHub Issues](https://github.com/polyackiy/camoufox-profile-
 Everything planned for `0.2.0` shipped. These are the known follow-ups, in rough
 order of how much they would hurt if left alone:
 
-- **Re-run the browser tests against `152.0.4-beta.29` when it becomes stable.**
-  It is a prerelease as of 2026-08-21, so `camoufox fetch` still installs
-  `beta.28` and nothing has changed under us yet. Three of its commits are aimed
-  at exactly what pinning freezes — *clamp headful window geometry to the real
-  display*, *probe the host monitor in CSS pixels*, *apply screen constraints on
-  Windows and macOS*. A profile pinned to a 2560x1440 screen and opened on a
-  smaller monitor is the case to watch, and `pytest -m browser` already asserts
-  what a page sees.
 - Read the Linux keyring for the `v11` cookie password. The key is currently
   always derived from Chrome's hardcoded `peanuts`, so a genuine Linux `v11`
   cookie is skipped rather than decrypted.

@@ -20,7 +20,7 @@ from camoufox import AsyncCamoufox
 
 from camoufox_pm.core import proxy_check
 from camoufox_pm.core.models import BrowserSettings, Profile
-from tests.browser.support import GEOIP_ADDRESS, offline_launch
+from tests.browser.support import GEOIP_ADDRESS, offline_launch, timezone_a_page_sees
 
 
 @pytest.fixture
@@ -34,17 +34,13 @@ def named_exit_address(monkeypatch):
     return GEOIP_ADDRESS
 
 
-CLOCK = "() => Intl.DateTimeFormat().resolvedOptions().timeZone"
-
-
 async def timezone_seen(options, user_data_dir):
     launch = offline_launch(options)
     launch["headless"] = True
     launch["user_data_dir"] = str(user_data_dir)
     async with AsyncCamoufox(**launch) as browser:
         page = await browser.new_page()
-        await page.goto("about:blank")
-        return await page.evaluate(CLOCK)
+        return await timezone_a_page_sees(page)
 
 
 @pytest.mark.browser
