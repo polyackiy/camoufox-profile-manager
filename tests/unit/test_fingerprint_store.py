@@ -279,38 +279,68 @@ class TestAppVersion:
     value. Measured before this fill, on a macOS host with a Linux preset:
     platform "Linux x86_64" beside appVersion "5.0 (Macintosh)" — two properties
     any page can read together. Reported upstream as daijro/camoufox#753.
+
+    The values below are not invented: they are what 800 captured Firefox
+    fingerprints report, sampled per user-agent shape.
     """
 
-    def test_each_platform_gets_the_token_firefox_reports(self):
+    def test_each_user_agent_gets_the_value_firefox_reports(self):
         cases = {
-            "Linux x86_64": "5.0 (X11)",
-            "Win32": "5.0 (Windows)",
-            "MacIntel": "5.0 (Macintosh)",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:152.0) Gecko/20100101 Firefox/152.0": (
+                "5.0 (Windows)"
+            ),
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:152.0) Gecko/20100101 Firefox/152.0": (
+                "5.0 (Macintosh)"
+            ),
+            "Mozilla/5.0 (X11; Linux x86_64; rv:152.0) Gecko/20100101 Firefox/152.0": "5.0 (X11)",
+            "Mozilla/5.0 (Android 16; Mobile; rv:152.0) Gecko/152.0 Firefox/152.0": (
+                "5.0 (Android 16)"
+            ),
         }
-        for platform, expected in cases.items():
-            pin = {"navigator.platform": platform}
+        for user_agent, expected in cases.items():
+            pin = {"navigator.userAgent": user_agent}
             fingerprint_store._fill_app_version(pin)
             assert pin["navigator.appVersion"] == expected
 
+    def test_a_distro_token_survives(self):
+        """A fifth of the bundled Linux presets say "X11; Ubuntu".
+
+        Deriving from navigator.platform instead flattens those to "5.0 (X11)" —
+        a smaller mismatch than the host leaking, but one Firefox never emits.
+        """
+        pin = {
+            "navigator.platform": "Linux x86_64",
+            "navigator.userAgent": (
+                "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:152.0) Gecko/20100101 Firefox/152.0"
+            ),
+        }
+
+        fingerprint_store._fill_app_version(pin)
+
+        assert pin["navigator.appVersion"] == "5.0 (X11; Ubuntu)"
+
     def test_a_value_already_there_is_kept(self):
         """A resolved fingerprint that carries one knows better than this."""
-        pin = {"navigator.platform": "Win32", "navigator.appVersion": "5.0 (Windows NT 10.0)"}
+        pin = {
+            "navigator.userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:152.0)",
+            "navigator.appVersion": "5.0 (Windows NT 10.0)",
+        }
 
         fingerprint_store._fill_app_version(pin)
 
         assert pin["navigator.appVersion"] == "5.0 (Windows NT 10.0)"
 
-    def test_a_platform_firefox_does_not_run_on_is_left_alone(self):
-        """Inventing a token would be worse than leaving the gap visible."""
-        pin = {"navigator.platform": "iPhone"}
+    def test_a_user_agent_it_cannot_read_is_left_alone(self):
+        """Better an absent value than an invented one."""
+        pin = {"navigator.platform": "Win32", "navigator.userAgent": "not a user agent"}
 
         fingerprint_store._fill_app_version(pin)
 
         assert "navigator.appVersion" not in pin
 
-    def test_a_pin_without_a_platform_is_left_alone(self):
-        pin: dict = {}
+    def test_a_pin_without_a_user_agent_is_left_alone(self):
+        pin: dict = {"navigator.platform": "Win32"}
 
         fingerprint_store._fill_app_version(pin)
 
-        assert pin == {}
+        assert "navigator.appVersion" not in pin
