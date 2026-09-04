@@ -13,7 +13,7 @@ from camoufox import AsyncCamoufox
 
 from camoufox_pm.core.browser_session import BrowserSessionManager
 from camoufox_pm.core.models import BrowserSettings, Profile, WebRTCMode
-from tests.browser.support import offline_launch
+from tests.browser.support import offline_launch, timezone_a_page_sees
 
 
 @pytest.mark.browser
@@ -60,9 +60,7 @@ async def test_timezone_applies(tmp_path):
 
     async with AsyncCamoufox(**options) as browser:
         page = await browser.new_page()
-        await page.goto("about:blank")
-        resolved = await page.evaluate("Intl.DateTimeFormat().resolvedOptions().timeZone")
-        assert resolved == "Europe/Berlin"
+        assert await timezone_a_page_sees(page) == "Europe/Berlin"
 
 
 @pytest.mark.browser

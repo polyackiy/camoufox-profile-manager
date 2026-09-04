@@ -112,3 +112,19 @@ def serve_local_sites() -> Iterator[LocalSites]:
         for server in servers:
             server.shutdown()
             server.server_close()
+
+
+# What the page itself computes, written where automation can read it back.
+# Automation must not evaluate this directly: since 152.0.4-beta.29 Camoufox runs
+# `page.evaluate` in an isolated world, and a timezone override belongs to the
+# realm that received it. The page's realm is the one a site actually gets, so
+# that is the only observer worth asserting on.
+_TIMEZONE_PROBE = (
+    "<script>document.title = Intl.DateTimeFormat().resolvedOptions().timeZone</script>"
+)
+
+
+async def timezone_a_page_sees(page) -> str:
+    """The timezone a script on the page resolves, not the one automation sees."""
+    await page.set_content(_TIMEZONE_PROBE)
+    return await page.title()
