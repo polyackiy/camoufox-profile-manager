@@ -6,6 +6,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.4.1] - 2026-09-05
+
+A fix release, and the fix is to 0.4.0's own. Someone questioned the upstream
+report this came from; re-measuring to answer them left the report standing and
+the patch improved.
+
 ### Fixed
 - **A pinned Ubuntu machine now says Ubuntu in both places.** The value filled
   into a preset's `navigator.appVersion` in 0.4.0 came from a lookup on
@@ -577,7 +585,8 @@ First public release after a comprehensive revamp.
   Camoufox owns fingerprint generation for consistency.
 - Committed profile data, leaked proxy credentials, and duplicate/backup files.
 
-[Unreleased]: https://github.com/polyackiy/camoufox-profile-manager/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/polyackiy/camoufox-profile-manager/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/polyackiy/camoufox-profile-manager/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/polyackiy/camoufox-profile-manager/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/polyackiy/camoufox-profile-manager/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/polyackiy/camoufox-profile-manager/compare/v0.2.0...v0.2.1
