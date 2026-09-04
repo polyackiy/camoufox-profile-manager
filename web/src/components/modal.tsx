@@ -19,6 +19,15 @@ interface ModalProps {
  */
 export function Modal({ open, title, subtitle, onClose, children, footer, width = 620 }: ModalProps) {
   const panelRef = useRef<HTMLDivElement>(null)
+  const onCloseRef = useRef(onClose)
+
+  // Callers commonly pass an inline callback. Keep the current callback in a
+  // ref so parent rerenders do not tear down and recreate the focus trap.
+  // Re-running that effect restores its initially focused element, which made
+  // polling pages repeatedly steal focus back to an auto-focused input.
+  useEffect(() => {
+    onCloseRef.current = onClose
+  }, [onClose])
 
   useEffect(() => {
     if (!open) return
@@ -35,7 +44,7 @@ export function Modal({ open, title, subtitle, onClose, children, footer, width 
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        onClose()
+        onCloseRef.current()
         return
       }
       // aria-modal alone does not stop Tab walking into the page behind the
@@ -66,7 +75,7 @@ export function Modal({ open, title, subtitle, onClose, children, footer, width 
       document.body.style.overflow = previousOverflow
       previouslyFocused?.focus?.()
     }
-  }, [open, onClose])
+  }, [open])
 
   if (!open) return null
 
