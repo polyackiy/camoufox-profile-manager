@@ -269,3 +269,48 @@ def test_get_preset_still_resolves_a_real_id():
     if not presets:
         pytest.skip("no bundled presets available")
     assert fingerprint_store.get_preset(presets[1]["id"]) is not None
+
+
+class TestAppVersion:
+    """A pin must not let the host's operating system show through.
+
+    Camoufox's generated fingerprints carry navigator.appVersion; the ones built
+    from a device preset do not, and Firefox then falls back to the host's own
+    value. Measured before this fill, on a macOS host with a Linux preset:
+    platform "Linux x86_64" beside appVersion "5.0 (Macintosh)" — two properties
+    any page can read together. Reported upstream as daijro/camoufox#753.
+    """
+
+    def test_each_platform_gets_the_token_firefox_reports(self):
+        cases = {
+            "Linux x86_64": "5.0 (X11)",
+            "Win32": "5.0 (Windows)",
+            "MacIntel": "5.0 (Macintosh)",
+        }
+        for platform, expected in cases.items():
+            pin = {"navigator.platform": platform}
+            fingerprint_store._fill_app_version(pin)
+            assert pin["navigator.appVersion"] == expected
+
+    def test_a_value_already_there_is_kept(self):
+        """A resolved fingerprint that carries one knows better than this."""
+        pin = {"navigator.platform": "Win32", "navigator.appVersion": "5.0 (Windows NT 10.0)"}
+
+        fingerprint_store._fill_app_version(pin)
+
+        assert pin["navigator.appVersion"] == "5.0 (Windows NT 10.0)"
+
+    def test_a_platform_firefox_does_not_run_on_is_left_alone(self):
+        """Inventing a token would be worse than leaving the gap visible."""
+        pin = {"navigator.platform": "iPhone"}
+
+        fingerprint_store._fill_app_version(pin)
+
+        assert "navigator.appVersion" not in pin
+
+    def test_a_pin_without_a_platform_is_left_alone(self):
+        pin: dict = {}
+
+        fingerprint_store._fill_app_version(pin)
+
+        assert pin == {}
