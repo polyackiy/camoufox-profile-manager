@@ -77,6 +77,14 @@ Track progress in [GitHub Issues](https://github.com/polyackiy/camoufox-profile-
 Everything planned for `0.2.0` shipped. These are the known follow-ups, in rough
 order of how much they would hurt if left alone:
 
+- **Re-run the browser tests against `152.0.4-beta.29` when it becomes stable.**
+  It is a prerelease as of 2026-08-21, so `camoufox fetch` still installs
+  `beta.28` and nothing has changed under us yet. Three of its commits are aimed
+  at exactly what pinning freezes — *clamp headful window geometry to the real
+  display*, *probe the host monitor in CSS pixels*, *apply screen constraints on
+  Windows and macOS*. A profile pinned to a 2560x1440 screen and opened on a
+  smaller monitor is the case to watch, and `pytest -m browser` already asserts
+  what a page sees.
 - Read the Linux keyring for the `v11` cookie password. The key is currently
   always derived from Chrome's hardcoded `peanuts`, so a genuine Linux `v11`
   cookie is skipped rather than decrypted.
@@ -126,14 +134,20 @@ a real machine looks like, and what the randomisation existed to prevent. Covere
 by browser tests that assert the stability, the drift when it is off, and the
 cross-site linkability it costs.
 
-**Also worth doing: report the upstream bug.** `canvas:seed` is advertised in
-Camoufox's property manifest and emitted by its Python layer, but its C++ config
-reader never reads it and no patch implements it; `window.setCanvasSeed()` is
-documented but absent from the shipped build. A working seed would be better than
-the pref, because it would give each profile its own canvas value instead of one
-shared true render. This does not need a fork — a fork would mean building and
-hosting Firefox for every platform and rebasing on every Camoufox release, for
-one seed value.
+**Reported upstream, still open:
+[daijro/camoufox#721](https://github.com/daijro/camoufox/issues/721).** `canvas:seed`
+is advertised in Camoufox's property manifest and emitted by its Python layer, but
+its C++ config reader never reads it and no patch implements it;
+`window.setCanvasSeed()` is documented but absent from the shipped build. A working
+seed would be better than the pref, because it would give each profile its own
+canvas value instead of one shared true render.
+
+Checked again on 2026-08-20: no answer and no change — `MaskConfig.hpp` at
+upstream `HEAD` still does not mention canvas at all. Not a stalled project, just
+a busy one; there are 57 commits between `beta.28` and `beta.29`. Nothing to do
+but keep the pref and re-check on each release. A fork is not the answer — it
+would mean building and hosting Firefox for every platform and rebasing on every
+Camoufox release, for one seed value.
 
 See [profile-settings.md](profile-settings.md#known-limitations) for the measured
 behaviour and the trade-off table.
