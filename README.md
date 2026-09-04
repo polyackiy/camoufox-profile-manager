@@ -13,7 +13,7 @@ Each profile is **one long-lived machine**. It keeps the same fingerprint every
 session, along with its own cookies, storage and history, so an account opened
 from it in January still looks like the same computer in June.
 
-> **Status:** `v0.3.0`, and in working order. 407 tests — 22 drive a real browser
+> **Status:** `v0.3.0`, and in working order. 412 tests — 23 drive a real browser
 > and check what a page actually sees, and 2 run only under `--no-network`, which
 > is how the browser suite proves it needs no internet; 90% coverage. The REST API is
 > versioned at `/api/v1` behind a written

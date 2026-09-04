@@ -6,6 +6,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- **A pinned machine now decides every property that names the operating
+  system.** Camoufox builds a fingerprint from a device preset without
+  `navigator.appVersion`, so that one value was generated per launch from the
+  profile's *setting* instead of coming from the pin. Invisible until the two
+  disagree — a state this product allows on purpose and reports as
+  `os_mismatch` — and then a page read `platform` "Linux x86_64" beside
+  `appVersion` "5.0 (Windows)". The pin now carries the value its own platform
+  implies. Reported upstream, with a fix, as
+  [daijro/camoufox#753](https://github.com/daijro/camoufox/issues/753): through
+  Camoufox's own preset path the same gap leaks the *host* machine's OS.
+
 ### Added
 - **Proxy health in the profiles list.** A check now leaves its answer in the
   row — the exit address, country and latency under the configured proxy, with a

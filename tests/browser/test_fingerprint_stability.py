@@ -219,6 +219,57 @@ async def test_stable_canvas_is_linkable_across_sites(tmp_path, local_sites):
 
 @pytest.mark.browser
 @pytest.mark.asyncio
+async def test_the_pinned_machine_decides_the_operating_system_a_page_reads(tmp_path):
+    """Every property naming the OS must come from the pin, including appVersion.
+
+    Camoufox builds a preset fingerprint without navigator.appVersion, so the
+    value is generated per launch from the profile's *setting* instead. That is
+    invisible until the two disagree — a state this product allows on purpose
+    and reports as os_mismatch — and then a page reads platform "Linux x86_64"
+    beside appVersion "5.0 (Windows)". Measured, in that order, before the fill.
+
+    The upstream half of this is daijro/camoufox#753: a preset launched through
+    Camoufox's own path leaks the *host* OS the same way.
+    """
+    pinned = next(
+        machine
+        for machine in (
+            fingerprint_store.resolve(
+                Profile(
+                    name="preset", browser_settings=BrowserSettings(os="linux")
+                ).to_camoufox_launch_options(),
+                preset=fingerprint_store.get_preset(candidate["id"]),
+            )
+            for candidate in fingerprint_store.list_presets("linux")[:8]
+        )
+        if machine
+    )
+
+    profile = Profile(name="preset", browser_settings=BrowserSettings(os="linux"))
+    profile.fingerprint = pinned
+    # The setting drifts away from the pinned machine, which is allowed.
+    profile.browser_settings.os = "windows"
+
+    launch = offline_launch(pinned_options(profile))
+    launch["headless"] = True
+    launch["user_data_dir"] = str(tmp_path / "preset")
+    async with AsyncCamoufox(**launch) as browser:
+        page = await browser.new_page()
+        # Read by the page itself: automation's world is not what a site gets.
+        await page.set_content(
+            "<script>document.title = navigator.platform + '|' + navigator.appVersion</script>"
+        )
+        platform, app_version = (await page.title()).split("|")
+
+    assert "Linux" in platform, f"the pinned machine is Linux, the page saw {platform}"
+    assert app_version == "5.0 (X11)", (
+        f"platform says {platform} while appVersion says {app_version} — "
+        "the setting overrode the pinned machine on one property"
+    )
+
+
+@pytest.mark.browser
+@pytest.mark.asyncio
 async def test_the_two_local_origins_are_different_sites(tmp_path, local_sites):
     """Guards the fixture, and with it the linkability test above.
 

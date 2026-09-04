@@ -88,6 +88,35 @@ def freeze(resolved: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+# Firefox reports navigator.appVersion as "5.0 (<OS token>)" and nothing more,
+# so the platform decides it. Camoufox's generated fingerprints carry one; the
+# ones built from a device preset do not, and an absent value falls through to
+# the *host's* — a Linux preset pinned on a macOS machine reported
+# "5.0 (Macintosh)" beside platform "Linux x86_64", which any page can read in
+# two properties. Worse for a pin: the value would follow whichever machine the
+# profile is opened on, so the same profile would not be the same computer.
+# Reported and fixed upstream in daijro/camoufox#753; filled here so profiles
+# pinned before that lands are whole.
+_APP_VERSION_BY_PLATFORM = {
+    "MacIntel": "5.0 (Macintosh)",
+    "Win32": "5.0 (Windows)",
+}
+
+
+def _fill_app_version(pin: dict[str, Any]) -> None:
+    """Give a pin the appVersion its own platform implies, if it has none."""
+    if "navigator.appVersion" in pin:
+        return
+    platform = pin.get("navigator.platform")
+    if not isinstance(platform, str):
+        return
+    derived = _APP_VERSION_BY_PLATFORM.get(platform)
+    if derived is None and "linux" in platform.lower():
+        derived = "5.0 (X11)"
+    if derived:
+        pin["navigator.appVersion"] = derived
+
+
 def resolve(launch_options: dict[str, Any], preset: dict[str, Any] | None = None) -> dict[str, Any]:
     """Ask Camoufox to resolve a full fingerprint for these launch constraints.
 
@@ -130,6 +159,7 @@ def resolve(launch_options: dict[str, Any], preset: dict[str, Any] | None = None
         return {}
 
     frozen = freeze(config)
+    _fill_app_version(frozen)
     source = "preset" if preset is not None else "generated"
     logger.info(f"Pinned a {source} fingerprint with {len(frozen)} properties")
     return frozen
