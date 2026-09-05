@@ -18,6 +18,9 @@ from typing import Any
 import psutil
 from loguru import logger
 
+from ..config import get_settings
+from .database import StorageManager
+
 try:
     from camoufox.async_api import AsyncCamoufox
 
@@ -118,16 +121,99 @@ class BrowserSession:
 class BrowserSessionManager:
     """Track and control the browsers currently running."""
 
-    def __init__(self) -> None:
+    def __init__(self, storage: StorageManager | None = None, holder: str | None = None) -> None:
         self.active_sessions: dict[str, BrowserSession] = {}
+        # Profile id -> number of launches currently inside camoufox.start().
+        # A count, not a set: concurrent launches of one profile must not clear
+        # each other's mark. Held from before start() until the session is
+        # registered or that launch fails.
+        self._starting: dict[str, int] = {}
         # The event loop only holds weak references to tasks, so a teardown
         # suspended inside camoufox.__aexit__ could be garbage-collected and take
         # the primary cleanup path with it. Hold a strong reference until done.
         self._exit_tasks: set[asyncio.Task[None]] = set()
+        # Lease renewal. Without a storage backend and holder id (unit tests,
+        # tools that only watch processes) the manager behaves exactly as before.
+        self._storage = storage
+        self._holder = holder
+        self._heartbeat_task: asyncio.Task[None] | None = None
+
+    def start_heartbeat(self, interval: float = 30.0) -> None:
+        """Begin renewing this instance's leases in the background.
+
+        The heartbeat is what keeps a lease alive while a browser runs; when it
+        stops (crash, kill -9), the lease outlives the browser by at most its
+        TTL and then frees itself. A stolen lease closes the browser instead of
+        being fought over: the other machine is already driving that identity.
+        """
+        if self._storage is None or self._holder is None:
+            return
+        self._heartbeat_task = asyncio.create_task(self._heartbeat_loop(interval))
+
+    async def stop_heartbeat(self) -> None:
+        """Stop the renewal loop. Renewal must not race shutdown."""
+        if self._heartbeat_task is not None:
+            self._heartbeat_task.cancel()
+            try:
+                await self._heartbeat_task
+            except asyncio.CancelledError:
+                pass
+            self._heartbeat_task = None
+
+    async def _heartbeat_loop(self, interval: float) -> None:
+        while True:
+            await asyncio.sleep(interval)
+            try:
+                await self._renew_leases()
+            except Exception as exc:  # noqa: BLE001 - one failed beat must not kill the loop
+                logger.warning(f"Lease heartbeat failed: {exc}")
+
+    async def _renew_leases(self) -> None:
+        """Renew every active lease; close any browser whose lease was lost."""
+        if self._storage is None or self._holder is None or not self.active_sessions:
+            return
+        profile_ids = list(self.active_sessions)
+        # Same TTL source as launch (settings.lease_ttl / CPM_LEASE_TTL): a
+        # hardcoded beat here would collapse a longer lease and let it expire
+        # under a live browser.
+        ttl_seconds = get_settings().lease_ttl
+        renewed = await self._storage.renew_lease(
+            profile_ids, self._holder, ttl_seconds=ttl_seconds
+        )
+        if renewed == len(profile_ids):
+            return
+        # Single-profile renewal to learn exactly which leases survive; the
+        # bulk update above already extended the ones that did.
+        renewed_ids = set()
+        for profile_id in profile_ids:
+            if (
+                await self._storage.renew_lease([profile_id], self._holder, ttl_seconds=ttl_seconds)
+                > 0
+            ):
+                renewed_ids.add(profile_id)
+        for profile_id in profile_ids:
+            if profile_id in renewed_ids:
+                continue
+            logger.warning(
+                f"Lease on profile {profile_id} was taken over or expired — "
+                "another machine may be driving this identity; closing the browser."
+            )
+            # Not recovering: the identity is being driven elsewhere.
+            await self.close(profile_id)
 
     def is_running(self, profile_id: str) -> bool:
         """Return whether a browser is currently tracked for the profile."""
         return profile_id in self.active_sessions
+
+    def is_live(self, profile_id: str) -> bool:
+        """Whether a browser is running OR starting up for the profile.
+
+        is_running() alone is false while camoufox.start() is still being
+        awaited, so a lease released on that answer can be taken from a browser
+        that is coming up. Lease decisions must use this; user-facing "is it
+        open" answers stay on is_running().
+        """
+        return profile_id in self.active_sessions or profile_id in self._starting
 
     def list_active(self) -> list[dict[str, Any]]:
         """Return summaries of the active sessions.
@@ -153,16 +239,30 @@ class BrowserSessionManager:
         if profile_id in self.active_sessions:
             return self.active_sessions[profile_id]
 
+        # Counted, not a set membership: two concurrent launches of one profile
+        # both mark it, and whichever leaves first would otherwise clear the
+        # marker for the other — the loser raises first, so it would erase the
+        # winner's mark while the winner is still inside start().
+        self._starting[profile_id] = self._starting.get(profile_id, 0) + 1
         try:
-            camoufox = AsyncCamoufox(**launch_options)
-            browser = await camoufox.start()
-        except Exception as exc:  # noqa: BLE001
-            raise BrowserLaunchError(f"Failed to launch browser: {exc}") from exc
+            try:
+                camoufox = AsyncCamoufox(**launch_options)
+                browser = await camoufox.start()
+            except Exception as exc:  # noqa: BLE001
+                raise BrowserLaunchError(f"Failed to launch browser: {exc}") from exc
 
-        process_id = _resolve_process_id(browser) or _resolve_process_id(camoufox)
-        session = BrowserSession(profile_id, camoufox, process_id)
-        session.on_exit = on_exit
-        self.active_sessions[profile_id] = session
+            process_id = _resolve_process_id(browser) or _resolve_process_id(camoufox)
+            session = BrowserSession(profile_id, camoufox, process_id)
+            session.on_exit = on_exit
+            self.active_sessions[profile_id] = session
+        finally:
+            # Decremented only once the session is registered (or this launch
+            # died), so is_live() stays true while any launch is still starting.
+            remaining = self._starting.get(profile_id, 1) - 1
+            if remaining > 0:
+                self._starting[profile_id] = remaining
+            else:
+                self._starting.pop(profile_id, None)
 
         # Primary signal: the browser/context closing (e.g. the user closes the window).
         self._register_close_handler(browser, profile_id)
@@ -194,6 +294,14 @@ class BrowserSessionManager:
         if session is None:
             return
         await session.terminate()
+        # Our browser is gone, so the lease should not outlive it — unless it
+        # was already taken over, in which case the holder guard keeps the new
+        # holder's lease intact.
+        if self._storage is not None and self._holder is not None:
+            try:
+                await self._storage.release_lease(profile_id, self._holder)
+            except Exception as exc:  # noqa: BLE001 - teardown must not fail on the lease
+                logger.warning(f"Could not release the lease for {profile_id}: {exc}")
         if session.on_exit is not None:
             try:
                 await session.on_exit(profile_id)
@@ -208,11 +316,18 @@ class BrowserSessionManager:
         await session.terminate()
         return True
 
+    async def close_and_release(self, profile_id: str) -> bool:
+        """Close a browser and hand its lease back, only if we still hold it."""
+        closed = await self.close(profile_id)
+        if closed and self._storage is not None and self._holder is not None:
+            await self._storage.release_lease(profile_id, self._holder)
+        return closed
+
     async def close_all(self) -> int:
         """Close every active browser and return how many were closed."""
         count = 0
         for profile_id in list(self.active_sessions.keys()):
-            if await self.close(profile_id):
+            if await self.close_and_release(profile_id):
                 count += 1
         return count
 

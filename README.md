@@ -165,6 +165,9 @@ Settings come from environment variables (prefix `CPM_`). Copy `.env.example` to
 | `CPM_HOST`         | `127.0.0.1`             | Bind address                                    |
 | `CPM_PORT`         | `8000`                  | Port                                            |
 | `CPM_DB_PATH`      | `data/profiles.db`      | SQLite database path                            |
+| `CPM_DB_URL`       | *(empty)*               | PostgreSQL DSN. Set it and every instance pointed at the same database shares profiles; unset keeps the SQLite file above. Requires the `postgres` extra |
+| `CPM_DATA_DIR`     | *(dirname of `CPM_DB_PATH`)* | Where profile browser data lives. Required with `CPM_DB_URL`, which has no path to derive it from |
+| `CPM_LEASE_TTL`    | `120`                   | Seconds a profile's lease survives without a heartbeat — how long a crashed instance's profiles stay locked. Minimum 60; the heartbeat renews every 30s |
 | `CPM_SECRET_KEY`   | *(empty)*               | Fernet key; encrypts proxy passwords at rest    |
 | `CPM_API_KEY`      | *(empty)*               | If set, required as the `X-API-Key` header (machine clients) |
 | `CPM_SESSION_TTL_HOURS` | `168`              | Login session lifetime, in hours                |

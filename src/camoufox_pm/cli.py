@@ -18,6 +18,7 @@ from typing import NoReturn
 import uvicorn
 
 from camoufox_pm.config import get_settings
+from camoufox_pm.core.database import StorageManager
 
 
 def main() -> None:
@@ -68,10 +69,35 @@ def main() -> None:
 
     user_commands.add_parser("list", help="List accounts (never shows password hashes)")
 
+    # Shell-only on purpose. A "force unlock" behind the HTTP API would be a
+    # button, and a button is the fastest route to two machines driving one
+    # identity — the exact corruption the lease exists to prevent. Reaching for
+    # it here means deliberate shell access to the host.
+    unlock = subcommands.add_parser(
+        "unlock",
+        help="Force-release a profile's lease (Postgres backend)",
+        description=(
+            "Clear the lease holding a profile, whatever it says. Only needed when "
+            "a machine died in a way its lease cannot notice, or the operator has "
+            "verified the holder is really gone — a live lease means another "
+            "machine may be driving the profile right now."
+        ),
+    )
+    unlock.add_argument("profile_id")
+    unlock.add_argument(
+        "--yes",
+        action="store_true",
+        help="Skip the confirmation prompt",
+    )
+
     args = parser.parse_args()
 
     if args.command == "user":
         asyncio.run(_run_user_command(args))
+        return
+
+    if args.command == "unlock":
+        asyncio.run(_run_unlock_command(args))
         return
 
     # Make the settings match what we are about to bind, so everything that reads
@@ -116,6 +142,33 @@ def _read_password(args: argparse.Namespace) -> str:
     if len(password) < MIN_PASSWORD_LENGTH:
         _fail(f"Password must be at least {MIN_PASSWORD_LENGTH} characters.")
     return password
+
+
+async def _run_unlock_command(args: argparse.Namespace) -> None:
+    """Force-release one profile's lease; shell-only (see the parser above)."""
+    storage = StorageManager(get_settings().db_path)
+    await storage.initialize()
+    try:
+        lease = await storage.get_lease(args.profile_id)
+        if lease is None:
+            _fail(f"No profile with ID '{args.profile_id}'.")
+        if lease[0] is None:
+            print(f"Profile {args.profile_id} is not leased.")
+            return
+        holder, expires = lease
+        print(
+            f"Profile {args.profile_id} is leased by {holder}"
+            + (f" until {expires}" if expires else " (no expiry)")
+        )
+        if not args.yes:
+            answer = input("Force-release this lease? (yes/no): ").lower()
+            if answer not in ("yes", "y"):
+                print("Cancelled; the lease stands.")
+                return
+        previous = await storage.force_release_lease(args.profile_id)
+        print(f"Lease released (was held by {previous}).")
+    finally:
+        await storage.close()
 
 
 async def _run_user_command(args: argparse.Namespace) -> None:
