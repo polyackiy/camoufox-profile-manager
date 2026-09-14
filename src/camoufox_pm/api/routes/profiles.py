@@ -39,6 +39,7 @@ from camoufox_pm.api.models.profiles import (
 from camoufox_pm.api.models.system import ApiResponse, ExcelImportData
 from camoufox_pm.core import proxy_check
 from camoufox_pm.core.excel_manager import ExcelManager
+from camoufox_pm.core.leases import ProfileLocked
 from camoufox_pm.core.models import BrowserSettings, ProfileStatus, ProxyConfig
 
 router = APIRouter()
@@ -322,6 +323,11 @@ async def launch_profile(profile_id: str, request: ProfileLaunchRequest):
             },
         )
 
+    except ProfileLocked as e:
+        # Another instance holds the lease. A conflict, not a fault: the client
+        # can retry once the holder closes the browser, and a 500 would read as
+        # "we broke" for an outcome the design intends.
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
     except Exception as e:
@@ -563,9 +569,10 @@ async def export_profile(profile_id: str):
 
     try:
         await profile_manager.export_profile(profile_id, destination)
-    except ValueError as exc:
+    except (ValueError, ProfileLocked) as exc:
         destination.unlink(missing_ok=True)
-        # A running browser is a state conflict, not a bad request.
+        # A running browser is a state conflict, not a bad request — whether it
+        # is running here or leased by another instance.
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except Exception as exc:
         destination.unlink(missing_ok=True)

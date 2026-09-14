@@ -59,6 +59,29 @@ openssl rand -base64 18 | camoufox-pm user add ci-bot --password-stdin
 The commands work against `CPM_DB_PATH` and take effect immediately, even while
 the server is running — the guard checks the database per request.
 
+## `camoufox-pm leases` and `camoufox-pm unlock`
+
+Every browser launch takes a lease on its profile so that two instances sharing
+a database cannot open the same one at once (see
+[Running more than one instance](../README.md#running-more-than-one-instance)).
+These two commands are the operator's view of that.
+
+```bash
+camoufox-pm leases                  # id, name, holder, expiry, live or expired
+camoufox-pm unlock <profile-id>     # force-release; prompts unless --yes
+```
+
+`leases` lists every lease in `CPM_DB_PATH`, including expired ones that nobody
+has taken over yet. A holder id is `<hostname>:<pid>:<uuid>`, so it names the
+machine and the process to look for.
+
+`unlock` clears a lease whatever it says, and prints who held it. It exists for
+the case a lease cannot resolve on its own: a machine that died in a way its
+lease could not notice, or one that is verifiably gone and whose TTL you do not
+want to wait out. Check `leases` first — force-releasing a lease that is still
+live lets a second browser open a profile that is already running, which is the
+corruption the lease prevents. There is deliberately no API endpoint for it.
+
 ## `camoufox fetch`
 
 Downloads the Camoufox browser (~300 MB). This comes from Camoufox itself, not

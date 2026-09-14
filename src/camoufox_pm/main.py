@@ -55,6 +55,21 @@ async def lifespan(app: FastAPI):
     finally:
         logger.info("Shutting down API...")
         await scheduler.stop()
+        # Order matters. The heartbeat renews by holder id, so a beat racing the
+        # releases below would read our own cleared lease as a takeover and close
+        # a live browser: stop renewing first.
+        await profile_manager.browser_sessions.stop_heartbeat()
+        # Then close the browsers, which releases their leases as part of the
+        # close. release_all_leases deliberately skips profiles that are still
+        # live, so leaving them open here would leak every lease we hold.
+        try:
+            await profile_manager.browser_sessions.close_all()
+        except Exception as exc:  # noqa: BLE001 - shutdown must not raise
+            logger.warning(f"Failed to close browsers on shutdown: {exc}")
+        # Finally hand back whatever is left. A lease must not outlive the
+        # process that took it, or a restart locks this instance out of its own
+        # profiles for a full TTL.
+        await profile_manager.release_all_leases()
         await storage_manager.close()
 
 

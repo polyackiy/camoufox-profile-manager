@@ -6,7 +6,28 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+- **One instance at a time may open a profile.** Two copies of the manager
+  against the same database — the web UI and a CLI launch on one machine, or two
+  machines sharing a database file — could both open the same profile, because
+  "is it running" was a dictionary inside a single process. One identity in two
+  browsers means one cookie jar written from two places and the same account
+  live from two IPs. Every launch now takes a row-level lease on the profile;
+  a second instance is refused with `409` until the browser closes. The lease is
+  renewed while the browser runs and expires `CPM_LEASE_TTL` seconds (default
+  120, minimum 60) after an instance stops renewing, so a machine that died does
+  not lock its profiles forever. Exporting a profile leased elsewhere is refused
+  the same way: the archive would be copied mid-write.
+- **`camoufox-pm leases` and `camoufox-pm unlock <id>`** show who holds what and
+  force-release a lease. CLI-only on purpose — force-release is the one
+  operation that can put two browsers on one identity, so it takes shell access
+  to the host rather than a button in the UI.
+
+### Fixed
+- **Saving a profile no longer clears its lease.** `save_profile` was an
+  `INSERT OR REPLACE`, which deletes the row and writes a new one; renaming a
+  profile would have wiped the lease columns along with it. It is now an upsert
+  that names only the columns a save owns.
 
 ## [0.4.1] - 2026-09-05
 

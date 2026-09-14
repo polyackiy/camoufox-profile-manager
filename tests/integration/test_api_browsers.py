@@ -105,3 +105,27 @@ async def test_cloning_an_unknown_profile_is_a_404(client):
     response = await client.post("/api/profiles/nope/clone", json={"new_name": "copy"})
 
     assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_launching_a_profile_leased_elsewhere_is_a_conflict(client):
+    """409, not 500: the client can retry once the other holder closes it."""
+    created = (await client.post("/api/profiles", json={"name": "leased"})).json()
+    manager = get_profile_manager()
+    await manager.storage.acquire_lease(created["id"], "other-host:999:c0ffee", 120)
+
+    response = await client.post(f"/api/profiles/{created['id']}/launch", json={"headless": True})
+
+    assert response.status_code == 409
+    assert "leased by another holder" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_exporting_a_profile_leased_elsewhere_is_a_conflict(client):
+    created = (await client.post("/api/profiles", json={"name": "leased"})).json()
+    manager = get_profile_manager()
+    await manager.storage.acquire_lease(created["id"], "other-host:999:c0ffee", 120)
+
+    response = await client.get(f"/api/profiles/{created['id']}/export")
+
+    assert response.status_code == 409

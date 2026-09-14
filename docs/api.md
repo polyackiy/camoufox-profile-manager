@@ -311,6 +311,13 @@ launch after replays it. Closing the browser window yourself is detected and the
 session is cleaned up, so `/api/v1/browsers/active` reflects reality without
 polling the process table.
 
+Launching a profile that another instance has open returns **`409`**. Each
+launch takes a lease on the profile, and `/api/v1/browsers/active` only sees
+this instance's browsers — the lease is what one instance knows about another's.
+Retry once the holder closes the browser, or wait out `CPM_LEASE_TTL` if that
+instance is gone. There is no force-unlock endpoint: releasing another
+instance's lease needs `camoufox-pm unlock` on the host.
+
 ## Moving a profile
 
 ```http
@@ -323,7 +330,8 @@ The archive carries the profile, its pinned fingerprint and its browser data
 can be restored next to the profile it came from.
 
 - Exporting a **running** profile returns `409` — its databases would be copied
-  mid-write.
+  mid-write. A profile leased by another instance is refused the same way, for
+  the same reason.
 - The archive is **not encrypted** and holds live session cookies and the proxy
   password. Treat it like the account itself.
 

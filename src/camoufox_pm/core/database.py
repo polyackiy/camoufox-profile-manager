@@ -11,6 +11,7 @@ from loguru import logger
 from pydantic import ValidationError
 
 from .crypto import decrypt, encrypt
+from .leases import lease_expired
 from .models import (
     Profile,
     ProfileGroup,
@@ -68,7 +69,15 @@ class DatabaseManager:
         never touches existing rows.
         """
         added_columns = {
-            "profiles": [("fingerprint", "TEXT"), ("proxy_check", "TEXT")],
+            "profiles": [
+                ("fingerprint", "TEXT"),
+                ("proxy_check", "TEXT"),
+                # Lease columns (see core/leases.py). NULL means free, which is
+                # what an existing row gets when the column is added — every
+                # profile in an upgraded database starts unleased.
+                ("locked_by", "TEXT"),
+                ("lock_expires", "TIMESTAMP"),
+            ],
         }
         for table, columns in added_columns.items():
             cursor = self._connection.execute(f"PRAGMA table_info({table})")
@@ -98,7 +107,9 @@ class DatabaseManager:
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 last_used TIMESTAMP,
                 fingerprint TEXT,
-                proxy_check TEXT
+                proxy_check TEXT,
+                locked_by TEXT,
+                lock_expires TIMESTAMP
             )
         """)
 
@@ -200,14 +211,35 @@ class DatabaseManager:
     # --- Profiles ---
 
     async def save_profile(self, profile: Profile):
-        """Save a profile to the database."""
+        """Save a profile to the database.
+
+        An upsert rather than ``INSERT OR REPLACE``, which deletes the row and
+        writes a new one: that would drop the lease columns, so renaming a
+        profile would quietly unlock a browser another instance is running.
+        ``DO UPDATE`` names only the columns a save owns, and the lease columns
+        it does not name keep their values.
+        """
         self._connection.execute(
             """
-            INSERT OR REPLACE INTO profiles (
+            INSERT INTO profiles (
                 id, name, group_id, status, browser_settings, proxy_config,
                 extensions, storage_path, notes, created_at, updated_at, last_used,
                 fingerprint, proxy_check
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                name = excluded.name,
+                group_id = excluded.group_id,
+                status = excluded.status,
+                browser_settings = excluded.browser_settings,
+                proxy_config = excluded.proxy_config,
+                extensions = excluded.extensions,
+                storage_path = excluded.storage_path,
+                notes = excluded.notes,
+                created_at = excluded.created_at,
+                updated_at = excluded.updated_at,
+                last_used = excluded.last_used,
+                fingerprint = excluded.fingerprint,
+                proxy_check = excluded.proxy_check
         """,
             (
                 profile.id,
@@ -618,6 +650,138 @@ class DatabaseManager:
             for row in cursor.fetchall()
         ]
 
+    # --- Leases ---
+
+    # See core/leases.py for what a lease is and why it exists. Every method
+    # here is a single statement whose WHERE clause carries the decision, so
+    # SQLite's write lock — not the application — picks the winner when two
+    # processes ask at once.
+
+    async def acquire_lease(self, profile_id: str, holder: str, ttl_seconds: int) -> bool:
+        """Take the lease on a profile, if it is free. Never blocks.
+
+        The three arms of the guard are the three ways a lease may be taken:
+        nobody holds it, the holder's TTL ran out (their machine is gone), or
+        we already hold it. That last arm makes re-acquisition idempotent — a
+        process must be able to pick its own lease back up instead of waiting
+        out a TTL it set itself.
+
+        Returns ``False`` without touching the row when someone else holds an
+        unexpired lease; callers turn that into ``ProfileLocked``.
+        """
+        cursor = self._connection.execute(
+            """
+            UPDATE profiles
+               SET locked_by = ?,
+                   lock_expires = datetime('now', '+' || ? || ' seconds')
+             WHERE id = ?
+               AND (locked_by IS NULL
+                    OR locked_by = ?
+                    OR julianday(lock_expires) < julianday('now'))
+            """,
+            (holder, ttl_seconds, profile_id, holder),
+        )
+        # Without the commit the lease lives inside this connection's open
+        # transaction, where no other process can see it — the opposite of
+        # what it is for.
+        self._connection.commit()
+        return cursor.rowcount > 0
+
+    async def renew_lease(self, profile_ids: list[str], holder: str, ttl_seconds: int) -> int:
+        """Push out the expiry of the leases we still hold; returns how many.
+
+        A profile missing from the count has been taken over or has expired.
+        The caller treats that as a lost lease rather than trying to win it
+        back: something else is already driving that identity.
+        """
+        if not profile_ids:
+            return 0
+        placeholders = ",".join("?" for _ in profile_ids)
+        cursor = self._connection.execute(
+            f"""
+            UPDATE profiles
+               SET lock_expires = datetime('now', '+' || ? || ' seconds')
+             WHERE id IN ({placeholders}) AND locked_by = ?
+            """,
+            (ttl_seconds, *profile_ids, holder),
+        )
+        self._connection.commit()
+        return cursor.rowcount
+
+    async def release_lease(self, profile_id: str, holder: str) -> bool:
+        """Hand the lease back, but only if we still hold it.
+
+        Guarded on the holder id so a slow teardown cannot clear the lease of
+        whoever took the profile over after ours expired.
+        """
+        cursor = self._connection.execute(
+            "UPDATE profiles SET locked_by = NULL, lock_expires = NULL "
+            "WHERE id = ? AND locked_by = ?",
+            (profile_id, holder),
+        )
+        self._connection.commit()
+        return cursor.rowcount > 0
+
+    async def force_release_lease(self, profile_id: str) -> str | None:
+        """Clear a lease whoever holds it; returns the holder it was taken from.
+
+        Read then clear, because the UPDATE cannot report the value it just
+        erased. Nothing can interleave: SQLite admits one writer at a time.
+
+        Deliberately absent from the HTTP API. A force-unlock button is the
+        quickest route back to two machines on one identity, so it lives only
+        behind the CLI, where reaching for it means deliberate shell access to
+        the host (``camoufox-pm unlock``).
+        """
+        row = self._connection.execute(
+            "SELECT locked_by FROM profiles WHERE id = ? AND locked_by IS NOT NULL",
+            (profile_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        self._connection.execute(
+            "UPDATE profiles SET locked_by = NULL, lock_expires = NULL WHERE id = ?",
+            (profile_id,),
+        )
+        self._connection.commit()
+        return row["locked_by"]
+
+    async def get_lease(self, profile_id: str) -> tuple[str | None, str | None] | None:
+        """Return ``(locked_by, lock_expires)``, or ``None`` if no such profile.
+
+        A plain read, so it reports an expired lease exactly as stored. Callers
+        asking "is this held right now" pass the expiry through
+        :func:`~camoufox_pm.core.leases.lease_expired`, or simply try to acquire.
+        """
+        cursor = self._connection.execute(
+            "SELECT locked_by, lock_expires FROM profiles WHERE id = ?", (profile_id,)
+        )
+        row = cursor.fetchone()
+        if row is None:
+            return None
+        return row["locked_by"], row["lock_expires"]
+
+    async def get_lease_holders(self) -> list[dict]:
+        """Every lease in the database, expired ones included, for inspection."""
+        cursor = self._connection.execute(
+            """
+            SELECT id, name, locked_by, lock_expires
+              FROM profiles
+             WHERE locked_by IS NOT NULL
+             ORDER BY id
+            """
+        )
+        return [
+            {
+                "id": row["id"],
+                "name": row["name"],
+                "locked_by": row["locked_by"],
+                "lock_expires": row["lock_expires"],
+                "expired": lease_expired(row["lock_expires"]),
+            }
+            for row in cursor.fetchall()
+        ]
+
     # --- Utilities ---
 
     def _row_to_schedule(self, row) -> Schedule:
@@ -797,6 +961,25 @@ class StorageManager:
 
     async def list_schedule_runs(self, schedule_id: str, limit: int = 20) -> list[ScheduleRun]:
         return await self.db.list_schedule_runs(schedule_id, limit)
+
+    # Lease methods
+    async def acquire_lease(self, profile_id: str, holder: str, ttl_seconds: int) -> bool:
+        return await self.db.acquire_lease(profile_id, holder, ttl_seconds)
+
+    async def renew_lease(self, profile_ids: list[str], holder: str, ttl_seconds: int) -> int:
+        return await self.db.renew_lease(profile_ids, holder, ttl_seconds)
+
+    async def release_lease(self, profile_id: str, holder: str) -> bool:
+        return await self.db.release_lease(profile_id, holder)
+
+    async def force_release_lease(self, profile_id: str) -> str | None:
+        return await self.db.force_release_lease(profile_id)
+
+    async def get_lease(self, profile_id: str) -> tuple[str | None, str | None] | None:
+        return await self.db.get_lease(profile_id)
+
+    async def get_lease_holders(self) -> list[dict]:
+        return await self.db.get_lease_holders()
 
     async def close(self):
         """Close the database."""
