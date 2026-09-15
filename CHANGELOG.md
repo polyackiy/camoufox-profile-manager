@@ -23,6 +23,23 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   operation that can put two browsers on one identity, so it takes shell access
   to the host rather than a button in the UI.
 
+- **Two people editing one profile no longer overwrite each other.** Every save
+  used to write the whole row, so two open edit forms meant the second save
+  silently reverted the first — no error, no log, the earlier edit simply gone.
+  Profiles now carry a `row_version`; send back the one you read and a save that
+  landed in between is refused with `409` and the code `stale_write`. The web UI
+  turns that into a message naming what changed, keeps everything you typed, and
+  lets a second Save apply your version deliberately. Clients that send no
+  version keep working.
+
+### Changed
+- **Starting a browser no longer writes the whole profile row.** A launch wrote
+  back the Profile it had read, which could revert an edit saved while the
+  fingerprint was being resolved — a wait that reaches the network on a fresh
+  install. It now writes only the two columns a launch owns, the pinned machine
+  and `last_used`, and leaves the row's version alone so starting a browser
+  cannot make a concurrent editor's save fail.
+
 ### Fixed
 - **Saving a profile no longer clears its lease.** `save_profile` was an
   `INSERT OR REPLACE`, which deletes the row and writes a new one; renaming a

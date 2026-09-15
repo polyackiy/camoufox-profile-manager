@@ -205,6 +205,12 @@ Force-release is CLI-only by design: it is the one operation that can put two
 browsers on one identity, so it takes shell access to the host rather than a
 button in the UI.
 
+Editing is protected separately, because a profile is usually edited while
+nobody is running it. Each save carries the version it was based on, so two
+people editing the same profile no longer overwrite each other: the second save
+is refused, and the web UI says what changed and lets you apply your version
+deliberately rather than losing either edit.
+
 Sharing the database file itself is safe between processes on one machine.
 Across machines it needs a filesystem whose locking SQLite can trust — which
 rules out most NFS and SMB mounts, where a lease may be read as free while

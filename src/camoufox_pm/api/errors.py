@@ -21,6 +21,8 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from camoufox_pm.core.database import StaleWriteError
+
 # Codes are keyed by status so a plain HTTPException still yields a stable,
 # machine-readable code without every raise site naming one.
 DEFAULT_CODES = {
@@ -31,9 +33,15 @@ DEFAULT_CODES = {
     409: "conflict",
     413: "payload_too_large",
     422: "validation_error",
+    # Not in the status map above: 409 covers several conflicts, and a client
+    # needs to tell "someone else saved this" from "someone else is running it".
+    # See STALE_WRITE_CODE.
     500: "internal_error",
     503: "unavailable",
 }
+
+
+STALE_WRITE_CODE = "stale_write"
 
 
 class ApiError(HTTPException):
@@ -70,6 +78,24 @@ def install_error_handlers(app: FastAPI) -> None:
             status_code=exc.status_code,
             content=_payload(code, message, details),
             headers=getattr(exc, "headers", None),
+        )
+
+    @app.exception_handler(StaleWriteError)
+    async def _stale_write(request: Request, exc: StaleWriteError) -> JSONResponse:
+        """A lost update, refused.
+
+        Rendered in one place because several routes can raise it. They each
+        have to let it past their own catch-all first — a route that swallows it
+        reports a conflict the design intends as a server fault — so the routes
+        in profiles.py re-raise it explicitly and this is the only place that
+        decides what it looks like on the wire.
+
+        The body carries no profile: the client reloads it to see both the
+        current values and the version its retry has to be built on.
+        """
+        return JSONResponse(
+            status_code=409,
+            content=_payload(STALE_WRITE_CODE, str(exc)),
         )
 
     @app.exception_handler(RequestValidationError)

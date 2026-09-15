@@ -39,6 +39,27 @@ def _deserialize_proxy(data: dict) -> ProxyConfig:
     return ProxyConfig(**data)
 
 
+class StaleWriteError(Exception):
+    """A save built on an older version of the row than the one stored.
+
+    The optimistic half of this project's concurrency story; core/leases.py is
+    the pessimistic half. A lease answers "who may *run* this profile"; this
+    answers "who may *save* this row", which is a different question because a
+    profile can be edited while nobody is running it.
+
+    Raised when a version-checked update matched no rows: somebody saved first.
+    The later edit is lost loudly instead of silently overwriting theirs.
+    """
+
+    def __init__(self, profile_id: str, expected_row_version: int | None = None):
+        self.profile_id = profile_id
+        self.expected_row_version = expected_row_version
+        super().__init__(
+            f"Profile {profile_id} was changed by someone else since it was read; "
+            "reload it and apply the edit again"
+        )
+
+
 class DatabaseManager:
     """Async-friendly SQLite database manager."""
 
@@ -77,6 +98,10 @@ class DatabaseManager:
                 # profile in an upgraded database starts unleased.
                 ("locked_by", "TEXT"),
                 ("lock_expires", "TIMESTAMP"),
+                # Optimistic-concurrency counter. Existing rows start at 0, so
+                # the first version-checked save of an upgraded database has a
+                # version to match against.
+                ("row_version", "BIGINT NOT NULL DEFAULT 0"),
             ],
         }
         for table, columns in added_columns.items():
@@ -109,7 +134,8 @@ class DatabaseManager:
                 fingerprint TEXT,
                 proxy_check TEXT,
                 locked_by TEXT,
-                lock_expires TIMESTAMP
+                lock_expires TIMESTAMP,
+                row_version BIGINT NOT NULL DEFAULT 0
             )
         """)
 
@@ -210,13 +236,37 @@ class DatabaseManager:
 
     # --- Profiles ---
 
-    async def save_profile(self, profile: Profile):
-        """Save a profile to the database.
+    def _profile_columns(self, profile: Profile) -> tuple:
+        """The column values a save owns, in the order both writers use.
+
+        Shared so the upsert and the version-checked update cannot drift apart:
+        a column added to one and forgotten in the other would be written on a
+        create and silently ignored on an edit.
+        """
+        return (
+            profile.id,
+            profile.name,
+            profile.group,
+            profile.status.value if hasattr(profile.status, "value") else profile.status,
+            json.dumps(profile.browser_settings.model_dump()),
+            json.dumps(_serialize_proxy(profile.proxy)) if profile.proxy else None,
+            json.dumps(profile.extensions),
+            profile.storage_path,
+            profile.notes,
+            profile.created_at.isoformat(),
+            profile.updated_at.isoformat(),
+            profile.last_used.isoformat() if profile.last_used else None,
+            json.dumps(profile.fingerprint) if profile.fingerprint else None,
+            profile.proxy_check.model_dump_json() if profile.proxy_check else None,
+        )
+
+    def _upsert_profile(self, profile: Profile) -> None:
+        """Insert the row, or overwrite the columns a save owns.
 
         An upsert rather than ``INSERT OR REPLACE``, which deletes the row and
-        writes a new one: that would drop the lease columns, so renaming a
-        profile would quietly unlock a browser another instance is running.
-        ``DO UPDATE`` names only the columns a save owns, and the lease columns
+        writes a new one: that would drop the lease and version columns, so
+        renaming a profile would quietly unlock a browser another instance is
+        running. ``DO UPDATE`` names only the columns a save owns, and the ones
         it does not name keep their values.
         """
         self._connection.execute(
@@ -241,25 +291,52 @@ class DatabaseManager:
                 fingerprint = excluded.fingerprint,
                 proxy_check = excluded.proxy_check
         """,
-            (
-                profile.id,
-                profile.name,
-                profile.group,
-                profile.status.value if hasattr(profile.status, "value") else profile.status,
-                json.dumps(profile.browser_settings.model_dump()),
-                json.dumps(_serialize_proxy(profile.proxy)) if profile.proxy else None,
-                json.dumps(profile.extensions),
-                profile.storage_path,
-                profile.notes,
-                profile.created_at.isoformat(),
-                profile.updated_at.isoformat(),
-                profile.last_used.isoformat() if profile.last_used else None,
-                json.dumps(profile.fingerprint) if profile.fingerprint else None,
-                profile.proxy_check.model_dump_json() if profile.proxy_check else None,
-            ),
+            self._profile_columns(profile),
         )
+
+    async def save_profile(self, profile: Profile, expected_row_version: int | None = None):
+        """Save a profile.
+
+        With ``expected_row_version`` the write lands only while the stored
+        ``row_version`` still matches what the caller read, and bumps it;
+        matching no rows raises ``StaleWriteError`` rather than overwriting
+        whoever got there first. That is what makes editing one profile from
+        two places safe. Without a version the row is written as before.
+
+        Either way the lease columns survive untouched: a save must never break
+        or take another instance's lease.
+        """
+        profile.updated_at = datetime.now()
+        if expected_row_version is None:
+            self._upsert_profile(profile)
+        else:
+            self._save_profile_if_unchanged(profile, expected_row_version)
         self._connection.commit()
         logger.debug(f"Profile {profile.name} saved")
+
+    def _save_profile_if_unchanged(self, profile: Profile, expected_row_version: int) -> None:
+        """One guarded statement: update only while the version still matches.
+
+        Never creates a row. There is nothing to guard on a row that does not
+        exist yet, and silently inserting one would turn "somebody deleted this
+        profile while you were editing it" into a resurrection.
+        """
+        cursor = self._connection.execute(
+            """
+            UPDATE profiles SET
+                name = ?, group_id = ?, status = ?, browser_settings = ?,
+                proxy_config = ?, extensions = ?, storage_path = ?, notes = ?,
+                created_at = ?, updated_at = ?, last_used = ?, fingerprint = ?,
+                proxy_check = ?, row_version = row_version + 1
+            WHERE id = ? AND row_version = ?
+            """,
+            (*self._profile_columns(profile)[1:], profile.id, expected_row_version),
+        )
+        if cursor.rowcount == 0:
+            raise StaleWriteError(profile.id, expected_row_version)
+        # Keep the caller's copy in step with the row it just wrote: the next
+        # edit reads its row_version, and it must be the one this write produced.
+        profile.row_version = expected_row_version + 1
 
     async def get_profile(self, profile_id: str) -> Profile | None:
         """Get a profile by ID."""
@@ -270,10 +347,9 @@ class DatabaseManager:
             return self._row_to_profile(row)
         return None
 
-    async def update_profile(self, profile: Profile):
-        """Update a profile."""
-        profile.updated_at = datetime.now()
-        await self.save_profile(profile)
+    async def update_profile(self, profile: Profile, expected_row_version: int | None = None):
+        """Update a profile, optionally guarded against a concurrent save."""
+        await self.save_profile(profile, expected_row_version)
         logger.debug(f"Profile {profile.name} updated")
 
     async def set_proxy_check(self, profile_id: str, record: ProxyCheckRecord | None) -> None:
@@ -289,6 +365,30 @@ class DatabaseManager:
         self._connection.execute(
             "UPDATE profiles SET proxy_check = ? WHERE id = ?",
             (record.model_dump_json() if record else None, profile_id),
+        )
+        self._connection.commit()
+
+    async def set_launch_pin(
+        self, profile_id: str, fingerprint: dict | None, last_used: datetime
+    ) -> None:
+        """Write only what a launch owns: the pinned machine and the timestamp.
+
+        A targeted write for the same reason as ``set_proxy_check``. A launch
+        resolves a fingerprint, which can fetch the uBlock addon over the
+        network on a fresh install, and writing a whole Profile back after that
+        would revert anything edited while it ran. Naming the two columns a
+        launch actually owns removes the hazard rather than guarding against it,
+        and leaves the row's version alone: starting a browser is not an edit of
+        the profile, so it must not make a concurrent editor's save go stale.
+        """
+        self._connection.execute(
+            "UPDATE profiles SET fingerprint = ?, last_used = ?, updated_at = ? WHERE id = ?",
+            (
+                json.dumps(fingerprint) if fingerprint else None,
+                last_used.isoformat(),
+                last_used.isoformat(),
+                profile_id,
+            ),
         )
         self._connection.commit()
 
@@ -850,6 +950,7 @@ class DatabaseManager:
             last_used=datetime.fromisoformat(row["last_used"]) if row["last_used"] else None,
             fingerprint=fingerprint,
             proxy_check=stored_check,
+            row_version=row["row_version"],
         )
 
     async def close(self):
@@ -872,17 +973,22 @@ class StorageManager:
         await self.db.initialize()
 
     # Profile methods
-    async def save_profile(self, profile: Profile):
-        await self.db.save_profile(profile)
+    async def save_profile(self, profile: Profile, expected_row_version: int | None = None):
+        await self.db.save_profile(profile, expected_row_version)
 
     async def get_profile(self, profile_id: str) -> Profile | None:
         return await self.db.get_profile(profile_id)
 
-    async def update_profile(self, profile: Profile):
-        await self.db.update_profile(profile)
+    async def update_profile(self, profile: Profile, expected_row_version: int | None = None):
+        await self.db.update_profile(profile, expected_row_version)
 
     async def set_proxy_check(self, profile_id: str, record: ProxyCheckRecord | None) -> None:
         await self.db.set_proxy_check(profile_id, record)
+
+    async def set_launch_pin(
+        self, profile_id: str, fingerprint: dict | None, last_used: datetime
+    ) -> None:
+        await self.db.set_launch_pin(profile_id, fingerprint, last_used)
 
     async def delete_profile(self, profile_id: str) -> bool:
         return await self.db.delete_profile(profile_id)

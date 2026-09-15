@@ -61,6 +61,16 @@ class ProfileUpdateRequest(BaseModel):
     browser_settings: dict[str, Any] | None = Field(None)
     proxy_config: dict[str, Any] | None = Field(None)
     notes: str | None = Field(None, max_length=1000)
+    row_version: int | None = Field(
+        None,
+        description=(
+            "The row_version this edit was based on, as returned when the profile "
+            "was read. Sent back here, a save that another client landed in the "
+            "meantime is refused with 409 instead of overwriting it. Omitted, the "
+            "server guards only against two requests overlapping, which cannot "
+            "catch an edit made against a form loaded minutes ago."
+        ),
+    )
 
     # The legacy flattened form of browser_settings. Kept for 0.1.x clients;
     # removed in 1.0. Send the same keys inside browser_settings instead.
@@ -154,6 +164,13 @@ class ProfileResponse(BaseModel):
             "checked since the proxy was last changed. Only a check writes it."
         ),
     )
+    row_version: int = Field(
+        0,
+        description=(
+            "Bumped by every save. Send it back in a later update to have a "
+            "concurrent save refused rather than silently overwritten."
+        ),
+    )
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -181,6 +198,7 @@ class ProfileResponse(BaseModel):
                 profile.browser_settings.os if profile.browser_settings else None,
             ),
             proxy_check=profile.proxy_check,
+            row_version=profile.row_version,
         )
 
 

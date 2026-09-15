@@ -7,6 +7,7 @@ import { Modal } from '@/components/modal'
 import { useToast } from '@/components/toast'
 import {
   hasGeography,
+  isStaleWrite,
   OS_LABELS,
   presetsAPI,
   profilesAPI,
@@ -90,6 +91,29 @@ function fromProfile(profile: Profile): FormState {
   }
 }
 
+/**
+ * Which fields differ between the profile this form was opened on and the one
+ * now stored — the answer to "changed how?", which is the only part of a
+ * conflict a user can act on.
+ */
+function describeChanges(before: Profile | null, after: Profile): string {
+  if (!before) return ''
+  const fields: string[] = []
+  if (before.name !== after.name) fields.push(`name is now "${after.name}"`)
+  if ((before.group ?? null) !== (after.group ?? null))
+    fields.push(after.group ? `group is now "${after.group}"` : 'group was cleared')
+  if (before.status !== after.status) fields.push(`status is now ${after.status}`)
+  if ((before.notes ?? '') !== (after.notes ?? '')) fields.push('notes changed')
+  if (JSON.stringify(before.proxy_config ?? null) !== JSON.stringify(after.proxy_config ?? null))
+    fields.push('the proxy changed')
+  if (JSON.stringify(before.browser_settings) !== JSON.stringify(after.browser_settings))
+    fields.push('browser settings changed')
+  if (!fields.length) return ''
+  // Two is enough to recognise what happened; a full list would not fit a toast.
+  const shown = fields.slice(0, 2).join(', ')
+  return fields.length > 2 ? `${shown}, and ${fields.length - 2} more` : shown
+}
+
 interface Props {
   open: boolean
   /** null = create a new profile. */
@@ -118,6 +142,10 @@ export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) 
   const [clearingGeography, setClearingGeography] = useState(false)
   const [presets, setPresets] = useState<DevicePreset[]>([])
   const [presetId, setPresetId] = useState('')
+  // The version this form was filled from. Sent with the save so that an edit
+  // somebody else made in the meantime is refused instead of being overwritten,
+  // and moved on after a refused save so a deliberate second Save can proceed.
+  const [baseVersion, setBaseVersion] = useState(0)
   const toast = useToast()
 
   useEffect(() => {
@@ -128,6 +156,7 @@ export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) 
       // same profile is reopened after a save changed it.
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setForm(profile ? fromProfile(profile) : EMPTY)
+      setBaseVersion(profile?.row_version ?? 0)
       setMachine(profile?.fingerprint)
       setStoredGeography(profile ? hasGeography(profile) : false)
       setPresetId('')
@@ -245,6 +274,7 @@ export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) 
 
       if (isEdit) {
         payload.status = form.status
+        payload.row_version = baseVersion
         await profilesAPI.updateProfile(profile.id, payload)
         toast('ok', 'Profile updated', form.name.trim())
       } else {
@@ -261,9 +291,47 @@ export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) 
       onSaved()
       onClose()
     } catch (err) {
+      if (isStaleWrite(err) && profile) {
+        await handleStaleWrite(profile.id)
+        return
+      }
       toast('error', isEdit ? 'Could not update profile' : 'Could not create profile', String(err))
     } finally {
       setSaving(false)
+    }
+  }
+
+  /**
+   * Somebody else saved this profile while this form was open.
+   *
+   * Nothing on screen is replaced: the user's typing is theirs, and a form that
+   * rewrites itself under them loses work just as surely as the overwrite this
+   * refusal prevented. Instead the stored values are fetched to name what
+   * actually changed, and the form is moved onto the current version so that a
+   * second Save is a deliberate, informed overwrite rather than a blind one.
+   */
+  async function handleStaleWrite(profileId: string) {
+    try {
+      const current = await profilesAPI.getProfile(profileId)
+      setBaseVersion(current.row_version)
+      setStoredGeography(hasGeography(current))
+      setMachine(current.fingerprint)
+      const changed = describeChanges(profile, current)
+      toast(
+        'error',
+        'Someone else changed this profile',
+        changed
+          ? `${changed}. Nothing you typed was lost — press Save again to apply your version.`
+          : 'Your edit was not saved. Press Save again to apply your version.',
+      )
+    } catch {
+      // The reload is a courtesy; without it the user still needs to know the
+      // save did not land, and that is the part that must never be swallowed.
+      toast(
+        'error',
+        'Someone else changed this profile',
+        'Your edit was not saved. Reopen the profile to see the current values.',
+      )
     }
   }
 

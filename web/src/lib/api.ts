@@ -82,6 +82,11 @@ export interface Profile {
   fingerprint?: FingerprintSummary | null
   /** Null until the proxy is checked, and again whenever the proxy changes. */
   proxy_check?: ProxyCheckRecord | null
+  /**
+   * Bumped by every save. Sent back with an edit so that a save someone else
+   * landed in the meantime is refused rather than silently overwritten.
+   */
+  row_version: number
 }
 
 export interface ProfilesResponse {
@@ -110,6 +115,29 @@ export interface SystemStatus {
   memory_usage: number
   disk_usage: number
   uptime_seconds: number
+}
+
+/**
+ * A failed request, carrying enough to act on rather than only to display.
+ *
+ * The status and the API's own error code are what let a caller tell apart the
+ * conflicts that share 409 — someone else saved this profile, versus someone
+ * else is running it — and do something better than showing the message.
+ */
+export class ApiRequestError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly code?: string,
+  ) {
+    super(message)
+    this.name = 'ApiRequestError'
+  }
+}
+
+/** The profile was saved by someone else since this client last read it. */
+export function isStaleWrite(error: unknown): boolean {
+  return error instanceof ApiRequestError && error.status === 409 && error.code === 'stale_write'
 }
 
 const API_KEY_STORAGE = 'camoufox-pm.api-key'
@@ -144,16 +172,18 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   })
   if (!response.ok) {
     let detail = response.statusText
+    let code: string | undefined
     try {
       const body = await response.json()
       // Every API error carries error.message; detail is the legacy mirror,
       // kept as a fallback for anything not yet on the one error shape.
       const raw = body.error?.message ?? body.detail ?? body.message ?? detail
       detail = typeof raw === 'string' ? raw : JSON.stringify(raw)
+      code = body.error?.code
     } catch {
       // response had no JSON body
     }
-    throw new Error(detail)
+    throw new ApiRequestError(detail, response.status, code)
   }
   if (response.status === 204) return undefined as T
   return response.json() as Promise<T>
@@ -206,6 +236,10 @@ export interface ProxyCheckRecord {
 export const profilesAPI = {
   getProfiles(params: Record<string, unknown> = {}): Promise<ProfilesResponse> {
     return request<ProfilesResponse>(`${API_PREFIX}/profiles${toQuery(params)}`)
+  },
+
+  getProfile(id: string): Promise<Profile> {
+    return request<Profile>(`${API_PREFIX}/profiles/${id}`)
   },
 
   createProfile(data: Record<string, unknown>): Promise<Profile> {

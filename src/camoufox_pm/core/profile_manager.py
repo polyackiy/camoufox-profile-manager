@@ -12,7 +12,7 @@ from camoufox_pm.config import get_settings
 
 from . import fingerprint_store, profile_archive, proxy_check
 from .browser_session import BrowserSessionManager
-from .database import StorageManager
+from .database import StaleWriteError, StorageManager
 from .fingerprint_generator import FingerprintGenerator
 from .leases import ProfileLocked, lease_expired, make_lease_holder
 from .models import (
@@ -174,13 +174,31 @@ class ProfileManager:
             logger.warning(f"Profile with ID {profile_id} not found")
         return profile
 
-    async def update_profile(self, profile_id: str, updates: dict[str, Any]) -> Profile | None:
-        """Update a profile."""
+    async def update_profile(
+        self,
+        profile_id: str,
+        updates: dict[str, Any],
+        expected_row_version: int | None = None,
+    ) -> Profile | None:
+        """Update a profile, refusing to overwrite a save we did not see.
+
+        ``expected_row_version`` is the version the *caller* read — a client
+        that loaded an edit form minutes ago passes the version it was shown,
+        and a save that landed since makes this raise ``StaleWriteError``
+        instead of reverting it. Omitted, the guard falls back to the version
+        read here, which still catches two requests interleaving but cannot
+        know about the edit the client never saw.
+        """
         logger.info(f"Updating profile {profile_id}")
 
         profile = await self.get_profile(profile_id)
         if not profile:
             return None
+        guard = profile.row_version if expected_row_version is None else expected_row_version
+        if guard != profile.row_version:
+            # Stale before a single field is applied: the client is editing a
+            # version of this profile that no longer exists.
+            raise StaleWriteError(profile_id, expected_row_version)
 
         proxy_before = profile.proxy
 
@@ -239,8 +257,9 @@ class ProfileManager:
 
         profile.updated_at = datetime.now()
 
-        # Persist the update
-        await self.storage.update_profile(profile)
+        # Version-checked: a save that landed while this edit was being made
+        # must surface as a conflict, not quietly replace the other one.
+        await self.storage.update_profile(profile, expected_row_version=guard)
 
         # Log the update
         await self.storage.log_usage(
@@ -390,7 +409,10 @@ class ProfileManager:
         profile.updated_at = datetime.now()
 
         # Persist the change
-        await self.storage.update_profile(profile)
+        # Version-checked for the same reason an edit is: this reads the row,
+        # changes it and writes it back, so a save that lands in between would
+        # otherwise be reverted without a word.
+        await self.storage.update_profile(profile, expected_row_version=profile.row_version)
 
         # Log the rotation
         await self.storage.log_usage(
@@ -604,7 +626,10 @@ class ProfileManager:
         )
         after = fingerprint_store.browser_major(profile.fingerprint)
         profile.updated_at = datetime.now()
-        await self.storage.update_profile(profile)
+        # Version-checked for the same reason an edit is: this reads the row,
+        # changes it and writes it back, so a save that lands in between would
+        # otherwise be reverted without a word.
+        await self.storage.update_profile(profile, expected_row_version=profile.row_version)
 
         await self.storage.log_usage(
             UsageStats(
@@ -661,7 +686,10 @@ class ProfileManager:
                 profile.browser_settings.screen = f"{width}x{height}"
 
         profile.updated_at = datetime.now()
-        await self.storage.update_profile(profile)
+        # Version-checked for the same reason an edit is: this reads the row,
+        # changes it and writes it back, so a save that lands in between would
+        # otherwise be reverted without a word.
+        await self.storage.update_profile(profile, expected_row_version=profile.row_version)
         await self.storage.log_usage(
             UsageStats(
                 profile_id=profile_id,
@@ -707,7 +735,10 @@ class ProfileManager:
                 unchanged.append(profile_id)
                 continue
             profile.updated_at = datetime.now()
-            await self.storage.update_profile(profile)
+            # Version-checked for the same reason an edit is: this reads the
+            # row, changes it and writes it back, so a save that lands in
+            # between would otherwise be reverted without a word.
+            await self.storage.update_profile(profile, expected_row_version=profile.row_version)
             await self.storage.log_usage(
                 UsageStats(profile_id=profile_id, action="clear_geography", details={})
             )
@@ -857,26 +888,26 @@ class ProfileManager:
             # timezone and WebRTC stay dynamic so they follow the proxy.
             pinned = profile.fingerprint
             if not pinned:
-                # Deliberately synchronous. There is no await between reading the
-                # profile above and writing it below, which is what makes this
-                # read-modify-write atomic: save_profile rewrites the whole row, so
-                # an await here would let a concurrent rename be silently reverted.
                 # resolve() can do network I/O (it fetches the uBlock addon on a
-                # fresh install), so offloading it to a thread is tempting — the
-                # lease answers the other-instance half of that, but two coroutines
-                # in *this* process share one holder id and so share one lease.
-                # Row-level write versioning is what the rest of it waits on (#53).
+                # fresh install). It used to have to stay synchronous, because
+                # the whole Profile was written back afterwards and an await here
+                # would let a concurrent rename be reverted. The write below now
+                # names only the columns a launch owns, so there is nothing left
+                # for an await to clobber; moving this off the event loop is a
+                # separate change, and this comment is the note that it is safe.
                 pinned = fingerprint_store.resolve(options)
                 if pinned:
                     profile.fingerprint = pinned
             if pinned:
                 options["config"] = {**pinned, **options.get("config", {})}
 
-            # One write for both the pin and the timestamp, after the options are
-            # built, so neither can be clobbered by a stale copy of the profile.
+            # A targeted write of the two columns a launch owns, not a whole
+            # Profile: writing the row back would revert anything edited while
+            # the fingerprint above was being resolved, and would bump a version
+            # a concurrent editor is holding. Starting a browser is not an edit.
             profile.last_used = datetime.now()
-            profile.updated_at = datetime.now()
-            await self.storage.update_profile(profile)
+            profile.updated_at = profile.last_used
+            await self.storage.set_launch_pin(profile_id, profile.fingerprint, profile.last_used)
 
             await self.storage.log_usage(
                 UsageStats(
