@@ -22,7 +22,10 @@ overrides through its [Python API](https://camoufox.com/python/usage/).
 No installed browser files, bundled CSS, engine patches or fingerprint properties
 are rewritten. Interface keys are not part of the stored hardware fingerprint;
 the existing pin and profile directory remain in use. A real-browser regression
-test switches modes and checks hardware observations and a retained cookie.
+test switches modes and checks hardware observations, a retained site cookie and
+localStorage. It passed on 152.0.4-beta.29 and on a fresh installation of
+156.0.1-beta.36 (2026-10-07). The latter also completed the first-run binary,
+GeoIP and add-on download into an empty, isolated cache.
 
 On macOS with Camoufox 152.0.4-beta.29, the native window was inspected: close
 buttons are visible, the New Tab control adds a tab in the same window, and

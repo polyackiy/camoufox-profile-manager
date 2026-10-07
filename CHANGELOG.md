@@ -29,6 +29,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   by ordinary DELETE requests.
 - Export, backup and clone operations hold cross-instance leases while reading
   profile data. Archive failures preserve earlier recovery copies.
+- IBM Plex fonts are bundled locally with their licenses, so frontend builds no
+  longer depend on Google Fonts or its build-time URL transformation.
 
 ## [0.5.0] - 2026-09-15
 
