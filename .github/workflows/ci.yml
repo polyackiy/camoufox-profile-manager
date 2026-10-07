@@ -61,3 +61,16 @@ jobs:
           NEXT_EXPORT: "1"
       - name: Verify static export output
         run: test -f out/index.html
+      - name: Install uv for UI smoke tests
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+      - name: Install UI smoke test dependencies
+        working-directory: .
+        run: uv sync --extra dev
+      - name: Install Chromium for UI smoke tests
+        working-directory: .
+        run: uv run playwright install --with-deps chromium
+      - name: Test desktop UI contracts
+        working-directory: .
+        run: uv run python web/tests/stage_one_ui.py
