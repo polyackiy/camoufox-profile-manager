@@ -6,7 +6,29 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+- Desktop installers on release tags: macOS Intel/Apple Silicon DMGs, Windows
+  setup executable, Linux Debian package and portable archive. Signing remains
+  conditional on maintainer certificates; unsigned builds are labelled as such.
+- A native desktop entry point, stable OS data directory, single-instance lock,
+  conflict-free local port and a persisted encryption key for fresh desktop data.
+- Browser setup from the interface, download progress and retry; readiness checks
+  inspect actual browser files, and launches report missing setup before fetching.
+- Short English/Russian getting-started guides and a simpler first-profile form.
+- Trash with restoration and explicit permanent deletion. Automatic profile
+  backups, manual snapshots and additive restoration from Settings. Closed
+  profiles only; backups contain credentials and do not cover app users/settings.
+- Update checks with a complete profile backup required before opening the
+  official release download page. Installing the update remains an OS action.
+- Desktop browser chrome using upstream `disableTheming` / `showcursor` options;
+  profile settings can retain the minimal Camoufox theme without an engine fork.
+
+### Changed
+- Deleting a profile moves it to Trash and pauses its schedules. Permanent
+  deletion is a separate recovery endpoint; profile data is no longer removed
+  by ordinary DELETE requests.
+- Export, backup and clone operations hold cross-instance leases while reading
+  profile data. Archive failures preserve earlier recovery copies.
 
 ## [0.5.0] - 2026-09-15
 

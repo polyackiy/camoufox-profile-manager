@@ -70,7 +70,9 @@ class DatabaseManager:
         logger.info(f"DatabaseManager initialized with database: {self.db_path}")
 
     async def initialize(self):
-        """Initialize the database and create tables."""
+        """Initialize the database and create tables (safe to call twice)."""
+        if self._connection is not None:
+            return
         self._connection = sqlite3.connect(str(self.db_path), timeout=30.0)
         self._connection.row_factory = sqlite3.Row
         self._connection.execute("PRAGMA foreign_keys = ON")
@@ -102,6 +104,7 @@ class DatabaseManager:
                 # the first version-checked save of an upgraded database has a
                 # version to match against.
                 ("row_version", "BIGINT NOT NULL DEFAULT 0"),
+                ("deleted_at", "TIMESTAMP"),
             ],
         }
         for table, columns in added_columns.items():
@@ -116,6 +119,13 @@ class DatabaseManager:
 
     async def _create_tables(self):
         """Create the database tables."""
+        self._connection.execute("""
+            CREATE TABLE IF NOT EXISTS recovery_lock (
+                id INTEGER PRIMARY KEY CHECK(id = 1), holder TEXT, expires TIMESTAMP
+            )
+        """)
+        self._connection.execute("INSERT OR IGNORE INTO recovery_lock (id) VALUES (1)")
+
         # Profiles table
         self._connection.execute("""
             CREATE TABLE IF NOT EXISTS profiles (
@@ -135,7 +145,8 @@ class DatabaseManager:
                 proxy_check TEXT,
                 locked_by TEXT,
                 lock_expires TIMESTAMP,
-                row_version BIGINT NOT NULL DEFAULT 0
+                row_version BIGINT NOT NULL DEFAULT 0,
+                deleted_at TIMESTAMP
             )
         """)
 
@@ -328,7 +339,7 @@ class DatabaseManager:
                 proxy_config = ?, extensions = ?, storage_path = ?, notes = ?,
                 created_at = ?, updated_at = ?, last_used = ?, fingerprint = ?,
                 proxy_check = ?, row_version = row_version + 1
-            WHERE id = ? AND row_version = ?
+            WHERE id = ? AND row_version = ? AND deleted_at IS NULL
             """,
             (*self._profile_columns(profile)[1:], profile.id, expected_row_version),
         )
@@ -338,9 +349,12 @@ class DatabaseManager:
         # edit reads its row_version, and it must be the one this write produced.
         profile.row_version = expected_row_version + 1
 
-    async def get_profile(self, profile_id: str) -> Profile | None:
-        """Get a profile by ID."""
-        cursor = self._connection.execute("SELECT * FROM profiles WHERE id = ?", (profile_id,))
+    async def get_profile(self, profile_id: str, include_deleted: bool = False) -> Profile | None:
+        """Get an active profile, or explicitly include the trash."""
+        query = "SELECT * FROM profiles WHERE id = ?"
+        if not include_deleted:
+            query += " AND deleted_at IS NULL"
+        cursor = self._connection.execute(query, (profile_id,))
         row = cursor.fetchone()
 
         if row:
@@ -409,11 +423,31 @@ class DatabaseManager:
 
         return deleted
 
+    async def set_profile_trashed(self, profile_id: str, trashed: bool) -> bool:
+        """Retain the row and directory; pause schedules when moving into trash."""
+        with self._connection:
+            cursor = self._connection.execute(
+                "UPDATE profiles SET deleted_at = ?, row_version = row_version + 1 "
+                "WHERE id = ? AND deleted_at IS " + ("NULL" if trashed else "NOT NULL"),
+                (datetime.now().isoformat() if trashed else None, profile_id),
+            )
+            if cursor.rowcount and trashed:
+                self._connection.execute(
+                    "UPDATE schedules SET enabled = 0 WHERE profile_id = ?", (profile_id,)
+                )
+        return cursor.rowcount > 0
+
     async def list_profiles(
         self, filters: dict | None = None, limit: int | None = None, offset: int = 0
     ) -> list[Profile]:
         """List profiles with optional filtering."""
-        query = "SELECT * FROM profiles WHERE 1=1"
+        query = "SELECT * FROM profiles WHERE " + (
+            "deleted_at IS NOT NULL"
+            if filters and filters.get("trashed")
+            else "1=1"
+            if filters and filters.get("include_deleted")
+            else "deleted_at IS NULL"
+        )
         params = []
 
         if filters:
@@ -445,7 +479,7 @@ class DatabaseManager:
 
     async def count_profiles(self, filters: dict | None = None) -> int:
         """Count profiles."""
-        query = "SELECT COUNT(*) FROM profiles WHERE 1=1"
+        query = "SELECT COUNT(*) FROM profiles WHERE deleted_at IS NULL"
         params = []
 
         if filters:
@@ -485,7 +519,7 @@ class DatabaseManager:
         cursor = self._connection.execute("""
             SELECT pg.*, COUNT(p.id) as actual_count
             FROM profile_groups pg
-            LEFT JOIN profiles p ON pg.id = p.group_id
+            LEFT JOIN profiles p ON pg.id = p.group_id AND p.deleted_at IS NULL
             GROUP BY pg.id
             ORDER BY pg.created_at DESC
         """)
@@ -757,7 +791,9 @@ class DatabaseManager:
     # SQLite's write lock — not the application — picks the winner when two
     # processes ask at once.
 
-    async def acquire_lease(self, profile_id: str, holder: str, ttl_seconds: int) -> bool:
+    async def acquire_lease(
+        self, profile_id: str, holder: str, ttl_seconds: int, include_deleted: bool = False
+    ) -> bool:
         """Take the lease on a profile, if it is free. Never blocks.
 
         The three arms of the guard are the three ways a lease may be taken:
@@ -774,12 +810,12 @@ class DatabaseManager:
             UPDATE profiles
                SET locked_by = ?,
                    lock_expires = datetime('now', '+' || ? || ' seconds')
-             WHERE id = ?
+             WHERE id = ? AND (deleted_at IS NULL OR ?)
                AND (locked_by IS NULL
                     OR locked_by = ?
                     OR julianday(lock_expires) < julianday('now'))
             """,
-            (holder, ttl_seconds, profile_id, holder),
+            (holder, ttl_seconds, profile_id, include_deleted, holder),
         )
         # Without the commit the lease lives inside this connection's open
         # transaction, where no other process can see it — the opposite of
@@ -882,6 +918,23 @@ class DatabaseManager:
             for row in cursor.fetchall()
         ]
 
+    async def acquire_recovery_lock(self, holder: str, ttl_seconds: int) -> bool:
+        cursor = self._connection.execute(
+            "UPDATE recovery_lock SET holder = ?, expires = datetime('now', '+' || ? || ' seconds') "
+            "WHERE id = 1 AND (holder IS NULL OR holder = ? "
+            "OR julianday(expires) < julianday('now'))",
+            (holder, ttl_seconds, holder),
+        )
+        self._connection.commit()
+        return cursor.rowcount > 0
+
+    async def release_recovery_lock(self, holder: str) -> None:
+        self._connection.execute(
+            "UPDATE recovery_lock SET holder = NULL, expires = NULL WHERE id = 1 AND holder = ?",
+            (holder,),
+        )
+        self._connection.commit()
+
     # --- Utilities ---
 
     def _row_to_schedule(self, row) -> Schedule:
@@ -951,6 +1004,7 @@ class DatabaseManager:
             fingerprint=fingerprint,
             proxy_check=stored_check,
             row_version=row["row_version"],
+            deleted_at=datetime.fromisoformat(row["deleted_at"]) if row["deleted_at"] else None,
         )
 
     async def close(self):
@@ -976,8 +1030,8 @@ class StorageManager:
     async def save_profile(self, profile: Profile, expected_row_version: int | None = None):
         await self.db.save_profile(profile, expected_row_version)
 
-    async def get_profile(self, profile_id: str) -> Profile | None:
-        return await self.db.get_profile(profile_id)
+    async def get_profile(self, profile_id: str, include_deleted: bool = False) -> Profile | None:
+        return await self.db.get_profile(profile_id, include_deleted)
 
     async def update_profile(self, profile: Profile, expected_row_version: int | None = None):
         await self.db.update_profile(profile, expected_row_version)
@@ -997,6 +1051,9 @@ class StorageManager:
         self, filters: dict | None = None, limit: int | None = None, offset: int = 0
     ) -> list[Profile]:
         return await self.db.list_profiles(filters, limit, offset)
+
+    async def set_profile_trashed(self, profile_id: str, trashed: bool) -> bool:
+        return await self.db.set_profile_trashed(profile_id, trashed)
 
     async def count_profiles(self, filters: dict | None = None) -> int:
         return await self.db.count_profiles(filters)
@@ -1069,8 +1126,10 @@ class StorageManager:
         return await self.db.list_schedule_runs(schedule_id, limit)
 
     # Lease methods
-    async def acquire_lease(self, profile_id: str, holder: str, ttl_seconds: int) -> bool:
-        return await self.db.acquire_lease(profile_id, holder, ttl_seconds)
+    async def acquire_lease(
+        self, profile_id: str, holder: str, ttl_seconds: int, include_deleted: bool = False
+    ) -> bool:
+        return await self.db.acquire_lease(profile_id, holder, ttl_seconds, include_deleted)
 
     async def renew_lease(self, profile_ids: list[str], holder: str, ttl_seconds: int) -> int:
         return await self.db.renew_lease(profile_ids, holder, ttl_seconds)
@@ -1086,6 +1145,12 @@ class StorageManager:
 
     async def get_lease_holders(self) -> list[dict]:
         return await self.db.get_lease_holders()
+
+    async def acquire_recovery_lock(self, holder: str, ttl_seconds: int) -> bool:
+        return await self.db.acquire_recovery_lock(holder, ttl_seconds)
+
+    async def release_recovery_lock(self, holder: str) -> None:
+        await self.db.release_recovery_lock(holder)
 
     async def close(self):
         """Close the database."""

@@ -347,7 +347,7 @@ async def test_a_schedule_round_trips_through_the_database(storage):
     assert await storage.get_schedule(schedule.id) is None
 
 
-async def test_deleting_a_profile_takes_its_schedules_and_history_with_it(profile_manager):
+async def test_trashing_a_profile_pauses_schedules_until_permanent_deletion(profile_manager):
     profile = await profile_manager.create_profile(name="doomed")
     schedule = make_schedule(profile.id)
     storage = profile_manager.storage
@@ -357,6 +357,9 @@ async def test_deleting_a_profile_takes_its_schedules_and_history_with_it(profil
     )
 
     await profile_manager.delete_profile(profile.id)
+    assert not (await storage.get_schedule(schedule.id)).enabled
+    assert len(await storage.list_schedule_runs(schedule.id)) == 1
+    await profile_manager.permanently_delete_profile(profile.id)
 
     assert await storage.get_schedule(schedule.id) is None
     assert await storage.list_schedule_runs(schedule.id) == []

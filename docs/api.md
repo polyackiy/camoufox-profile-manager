@@ -208,6 +208,10 @@ PUT    /api/v1/profiles/{id}
 DELETE /api/v1/profiles/{id}
 ```
 
+`DELETE` now moves the profile to Trash, retains its browser directory and pauses
+its schedules. It is hidden from normal list/get/launch calls. A running or leased
+profile returns `409`. Use the explicit Trash endpoint below to erase it.
+
 `PUT` takes the same shape as create. `browser_settings` is **merged** over what
 is stored, so sending one field does not reset the rest of the fingerprint. The
 older flattened form (`browser_os`, `browser_timezone`, …) still works and is
@@ -351,6 +355,55 @@ instance is gone. There is no force-unlock endpoint: releasing another
 instance's lease needs `camoufox-pm unlock` on the host.
 
 ## Moving a profile
+
+### Recovery and first-run setup
+
+```http
+GET    /api/v1/trash/profiles
+POST   /api/v1/trash/profiles/{id}/restore
+DELETE /api/v1/trash/profiles/{id}?confirm=true
+GET    /api/v1/system/backups
+POST   /api/v1/system/backups             {"profile_ids": ["id"], "reason": "manual"}
+POST   /api/v1/system/backups/{id}/restore {"name": "Recovered profile"}
+GET    /api/v1/system/browser
+POST   /api/v1/system/browser/install
+GET    /api/v1/system/updates
+POST   /api/v1/system/updates/prepare
+```
+
+These endpoints use the same authentication as the rest of the API and return
+`{success, message, data}`. Trash has no automatic expiry. Restoring it reuses
+the original profile but leaves schedules paused. Permanent deletion requires
+`confirm=true` and only accepts already-trashed, closed profiles.
+
+Backups carry settings, the pinned fingerprint and browser data. Restore creates
+a **new** ID/directory, leaving existing profiles unchanged. Archives contain
+session cookies and decrypted proxy credentials: keep them private. They do not
+include app login users, app settings or schedules. Backup creation returns
+`data.backups` and `data.skipped` (profile ID/reason); live profiles, missing
+directories and unreadable credentials are not reported as successful backups.
+Omit `profile_ids` to back up all profiles, including Trash. The running app
+retries due backups every minute, defaulting to one snapshot per 24 hours and
+seven routine snapshots per profile; `CPM_BACKUP_INTERVAL_HOURS` and
+`CPM_BACKUP_RETENTION` configure this. Two latest before-update checkpoints are
+retained separately.
+
+Browser status is `{installed, version, state, progress, message, error}`, where
+`state` is `idle`, `downloading`, `ready` or `error`, and progress is 0–100 or null.
+GET does not download anything. POST starts an in-process background download
+and repeated POSTs while downloading reuse it. Poll GET to observe completion.
+This delegates versioned installation to Camoufox and verifies a provided asset
+digest. Incomplete first-run resources are reported and can be retried.
+
+Update check queries the project's official GitHub release, returning
+`{current_version, latest_version, available, release_url, assets, error}`.
+Prepare creates before-update backups and returns
+`{release_url, backup_count, message}` only if every profile was backed up.
+It fails with `409` for incomplete backups or no newer release, and `503` when
+the release check failed. It does not replace the running application: close it
+and install the chosen release with the operating system installer.
+
+### Manual profile transfer
 
 ```http
 GET  /api/v1/profiles/{id}/export      → application/zip

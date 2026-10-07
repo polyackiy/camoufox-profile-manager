@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { CalendarClock, Layers, LogOut, Settings, Users } from 'lucide-react'
+import { CalendarClock, Layers, LogOut, Settings, Trash2, Users } from 'lucide-react'
 
 import { useAuth } from '@/components/login-gate'
 import { systemAPI } from '@/lib/api'
@@ -12,6 +12,7 @@ const NAV = [
   { href: '/', label: 'Profiles', icon: Users },
   { href: '/groups/', label: 'Groups', icon: Layers },
   { href: '/schedules/', label: 'Schedules', icon: CalendarClock },
+  { href: '/trash/', label: 'Trash', icon: Trash2 },
   { href: '/settings/', label: 'Settings', icon: Settings },
 ]
 
@@ -81,7 +82,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </div>
       </aside>
 
-      <main className="flex-1 overflow-y-auto">{children}</main>
+      <main className="min-w-0 flex-1 overflow-y-auto">{children}</main>
     </div>
   )
 }

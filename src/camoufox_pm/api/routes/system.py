@@ -21,7 +21,7 @@ from camoufox_pm.api.models.system import (
 )
 from camoufox_pm.config import get_settings
 from camoufox_pm.core import fingerprint_store
-from camoufox_pm.core.browser_session import CAMOUFOX_AVAILABLE
+from camoufox_pm.core.browser_install import installed_browser
 from camoufox_pm.core.cleanup import ProfileCleanupManager
 
 router = APIRouter()
@@ -218,7 +218,7 @@ async def get_system_config():
             user_auth_enabled=await get_storage_manager().count_users() > 0,
             encryption_enabled=bool(settings.secret_key),
             cors_origins=settings.cors_origins,
-            camoufox_available=CAMOUFOX_AVAILABLE,
+            camoufox_available=installed_browser()[0],
             uptime_seconds=int(time.time() - startup_time),
         ),
     )

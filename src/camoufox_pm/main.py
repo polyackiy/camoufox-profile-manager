@@ -1,6 +1,7 @@
 """Camoufox Profile Manager REST API."""
 
-from contextlib import asynccontextmanager
+import asyncio
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
 from fastapi import Depends, FastAPI
@@ -19,8 +20,9 @@ from camoufox_pm.api.dependencies import (
 from camoufox_pm.api.errors import install_error_handlers
 from camoufox_pm.api.middleware.logging import LoggingMiddleware
 from camoufox_pm.api.models.system import ErrorResponse, HealthResponse
-from camoufox_pm.api.routes import auth, groups, profiles, schedules, system
+from camoufox_pm.api.routes import auth, groups, profiles, recovery, runtime, schedules, system
 from camoufox_pm.config import get_settings
+from camoufox_pm.core.backups import ProfileBackupManager
 from camoufox_pm.core.database import StorageManager
 from camoufox_pm.core.profile_manager import ProfileManager
 from camoufox_pm.core.scheduler import TaskScheduler
@@ -34,43 +36,60 @@ async def lifespan(app: FastAPI):
     logger.info("Starting Camoufox Profile Manager API...")
 
     storage_manager = StorageManager(settings.db_path)
-    await storage_manager.initialize()
-
-    data_dir = str(Path(settings.db_path).parent)
-    profile_manager = ProfileManager(storage_manager, data_dir)
-    await profile_manager.initialize()
-
-    set_storage_manager(storage_manager)
-    set_profile_manager(profile_manager)
-
-    # In-process on purpose: the app owns the browser sessions, so scheduled
-    # launches must run where the sessions live, through the same manager.
-    scheduler = TaskScheduler(storage_manager, profile_manager)
-    await scheduler.start()
-    set_scheduler(scheduler)
-
-    logger.info("API ready")
+    profile_manager = None
+    scheduler = None
+    backup_task = None
     try:
+        await storage_manager.initialize()
+        data_dir = str(Path(settings.db_path).parent)
+        profile_manager = ProfileManager(storage_manager, data_dir)
+        await profile_manager.initialize()
+        set_storage_manager(storage_manager)
+        set_profile_manager(profile_manager)
+
+        backup_manager = ProfileBackupManager(
+            profile_manager,
+            retention=settings.backup_retention,
+            interval_hours=settings.backup_interval_hours,
+        )
+        recovery.set_backup_manager(backup_manager)
+
+        async def back_up_idle_profiles():
+            while True:
+                try:
+                    await backup_manager.create_due_backups()
+                except Exception as exc:
+                    logger.warning(f"Automatic profile backup failed: {exc}")
+                await asyncio.sleep(60)
+
+        scheduler = TaskScheduler(storage_manager, profile_manager)
+        await scheduler.start()
+        set_scheduler(scheduler)
+        backup_task = asyncio.create_task(back_up_idle_profiles(), name="profile-backups")
+        logger.info("API ready")
         yield
     finally:
+        # This also runs when startup fails, so a failed desktop launch leaves
+        # neither a heartbeat nor a recovery task holding the database open.
         logger.info("Shutting down API...")
-        await scheduler.stop()
-        # Order matters. The heartbeat renews by holder id, so a beat racing the
-        # releases below would read our own cleared lease as a takeover and close
-        # a live browser: stop renewing first.
-        await profile_manager.browser_sessions.stop_heartbeat()
-        # Then close the browsers, which releases their leases as part of the
-        # close. release_all_leases deliberately skips profiles that are still
-        # live, so leaving them open here would leak every lease we hold.
         try:
-            await profile_manager.browser_sessions.close_all()
-        except Exception as exc:  # noqa: BLE001 - shutdown must not raise
-            logger.warning(f"Failed to close browsers on shutdown: {exc}")
-        # Finally hand back whatever is left. A lease must not outlive the
-        # process that took it, or a restart locks this instance out of its own
-        # profiles for a full TTL.
-        await profile_manager.release_all_leases()
-        await storage_manager.close()
+            if backup_task is not None:
+                backup_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await backup_task
+            if scheduler is not None:
+                await scheduler.stop()
+            if profile_manager is not None:
+                # Stop renewal before releasing any of this instance's leases.
+                await profile_manager.browser_sessions.stop_heartbeat()
+                try:
+                    await profile_manager.browser_sessions.close_all()
+                except Exception as exc:
+                    logger.warning(f"Failed to close browsers on shutdown: {exc}")
+                await profile_manager.release_all_leases()
+        finally:
+            recovery.set_backup_manager(None)
+            await storage_manager.close()
 
 
 app = FastAPI(
@@ -144,6 +163,14 @@ for _prefix, _in_schema in (("/api/v1", True), ("/api", False)):
         dependencies=protected,
         include_in_schema=_in_schema,
     )
+    for _router in (recovery.router, runtime.router):
+        app.include_router(
+            _router,
+            prefix=_prefix,
+            tags=["System"],
+            dependencies=protected,
+            include_in_schema=_in_schema,
+        )
 
 
 @app.get(

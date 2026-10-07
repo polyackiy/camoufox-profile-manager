@@ -26,7 +26,16 @@ camoufox-pm --port 9000 --no-browser # run headless on another port
 camoufox-pm --desktop                # native window
 ```
 
-To stop it, press `Ctrl+C`. Any browsers it launched are closed with it.
+To stop the web server, press `Ctrl+C`; in desktop mode close the window.
+Any browsers it launched are closed with it.
+
+Desktop installers start the dedicated desktop launcher without flags (the
+source equivalent is `python -m camoufox_pm.desktop`). This launcher chooses a free loopback port
+and bootstraps the OS data folder and encryption key. `camoufox-pm --desktop`
+also uses the desktop data folder but retains CLI host/port flag handling. Plain
+`camoufox-pm` and its administration commands retain their existing
+`data/profiles.db` default; set `CPM_DB_PATH` explicitly when managing a desktop
+database. [Data folder locations](getting-started.md#where-data-lives).
 
 ## `camoufox-pm user`
 
@@ -85,7 +94,9 @@ corruption the lease prevents. There is deliberately no API endpoint for it.
 ## `camoufox fetch`
 
 Downloads the Camoufox browser (~300 MB). This comes from Camoufox itself, not
-from this project, and is required before any profile can be launched.
+from this project. Desktop and web UI users can instead click **Install browser**
+in the setup banner or use the download action in Settings, with visible
+progress and retry. The CLI is an alternative for advanced deployments.
 
 ```bash
 camoufox fetch          # installed release
@@ -95,7 +106,8 @@ uv run camoufox fetch   # from source
 Without it the app still runs: you can create, edit, group, import and export
 profiles, and browse the device presets. Launching a browser and pinning a
 preset to a device are the two things that need the binary — the Settings screen
-says so when it is missing.
+says so when it is missing. The in-app installer also prepares support files
+that normal profile launch needs.
 
 ## Scripts
 
@@ -104,7 +116,7 @@ These live in `scripts/` and are for working on the project, not for daily use.
 | Command | What it does |
 | ------- | ------------ |
 | `python scripts/build_webui.py` | Builds the Next.js UI as a static export and copies it into the package, so `camoufox-pm` can serve it. Needs Node.js 20.9+. |
-| `python scripts/build_desktop.py` | Builds a standalone desktop bundle with PyInstaller that needs neither Python nor Node. See [accessibility-roadmap.md](accessibility-roadmap.md). |
+| `python scripts/build_desktop.py --package` | Builds a standalone desktop bundle and platform installer. See [releasing.md](releasing.md) for build tools. |
 | `python examples/seed_demo.py` | Creates a handful of demo profiles for a look around. |
 
 ## Running from source without the console script

@@ -102,11 +102,15 @@ async def storage(tmp_path):
 
 
 @pytest.fixture
-async def profile_manager(tmp_path):
+async def profile_manager(tmp_path, monkeypatch, request):
     """A ProfileManager backed by a throwaway data directory."""
     storage = StorageManager(str(tmp_path / "test.db"))
     await storage.initialize()
     manager = ProfileManager(storage, str(tmp_path))
     await manager.initialize()
+    # Unit launches use fake browser sessions; installation itself has separate
+    # tests. A CI worker is not required to carry a 300 MB browser binary.
+    if request.node.get_closest_marker("browser") is None:
+        monkeypatch.setattr("camoufox_pm.core.browser_install.ensure_browser_ready", lambda: None)
     yield manager
     await storage.close()

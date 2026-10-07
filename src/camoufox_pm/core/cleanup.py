@@ -47,7 +47,7 @@ class ProfileCleanupManager:
 
     async def get_profiles_in_database(self) -> list[Profile]:
         """Return all profiles stored in the database."""
-        return await self.storage.list_profiles()
+        return await self.storage.list_profiles({"include_deleted": True})
 
     def extract_profile_id_from_path(self, profile_path: Path) -> str:
         """Extract the profile ID from a directory path (profile_xyz -> xyz)."""
@@ -116,7 +116,15 @@ class ProfileCleanupManager:
         deleted_count = 0
         for item in orphaned:
             try:
-                shutil.rmtree(item["path"])
+                path = Path(item["path"])
+                # Recheck at deletion time: a diagnostic can be stale, and a
+                # profile in Trash is still owned data, never an orphan.
+                if path.is_symlink() or path.resolve().parent != self.profiles_dir.resolve():
+                    continue
+                profile_id = self.extract_profile_id_from_path(path)
+                if await self.storage.get_profile(profile_id, include_deleted=True):
+                    continue
+                shutil.rmtree(path)
                 deleted_count += 1
             except Exception as exc:  # noqa: BLE001
                 logger.error("Failed to delete {}: {}".format(item["path"].name, exc))

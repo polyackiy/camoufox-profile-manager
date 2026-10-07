@@ -13,18 +13,12 @@ Each profile is **one long-lived machine**. It keeps the same fingerprint every
 session, along with its own cookies, storage and history, so an account opened
 from it in January still looks like the same computer in June.
 
-> **Status:** `v0.4.1`, and in working order. 413 tests — 23 drive a real browser
-> and check what a page actually sees, and 2 run only under `--no-network`, which
-> is how the browser suite proves it needs no internet; 90% coverage. The REST API is
-> versioned at `/api/v1` behind a written
-> [stability contract](docs/api.md#stability-contract), and every release is
-> installed from its own wheel and run before it is published.
->
-> Two things to know before you rely on it. `1.0` will remove the fields listed
-> as deprecated in that contract. And [Chrome
-> migration](extras/chrome_migration/README.md) is a separate, experimental
-> extra: its Windows path is written to Chrome's documented format but has never
-> been run against a real Windows profile.
+> **Desktop preview:** download installers from a release’s **Assets**. macOS
+> Apple Silicon and Intel, Windows x64, and Ubuntu/Debian x64 builds are produced
+> by CI. Signing is conditional; unsigned builds can show OS security warnings.
+> See [Getting started](docs/getting-started.md) / [Начало работы](docs/getting-started.ru.md).
+> Cross-platform installer and signing validation is still in progress; see
+> [release checks](docs/releasing.md). Chrome migration remains experimental.
 
 ![The profiles list](docs/assets/screenshot-profiles.png)
 
@@ -92,44 +86,49 @@ of plausible parts.
 
 ## Install and run
 
-You need [uv](https://docs.astral.sh/uv/) and Python 3.10+. Node.js 20.9+ is only
-needed if you build the web UI yourself.
+### Desktop app — recommended
 
-### From a release (no Node.js)
+1. Open [Releases](https://github.com/polyackiy/camoufox-profile-manager/releases)
+   and choose the installer in **Assets** for your computer:
 
-Each [release](https://github.com/polyackiy/camoufox-profile-manager/releases)
-ships a wheel with the UI already built in.
+   | Computer | Download |
+   | --- | --- |
+   | Mac, Apple Silicon (M1 or newer) | `camoufox-pm-macos-arm64.dmg` |
+   | Mac, Intel | `camoufox-pm-macos-x86_64.dmg` |
+   | Windows 10/11, Intel/AMD 64-bit | `camoufox-pm-windows-x86_64-setup.exe` |
+   | Ubuntu 22.04+/compatible Debian, Intel/AMD 64-bit | `camoufox-pm-linux-x86_64.deb` |
 
-```bash
-pip install <wheel-url-from-releases>
-camoufox fetch     # downloads the browser, ~300 MB, first run only
-camoufox-pm        # serves the API and UI at http://localhost:8000
-```
+2. Install and open **Camoufox Profile Manager**. You do not need Python, Node.js
+   or a terminal. On Mac, drag the app into Applications first.
+3. Click **Install browser** in the app, wait for the download, and create your
+   first profile. The app shows progress and provides a retry if installation fails.
 
-### From source
+Older releases may only offer Python packages. Desktop installers are unsigned
+unless release notes say otherwise; macOS/Windows can show a security warning.
+Read the [short beginner guide](docs/getting-started.md) for installation,
+backups, Trash, updates, and where your data lives.
+
+### From source (developers)
+
+Install [uv](https://docs.astral.sh/uv/) and Node.js 20.9+; uv manages Python.
 
 ```bash
 git clone https://github.com/polyackiy/camoufox-profile-manager.git
 cd camoufox-profile-manager
-uv sync
-uv run camoufox fetch
-uv run python scripts/build_webui.py    # builds the UI into the package (needs Node)
-uv run camoufox-pm
-```
-
-`camoufox-pm` opens your browser automatically. The UI is served from the same
-origin as the API, so there is no proxy or CORS to configure. Full options in
-[docs/cli.md](docs/cli.md).
-
-### As a desktop window
-
-```bash
 uv sync --extra desktop
-uv run camoufox-pm --desktop
+uv run python scripts/build_webui.py
+uv run python -m camoufox_pm.desktop
 ```
 
-Or build a standalone app that needs neither Python nor Node:
-`python scripts/build_desktop.py`.
+To use a browser tab instead of a desktop window, run `uv run camoufox-pm`.
+This CLI keeps the existing `data/profiles.db` path by default. The desktop
+launcher uses a persistent OS data folder. See [CLI options](docs/cli.md).
+On Linux, source desktop mode needs a supported pywebview GUI backend and system
+libraries; prefer the packaged `.deb` for the included Qt backend.
+
+Build a standalone desktop bundle with `uv sync --extra build` followed by
+`uv run python scripts/build_desktop.py --package`. Packaging tools differ by
+platform; see [releasing](docs/releasing.md).
 
 ### With Docker
 
@@ -144,27 +143,30 @@ the UI work as-is.
 
 ## First steps
 
-1. Open the app and click **New profile**.
-2. Pick an operating system, and optionally a **real device** to pin the profile
-   to. Leave the fingerprint fields blank and Camoufox generates a consistent set.
-3. Add a proxy if you have one. Prefer HTTP/HTTPS for authenticated proxies —
-   Firefox cannot authenticate to a SOCKS proxy.
-4. Press **Run**. The row shows the profile as running until you stop it or close
-   the browser yourself.
+1. Install the Camoufox browser when prompted, then click **New profile**.
+2. Give the profile a name. Leave advanced fingerprint fields at their defaults,
+   or pick a real device if you need a particular machine.
+3. Add and check a proxy if you have one. Prefer HTTP/HTTPS for authenticated
+   proxies — Firefox cannot authenticate to a SOCKS proxy.
+4. Press **Run**. The profile stays running until you click **Stop** or close its
+   browser window.
 
-The **Settings** screen reports how the instance is configured and warns if proxy
-passwords are unencrypted or the API is reachable without a key.
+Settings includes browser download retry, profile backups, and an update check. Deleted
+profiles go to **Trash** for recovery. Updates prepare a backup before offering
+an installer; replacing the app remains a manual installation step.
+[Getting started](docs/getting-started.md) explains these controls.
 
 ## Configuration
 
-Settings come from environment variables (prefix `CPM_`). Copy `.env.example` to
-`.env` and edit as needed.
+The desktop app creates its data folder and encryption key automatically.
+Advanced/source configuration uses environment variables (prefix `CPM_`); copy
+`.env.example` to `.env` if needed. Explicit configuration also overrides desktop defaults.
 
 | Variable           | Default                 | Description                                     |
 | ------------------ | ----------------------- | ----------------------------------------------- |
 | `CPM_HOST`         | `127.0.0.1`             | Bind address                                    |
 | `CPM_PORT`         | `8000`                  | Port                                            |
-| `CPM_DB_PATH`      | `data/profiles.db`      | SQLite database path                            |
+| `CPM_DB_PATH`      | `data/profiles.db` (CLI) | SQLite database path; desktop uses the OS data folder                            |
 | `CPM_LEASE_TTL`    | `120`                   | Seconds a profile's lease survives without a heartbeat — how long a crashed instance keeps its profiles locked. Minimum 60 |
 | `CPM_SECRET_KEY`   | *(empty)*               | Fernet key; encrypts proxy passwords at rest    |
 | `CPM_API_KEY`      | *(empty)*               | If set, required as the `X-API-Key` header (machine clients) |
@@ -220,6 +222,7 @@ another host holds it.
 
 | Document | What it covers |
 | -------- | -------------- |
+| [docs/getting-started.md](docs/getting-started.md) | Desktop installation and first steps |
 | [docs/cli.md](docs/cli.md) | Every command and flag |
 | [docs/api.md](docs/api.md) | The REST API, endpoint by endpoint |
 | [docs/profile-settings.md](docs/profile-settings.md) | What each setting does, how the pinned machine works, and what Camoufox cannot do |
@@ -234,7 +237,7 @@ another host holds it.
 
 ## Measured, not assumed
 
-Every claim above was checked against a running browser, and several of them
+Fingerprint behavior was checked against a running browser, and several results
 turned out differently than expected. The measurements are in the repository, as
 tests that fail if the behaviour changes:
 

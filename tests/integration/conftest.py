@@ -12,7 +12,7 @@ from camoufox_pm.main import app
 
 
 @pytest.fixture
-async def client(tmp_path):
+async def client(tmp_path, monkeypatch):
     """An HTTP client wired to the app with a throwaway database."""
     storage = StorageManager(str(tmp_path / "api.db"))
     await storage.initialize()
@@ -21,6 +21,11 @@ async def client(tmp_path):
 
     dependencies.set_storage_manager(storage)
     dependencies.set_profile_manager(manager)
+    monkeypatch.setattr("camoufox_pm.core.browser_install.ensure_browser_ready", lambda: None)
+    from camoufox_pm.api.routes.recovery import set_backup_manager
+    from camoufox_pm.core.backups import ProfileBackupManager
+
+    set_backup_manager(ProfileBackupManager(manager))
     # Not started: the routes only need it to plan and to run-now; the loop
     # would poll on a real clock, which tests must not depend on.
     dependencies.set_scheduler(TaskScheduler(storage, manager))
@@ -30,3 +35,4 @@ async def client(tmp_path):
         yield http_client
 
     await storage.close()
+    set_backup_manager(None)

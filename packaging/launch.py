@@ -1,5 +1,5 @@
-"""PyInstaller entry point for the desktop app."""
-from camoufox_pm.cli import main
+"""PyInstaller entry point: double-click opens the native desktop window."""
+from camoufox_pm.desktop import main
 
 if __name__ == "__main__":
     main()

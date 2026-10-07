@@ -14,7 +14,7 @@ from . import fingerprint_store, profile_archive, proxy_check
 from .browser_session import BrowserSessionManager
 from .database import StaleWriteError, StorageManager
 from .fingerprint_generator import FingerprintGenerator
-from .leases import ProfileLocked, lease_expired, make_lease_holder
+from .leases import ProfileLocked, make_lease_holder
 from .models import (
     BrowserSettings,
     Profile,
@@ -23,6 +23,7 @@ from .models import (
     UsageStats,
     generate_profile_id,
 )
+from .profile_operations import profile_data_path, profile_operation, run_file_operation
 
 
 class ProfileManager:
@@ -169,6 +170,13 @@ class ProfileManager:
         """Get a profile by ID."""
         profile = await self.storage.get_profile(profile_id)
         if profile:
+            if profile.storage_path and not Path(profile.storage_path).is_absolute():
+                try:
+                    profile.storage_path = str(profile_data_path(self, profile))
+                except ValueError:
+                    # Let the record remain editable; file operations and
+                    # launches validate and refuse an unsafe directory.
+                    pass
             logger.debug(f"Loaded profile: {profile.name} ({profile_id})")
         else:
             logger.warning(f"Profile with ID {profile_id} not found")
@@ -274,37 +282,35 @@ class ProfileManager:
         return profile
 
     async def delete_profile(self, profile_id: str, remove_data: bool = True) -> bool:
-        """Delete a profile."""
-        logger.info(f"Deleting profile {profile_id}")
-
-        profile = await self.get_profile(profile_id)
-        if not profile:
+        """Move a profile into recoverable trash; legacy remove_data is ignored."""
+        if not await self.get_profile(profile_id):
             return False
+        async with profile_operation(self, profile_id):
+            return await self.storage.set_profile_trashed(profile_id, True)
 
-        # Remove the profile data directory if requested
-        if remove_data and profile.storage_path:
-            profile_path = Path(profile.storage_path)
-            if profile_path.exists():
-                shutil.rmtree(profile_path)
-                logger.debug(f"Removed profile directory: {profile_path}")
+    async def list_trashed_profiles(self) -> list[Profile]:
+        return await self.storage.list_profiles({"trashed": True})
 
-        # Remove from the database
-        success = await self.storage.delete_profile(profile_id)
+    async def restore_trashed_profile(self, profile_id: str) -> Profile | None:
+        profile = await self.storage.get_profile(profile_id, include_deleted=True)
+        if not profile or not profile.deleted_at:
+            return None
+        async with profile_operation(self, profile_id, include_deleted=True):
+            await self.storage.set_profile_trashed(profile_id, False)
+        # Schedules stay paused until the user deliberately enables them again.
+        return await self.get_profile(profile_id)
 
-        if success:
-            # Log the deletion
-            await self.storage.log_usage(
-                UsageStats(
-                    profile_id=profile_id,
-                    action="delete_profile",
-                    details={"name": profile.name, "data_removed": remove_data},
-                )
-            )
-            logger.info(f"Profile {profile_id} deleted")
-        else:
-            logger.error(f"Failed to delete profile {profile_id}")
-
-        return success
+    async def permanently_delete_profile(self, profile_id: str) -> bool:
+        profile = await self.storage.get_profile(profile_id, include_deleted=True)
+        if not profile or not profile.deleted_at:
+            return False
+        async with profile_operation(self, profile_id, include_deleted=True) as profile:
+            if not profile.deleted_at:
+                return False
+            path = profile_data_path(self, profile)
+            if path.exists():
+                await run_file_operation(shutil.rmtree, path)
+            return await self.storage.delete_profile(profile_id)
 
     async def list_profiles(
         self,
@@ -329,6 +335,14 @@ class ProfileManager:
         return profiles
 
     async def clone_profile(
+        self, source_id: str, new_name: str, regenerate_fingerprint: bool = True
+    ) -> Profile | None:
+        if not await self.get_profile(source_id):
+            return None
+        async with profile_operation(self, source_id):
+            return await self._clone_profile_unlocked(source_id, new_name, regenerate_fingerprint)
+
+    async def _clone_profile_unlocked(
         self, source_id: str, new_name: str, regenerate_fingerprint: bool = True
     ) -> Profile | None:
         """Clone a profile."""
@@ -368,13 +382,20 @@ class ProfileManager:
         profile_dir.mkdir(parents=True, exist_ok=True)
 
         # Copy the source profile data if it exists
-        source_path = Path(source_profile.get_storage_path(str(self.profiles_dir)))
+        source_path = profile_data_path(self, source_profile)
         if source_path.exists():
             try:
-                shutil.copytree(source_path, profile_dir, dirs_exist_ok=True)
+
+                def copy_data():
+                    if any(path.is_symlink() for path in source_path.rglob("*")):
+                        raise ValueError("Cannot clone profile data containing symbolic links")
+                    shutil.copytree(source_path, profile_dir, dirs_exist_ok=True)
+
+                await run_file_operation(copy_data)
                 logger.debug(f"Copied profile data from {source_path} to {profile_dir}")
-            except Exception as e:
-                logger.warning(f"Failed to copy profile data: {e}")
+            except BaseException:
+                shutil.rmtree(profile_dir, ignore_errors=True)
+                raise
 
         # Save the new profile
         await self.storage.save_profile(new_profile)
@@ -750,29 +771,14 @@ class ProfileManager:
     # -- Portability --------------------------------------------------------
 
     async def export_profile(self, profile_id: str, destination: Path) -> Path:
-        """Write a profile and its browser data to an archive.
-
-        Refuses while the browser is open — here or on any other instance —
-        because the databases would be copied mid-write and the restored
-        profile could come back corrupted.
-        """
-        profile = await self.get_profile(profile_id)
-        if not profile:
-            raise ValueError(f"Profile with ID {profile_id} not found")
-        if self.browser_sessions.is_running(profile_id):
-            raise ValueError("Close the browser before exporting this profile")
-        # The lease is the fleet-wide half of that check: active_sessions only
-        # knows about browsers this process started, so without it an export on
-        # one machine would copy the databases of a profile running on another,
-        # mid-write. An expired lease reads as free — that machine is gone.
-        lease = await self.storage.get_lease(profile_id)
-        if lease is not None and lease[0] not in (None, self.lease_holder):
-            if not lease_expired(lease[1]):
-                raise ProfileLocked(profile_id, lease[0])
-
-        data_dir = Path(profile.get_storage_path(str(self.profiles_dir)))
-        profile_archive.export_profile(profile, data_dir, destination)
-
+        """Archive a closed profile while holding its cross-instance lease."""
+        async with profile_operation(self, profile_id) as profile:
+            await run_file_operation(
+                profile_archive.export_profile,
+                profile,
+                profile_data_path(self, profile),
+                destination,
+            )
         await self.storage.log_usage(
             UsageStats(profile_id=profile_id, action="export_profile", details={})
         )
@@ -787,6 +793,8 @@ class ProfileManager:
         # the profile it came from.
         profile.id = generate_profile_id()
         profile.storage_path = None
+        profile.deleted_at = None
+        profile.row_version = 0
         # The group id belongs to the source instance and would dangle here; the
         # user can reassign the profile to a local group.
         profile.group = None
@@ -800,10 +808,13 @@ class ProfileManager:
         # is only real once it is in the database. Without this, every refused
         # import (a bomb, a bad zip, an I/O error) would strand a directory that
         # nothing references and nothing ever deletes.
+        # Exclusive creation also prevents an improbable generated-ID collision
+        # from overwriting an existing directory before the DB sees the import.
+        data_dir.mkdir(parents=True, exist_ok=False)
         try:
-            profile_archive.extract_data(source, data_dir)
+            await run_file_operation(profile_archive.extract_data, source, data_dir)
             await self.storage.save_profile(profile)
-        except Exception:
+        except BaseException:
             shutil.rmtree(data_dir, ignore_errors=True)
             raise
 
@@ -832,6 +843,9 @@ class ProfileManager:
         another machine, and two of those answering "free" at once is the whole
         problem (see core/leases.py).
         """
+        from .browser_install import ensure_browser_ready
+
+        ensure_browser_ready()
         acquired = await self.storage.acquire_lease(
             profile_id, self.lease_holder, get_settings().lease_ttl
         )
@@ -841,7 +855,7 @@ class ProfileManager:
             # not exist. get_lease tells them apart: None means no such row,
             # and that is a 404, not a conflict.
             lease = await self.storage.get_lease(profile_id)
-            if lease is None:
+            if lease is None or not await self.get_profile(profile_id):
                 raise ValueError(f"Profile with ID {profile_id} not found")
             raise ProfileLocked(profile_id, lease[0])
 
@@ -871,6 +885,7 @@ class ProfileManager:
                     "process_id": session.process_id,
                 }
 
+            profile.storage_path = str(profile_data_path(self, profile))
             options = profile.to_camoufox_launch_options()
             options["headless"] = headless
             if window_size:

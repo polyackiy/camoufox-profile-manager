@@ -24,6 +24,7 @@ interface FormState {
   status: string
   notes: string
   os: string
+  browserUi: 'desktop' | 'camoufox'
   timezone: string
   languages: string
   hardwareConcurrency: string
@@ -46,6 +47,7 @@ const EMPTY: FormState = {
   status: 'active',
   notes: '',
   os: 'windows',
+  browserUi: 'desktop',
   timezone: '',
   languages: '',
   hardwareConcurrency: '',
@@ -74,6 +76,7 @@ function fromProfile(profile: Profile): FormState {
     status: profile.status,
     notes: profile.notes ?? '',
     os: bs.os ?? 'windows',
+    browserUi: bs.browser_ui ?? 'desktop',
     timezone: bs.timezone ?? '',
     languages: (bs.languages ?? []).join(', '),
     hardwareConcurrency: bs.hardware_concurrency ? String(bs.hardware_concurrency) : '',
@@ -196,6 +199,7 @@ export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) 
 
     const settings: Record<string, unknown> = {
       os: form.os,
+      browser_ui: form.browserUi,
       window_width: Number(form.windowWidth) || 1280,
       window_height: Number(form.windowHeight) || 720,
       webrtc_mode: form.webrtcMode,
@@ -423,7 +427,7 @@ export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) 
       subtitle={
         isEdit
           ? `${profile.id} · created ${new Date(profile.created_at).toLocaleDateString()}`
-          : 'Anything left blank is generated as a consistent fingerprint.'
+          : 'Choose a name and an optional proxy. A consistent fingerprint is generated for you.'
       }
       onClose={onClose}
       width={640}
@@ -636,6 +640,18 @@ export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) 
           </div>
         </Section>
 
+        <details className="rounded-md border border-line p-3" open={isEdit || undefined}>
+          <summary className="cursor-pointer font-medium">Advanced browser and fingerprint settings</summary>
+          <p className="mb-4 mt-1 text-ink-dim">Defaults are ready to use. Change these only when a profile needs a specific setup.</p>
+          <div className="flex flex-col gap-5">
+          <div>
+            <label className="field-label" htmlFor="pf-browser-ui">Browser interface</label>
+            <select id="pf-browser-ui" className="field" value={form.browserUi} onChange={(event) => set('browserUi', event.target.value as FormState['browserUi'])}>
+              <option value="desktop">Desktop (standard tabs and controls)</option>
+              <option value="camoufox">Camoufox (minimal)</option>
+            </select>
+            <p className="mt-1.5 text-ink-dim">Controls the browser window interface. It does not change the operating system websites see in your fingerprint.</p>
+          </div>
         {isEdit ? (
           <PinnedMachine
             fingerprint={machine}
@@ -859,6 +875,8 @@ export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) 
             </div>
           )}
         </Section>
+          </div>
+        </details>
       </form>
     </Modal>
   )

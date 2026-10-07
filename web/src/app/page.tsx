@@ -21,6 +21,7 @@ import {
   Users,
 } from 'lucide-react'
 
+import { BrowserSetup } from '@/components/browser-setup'
 import { EmptyState } from '@/components/empty-state'
 import { ConfirmDialog, Modal } from '@/components/modal'
 import { ProfileForm } from '@/components/profile-form'
@@ -395,12 +396,12 @@ export default function ProfilesPage() {
 
   function askDelete(profile: Profile) {
     setConfirm({
-      title: 'Delete profile',
-      body: `"${profile.name}" and its browser data will be removed. This cannot be undone.`,
-      label: 'Delete',
+      title: 'Move profile to Trash',
+      body: `"${profile.name}" and its browser data will move to Trash. You can restore them from the sidebar.`,
+      label: 'Move to Trash',
       run: async () => {
         await profilesAPI.deleteProfile(profile.id)
-        toast('ok', 'Profile deleted', profile.name)
+        toast('ok', 'Profile moved to Trash', profile.name)
         setSelected((current) => {
           const next = new Set(current)
           next.delete(profile.id)
@@ -414,12 +415,12 @@ export default function ProfilesPage() {
   function askBulkDelete() {
     const count = selected.size
     setConfirm({
-      title: `Delete ${count} profile${count === 1 ? '' : 's'}`,
-      body: 'The selected profiles and their browser data will be removed. This cannot be undone.',
-      label: 'Delete',
+      title: `Move ${count} profile${count === 1 ? '' : 's'} to Trash`,
+      body: 'The selected profiles and their browser data will move to Trash. You can restore them from the sidebar.',
+      label: 'Move to Trash',
       run: async () => {
         for (const id of selected) await profilesAPI.deleteProfile(id)
-        toast('ok', `Deleted ${count} profile${count === 1 ? '' : 's'}`)
+        toast('ok', `Moved ${count} profile${count === 1 ? '' : 's'} to Trash`)
         setSelected(new Set())
         loadProfiles()
       },
@@ -620,13 +621,15 @@ export default function ProfilesPage() {
           )}
           <button className="btn btn-danger h-7" onClick={askBulkDelete}>
             <Trash2 size={13} />
-            Delete
+            Move to Trash
           </button>
           <button className="btn btn-ghost h-7" onClick={() => setSelected(new Set())}>
             Clear
           </button>
         </div>
       )}
+
+      {!loading && !error && <BrowserSetup firstProfile={profiles.length === 0} onCreate={() => { setEditing(null); setFormOpen(true) }} />}
 
       {error ? (
         <EmptyState
@@ -861,7 +864,7 @@ export default function ProfilesPage() {
                             />
                             <MenuItem
                               icon={<Trash2 size={13} />}
-                              label="Delete"
+                              label="Move to Trash"
                               danger
                               onClick={() => {
                                 askDelete(profile)
