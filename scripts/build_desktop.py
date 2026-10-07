@@ -10,6 +10,7 @@ import argparse
 import hashlib
 import os
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -85,7 +86,8 @@ def package_desktop() -> list[Path]:
     icon_dir = deb_root / "usr" / "share" / "icons" / "hicolor" / "scalable" / "apps"
     icon_dir.mkdir(parents=True)
     shutil.copy2(ROOT / "packaging" / "camoufox-pm.svg", icon_dir)
-    version = installed_version("camoufox-profile-manager")
+    # Debian uses '~' to order a prerelease before the corresponding final version.
+    version = re.sub(r"(a|b|rc)(\d+)$", r"~\1\2", installed_version("camoufox-profile-manager"))
     control = deb_root / "DEBIAN"
     control.mkdir()
     deb_arch = {"x86_64": "amd64", "arm64": "arm64"}[arch]

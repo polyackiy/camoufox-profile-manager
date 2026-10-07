@@ -3,6 +3,7 @@
 import re
 
 import httpx
+from packaging.version import Version
 from pydantic import BaseModel, Field
 
 from camoufox_pm import __version__
@@ -42,7 +43,7 @@ async def check_update() -> UpdateStatus:
             response.raise_for_status()
             release = response.json()
         tag = release["tag_name"]
-        latest = version_tuple(tag)
+        version_tuple(tag)  # Remote tags remain restricted to our stable URL format.
         if release.get("draft") or release.get("prerelease"):
             raise ValueError("No stable release is available")
         url = f"{RELEASES}/tag/{tag}"
@@ -53,7 +54,7 @@ async def check_update() -> UpdateStatus:
         ]
         return UpdateStatus(
             latest_version=tag.lstrip("v"),
-            available=latest > version_tuple(__version__),
+            available=Version(tag.lstrip("v")) > Version(__version__),
             release_url=url,
             assets=assets,
         )

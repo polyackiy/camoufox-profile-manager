@@ -6,6 +6,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.6.0-rc.1] - 2026-10-07
+
+Desktop preview. Installers are unsigned; clean Windows/Linux installation and
+macOS signing/notarization remain release acceptance work.
+
 ### Added
 - Desktop installers on release tags: macOS Intel/Apple Silicon DMGs, Windows
   setup executable, Linux Debian package and portable archive. Signing remains

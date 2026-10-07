@@ -3,7 +3,7 @@
 [![CI](https://github.com/polyackiy/camoufox-profile-manager/actions/workflows/ci.yml/badge.svg)](https://github.com/polyackiy/camoufox-profile-manager/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![Camoufox 152](https://img.shields.io/badge/camoufox-152-orange.svg)](https://github.com/daijro/camoufox)
+[![Camoufox](https://img.shields.io/badge/browser-Camoufox-orange.svg)](https://github.com/daijro/camoufox)
 
 Self-hosted менеджер профилей антидетект-браузера
 [Camoufox](https://github.com/daijro/camoufox) с открытым исходным кодом —
@@ -14,13 +14,12 @@ Self-hosted менеджер профилей антидетект-браузе�
 фингерпринт от запуска к запуску вместе со своими куками, хранилищем и историей,
 так что аккаунт, открытый с него в январе, в июне выглядит с того же компьютера.
 
-> **Настольная предварительная версия:** установщики доступны в **Assets**
-> новых релизов. CI собирает macOS Apple Silicon и Intel, Windows x64 и
+> **Настольная предварительная версия:** [скачать v0.6.0-rc.1](https://github.com/polyackiy/camoufox-profile-manager/releases/tag/v0.6.0-rc.1), раздел **Assets**. CI собирает macOS Apple Silicon и Intel, Windows x64 и
 > Ubuntu/Debian x64. Подпись включается при наличии сертификатов; неподписанные
 > сборки могут вызвать предупреждение системы.
 > [Начало работы](docs/getting-started.ru.md) / [English](docs/getting-started.md).
 > Проверка установщиков на всех платформах и проверка подписи ещё продолжаются;
-> [проверки релиза](docs/releasing.md). Миграция Chrome остаётся экспериментальной.
+> [задачи до стабильного релиза](https://github.com/polyackiy/camoufox-profile-manager/milestone/1). Миграция Chrome остаётся экспериментальной.
 
 ![Список профилей](docs/assets/screenshot-profiles.png)
 

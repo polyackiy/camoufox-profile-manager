@@ -13,6 +13,7 @@ jobs:
     uses: ./.github/workflows/desktop.yml
     with:
       release_tag: ${{ github.ref_name }}
+      release_draft: true
     secrets: inherit
 
   build:
@@ -36,18 +37,28 @@ jobs:
         run: |
           uv build --wheel
           uv build --sdist
+      - name: Checksum Python distributions
+        working-directory: dist
+        run: |
+          for artifact in *.whl *.tar.gz; do sha256sum "$artifact" > "$artifact.sha256"; done
       - name: Attach artifacts to the GitHub Release
         uses: softprops/action-gh-release@v3
         with:
+          draft: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          make_latest: false
           files: |
             dist/*.whl
             dist/*.tar.gz
+            dist/*.sha256
           generate_release_notes: true
       - name: Upload build artifacts
         uses: actions/upload-artifact@v7
         with:
           name: dist
-          path: dist/*
+          path: |
+            dist/*.whl
+            dist/*.tar.gz
 
   publish-pypi:
     name: Publish to PyPI (opt-in)
@@ -55,7 +66,7 @@ jobs:
     runs-on: ubuntu-latest
     # Enable by setting the repository variable PUBLISH_TO_PYPI=true and
     # configuring a Trusted Publisher on PyPI. See docs/releasing.md.
-    if: vars.PUBLISH_TO_PYPI == 'true'
+    if: vars.PUBLISH_TO_PYPI == 'true' && !contains(github.ref_name, '-')
     environment: pypi
     permissions:
       id-token: write # OIDC for PyPI Trusted Publishing

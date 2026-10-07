@@ -446,7 +446,7 @@ geoip = [
 
 [[package]]
 name = "camoufox-profile-manager"
-version = "0.5.0"
+version = "0.6.0rc1"
 source = { editable = "." }
 dependencies = [
     { name = "aiofiles" },
@@ -457,6 +457,7 @@ dependencies = [
     { name = "httpx", extra = ["socks"] },
     { name = "loguru" },
     { name = "openpyxl" },
+    { name = "packaging" },
     { name = "playwright" },
     { name = "psutil" },
     { name = "pydantic" },
@@ -499,6 +500,7 @@ requires-dist = [
     { name = "loguru", specifier = ">=0.7" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.13" },
     { name = "openpyxl", specifier = ">=3.1" },
+    { name = "packaging", specifier = ">=24.1" },
     { name = "playwright", specifier = ">=1.50,<1.61" },
     { name = "psutil", specifier = ">=6.1" },
     { name = "pycryptodome", marker = "extra == 'chrome-migration'", specifier = ">=3.19" },
