@@ -3,7 +3,7 @@
 [![CI](https://github.com/polyackiy/camoufox-profile-manager/actions/workflows/ci.yml/badge.svg)](https://github.com/polyackiy/camoufox-profile-manager/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![Camoufox 152](https://img.shields.io/badge/camoufox-152-orange.svg)](https://github.com/daijro/camoufox)
+[![Camoufox](https://img.shields.io/badge/browser-Camoufox-orange.svg)](https://github.com/daijro/camoufox)
 
 A self-hosted, open-source manager for [Camoufox](https://github.com/daijro/camoufox)
 antidetect browser profiles — a free alternative to AdsPower, Dolphin, Multilogin
@@ -13,12 +13,12 @@ Each profile is **one long-lived machine**. It keeps the same fingerprint every
 session, along with its own cookies, storage and history, so an account opened
 from it in January still looks like the same computer in June.
 
-> **Desktop preview:** download installers from a release’s **Assets**. macOS
+> **Desktop preview:** [download v0.6.0-rc.1](https://github.com/polyackiy/camoufox-profile-manager/releases/tag/v0.6.0-rc.1) from **Assets**. macOS
 > Apple Silicon and Intel, Windows x64, and Ubuntu/Debian x64 builds are produced
 > by CI. Signing is conditional; unsigned builds can show OS security warnings.
 > See [Getting started](docs/getting-started.md) / [Начало работы](docs/getting-started.ru.md).
 > Cross-platform installer and signing validation is still in progress; see
-> [release checks](docs/releasing.md). Chrome migration remains experimental.
+> [release milestone](https://github.com/polyackiy/camoufox-profile-manager/milestone/1). Chrome migration remains experimental.
 
 ![The profiles list](docs/assets/screenshot-profiles.png)
 

@@ -3,7 +3,8 @@
 A `v*` tag triggers `.github/workflows/release.yml`. It builds the web UI into
 Python wheel/sdist packages and calls the reusable `desktop.yml` workflow with
 the tag. Desktop jobs build native macOS ARM/Intel, Windows x64 and Linux x64
-installers and attach them to the same GitHub Release. No manual second workflow
+installers and attach them to the same draft GitHub Release. A maintainer
+publishes it only after all jobs and the asset/checksum audit pass. No manual second workflow
 is needed. The Actions **Desktop builds** manual dispatch remains available; an
 optional `release_tag` checks out that tag and attaches its installers.
 
@@ -34,7 +35,9 @@ and full automatic app replacement are not shipped.
 ## Before tagging
 
 1. Update `CHANGELOG.md`, `pyproject.toml` and `web/package.json` consistently,
-   including `web/package-lock.json` when the npm package version changes.
+   including `web/package-lock.json` when the npm package version changes. Prereleases use PEP 440 `0.6.0rc1`
+   in Python and SemVer `0.6.0-rc.1` in npm and the Git tag; Debian packages
+   use `0.6.0~rc1` so the final version sorts after its preview.
 2. Run backend tests and frontend lint/static build. In a clean build environment
    run `uv sync --extra build` and `uv run python scripts/build_desktop.py --package`.
    Build on each target platform; PyInstaller is not a cross compiler. Linux also
@@ -53,8 +56,11 @@ and full automatic app replacement are not shipped.
    environment; conditional signing steps need real credentials and validation.
 6. Only after release approval, create and push an annotated `v<version>` tag.
    Watch **Release** and all four **Desktop builds** jobs finish. Check every
-   expected asset is present before announcing the release. Jobs upload assets
-   independently; a partially failed build can leave an incomplete release.
+   expected asset is present and its checksum matches before publishing the draft.
+   Mark `-rc` tags as prereleases and leave the previous stable release as Latest.
+   Jobs upload independently, so a failed build leaves the draft unpublished.
+   The release candidate is a public testing preview: unresolved stable acceptance
+   work must be named in its release notes and tracked in the release milestone.
 
 No tag or release upload is performed by the build script itself.
 
@@ -89,3 +95,14 @@ and configure a PyPI Trusted Publisher for owner `polyackiy`, repository
 `camoufox-profile-manager`, workflow `release.yml`, environment `pypi`. Create
 that GitHub environment before enabling publishing. The release workflow uses
 OIDC rather than a PyPI API token. Desktop installation does not require PyPI.
+
+## Current public tracking
+
+- [0.6.0 stable-release readiness](https://github.com/polyackiy/camoufox-profile-manager/milestone/1)
+- [Signing and notarization #61](https://github.com/polyackiy/camoufox-profile-manager/issues/61)
+- [Clean-system acceptance #62](https://github.com/polyackiy/camoufox-profile-manager/issues/62)
+- [Verified automatic updates #63](https://github.com/polyackiy/camoufox-profile-manager/issues/63) (later work)
+
+Prerelease tags are excluded from the optional PyPI publish job. The application's
+stable update checker also intentionally excludes prereleases; preview testers
+download them explicitly from GitHub.

@@ -9,6 +9,10 @@ on:
         type: string
   workflow_call:
     inputs:
+      release_draft:
+        required: false
+        type: boolean
+        default: false
       release_tag:
         required: false
         type: string
@@ -134,6 +138,9 @@ jobs:
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ inputs.release_tag }}
+          draft: ${{ inputs.release_draft || false }}
+          prerelease: ${{ contains(inputs.release_tag, '-') }}
+          make_latest: ${{ contains(inputs.release_tag, '-') && 'false' || 'legacy' }}
           files: |
             dist/*.dmg
             dist/*-setup.exe

@@ -3,7 +3,6 @@
 import httpx
 import pytest
 
-from camoufox_pm import __version__
 from camoufox_pm.core import updates
 
 
@@ -61,11 +60,23 @@ async def test_new_stable_release_uses_official_page_and_filters_foreign_assets(
     assert requests[0].headers["Accept"] == "application/vnd.github+json"
 
 
-async def test_current_release_is_not_offered_as_an_update(github):
-    github({"tag_name": f"v{__version__}", "assets": []})
+async def test_current_release_is_not_offered_as_an_update(github, monkeypatch):
+    monkeypatch.setattr(updates, "__version__", "1.2.3")
+    github({"tag_name": "v1.2.3", "assets": []})
     result = await updates.check_update()
     assert result.error is None
     assert not result.available
+
+
+@pytest.mark.parametrize(("tag", "available"), [("v0.5.0", False), ("v0.6.0", True)])
+async def test_preview_can_upgrade_to_final_without_downgrading(
+    github, monkeypatch, tag, available
+):
+    monkeypatch.setattr(updates, "__version__", "0.6.0rc1")
+    github({"tag_name": tag, "assets": []})
+    result = await updates.check_update()
+    assert result.error is None
+    assert result.available is available
 
 
 @pytest.mark.parametrize(
