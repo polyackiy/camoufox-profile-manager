@@ -44,13 +44,24 @@ def package_desktop() -> list[Path]:
         bootstrapper.parent.mkdir(parents=True, exist_ok=True)
         # Official Evergreen endpoint; verify its publisher before redistribution.
         urlretrieve("https://go.microsoft.com/fwlink/p/?LinkId=2124703", bootstrapper)
+        # Actions runs PowerShell 7. Inheriting its PSModulePath into Windows
+        # PowerShell 5 makes the built-in Security module fail to autoload.
+        powershell = shutil.which("pwsh") or shutil.which("powershell")
+        if powershell is None:
+            raise SystemExit("PowerShell is required to verify the WebView2 bootstrapper")
+        signature_env = {
+            key: value for key, value in os.environ.items() if key.upper() != "PSMODULEPATH"
+        }
+        signature_env["CPM_WEBVIEW2_BOOTSTRAPPER"] = str(bootstrapper)
         subprocess.run(
-            ["powershell", "-NoProfile", "-NonInteractive", "-Command",
+            [powershell, "-NoProfile", "-NonInteractive", "-Command",
+             "$ErrorActionPreference = 'Stop'; "
+             "Import-Module (Join-Path $PSHOME 'Modules/Microsoft.PowerShell.Security/Microsoft.PowerShell.Security.psd1'); "
              "$signature = Get-AuthenticodeSignature $env:CPM_WEBVIEW2_BOOTSTRAPPER; "
              "if ($signature.Status -ne 'Valid' -or "
              "$signature.SignerCertificate.Subject -notmatch 'O=Microsoft Corporation') "
              "{ throw 'WebView2 bootstrapper signature is not valid Microsoft code' }"],
-            env={**os.environ, "CPM_WEBVIEW2_BOOTSTRAPPER": str(bootstrapper)},
+            env=signature_env,
             check=True,
         )
         output = DIST / f"camoufox-pm-windows-{arch}-setup.exe"
