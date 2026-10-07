@@ -157,3 +157,13 @@ async def test_a_pre_auth_database_gains_the_user_tables_without_losing_data(tmp
         assert await storage.count_users() == 1
     finally:
         await storage.close()
+
+
+@pytest.mark.asyncio
+async def test_repeated_initialization_reuses_the_open_connection(storage):
+    connection = storage.db._connection
+    await storage.initialize()
+    assert storage.db._connection is connection
+    profile = Profile(name="still connected")
+    await storage.save_profile(profile)
+    assert (await storage.get_profile(profile.id)).name == "still connected"

@@ -6,15 +6,20 @@
 # Produces dist/camoufox-pm/ (a standalone bundle) and, on macOS, a .app.
 # The Camoufox browser binary is NOT bundled — it is fetched at first run.
 import os
+import sys
+from importlib.metadata import version
 
-from PyInstaller.utils.hooks import collect_all, collect_submodules
+from PyInstaller.utils.hooks import collect_all, collect_submodules, copy_metadata
 
 # SPECPATH is this file's directory (packaging/); ROOT is the repository root.
 ROOT = os.path.abspath(os.path.join(SPECPATH, ".."))
 
 datas = [(os.path.join(ROOT, "src", "camoufox_pm", "webui"), "camoufox_pm/webui")]
+datas += copy_metadata("camoufox-profile-manager")
 binaries = []
 hiddenimports = collect_submodules("uvicorn")
+if sys.platform.startswith("linux"):
+    hiddenimports += ["webview.platforms.qt", "PyQt6.QtWebEngineWidgets", "PyQt6.QtWebEngineCore"]
 
 # These packages ship data files (fingerprint datapoints, language tags, …) that
 # PyInstaller does not pick up automatically.
@@ -45,11 +50,8 @@ exe = EXE(
     [],
     exclude_binaries=True,
     name="camoufox-pm",
-    # Deliberate: the same binary is also the CLI (`camoufox-pm --port ...`), and
-    # a windowed build on Windows has no stdout, which loses the server log and
-    # can break writes to it. The cost is a console window next to the desktop
-    # app on Windows; revisit if the desktop build is ever split from the CLI.
-    console=True,
+    # Desktop entry point redirects absent streams to the writable data folder.
+    console=False,
 )
 coll = COLLECT(
     exe,
@@ -61,4 +63,8 @@ app = BUNDLE(
     coll,
     name="Camoufox Profile Manager.app",
     bundle_identifier="com.github.polyackiy.camoufox-pm",
+    info_plist={
+        "NSHighResolutionCapable": True,
+        "CFBundleShortVersionString": version("camoufox-profile-manager"),
+    },
 )

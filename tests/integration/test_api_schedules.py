@@ -151,9 +151,11 @@ async def test_run_now_records_an_outcome_and_history_serves_it(client, monkeypa
 
 
 @pytest.mark.asyncio
-async def test_deleting_the_profile_deletes_its_schedules(client):
+async def test_trashing_the_profile_pauses_its_schedules(client):
     profile_id = await make_profile(client)
     created = await make_schedule(client, profile_id)
 
     assert (await client.delete(f"/api/v1/profiles/{profile_id}")).status_code == 200
-    assert (await client.get(f"/api/v1/schedules/{created['id']}")).status_code == 404
+    schedule = await client.get(f"/api/v1/schedules/{created['id']}")
+    assert schedule.status_code == 200
+    assert schedule.json()["enabled"] is False

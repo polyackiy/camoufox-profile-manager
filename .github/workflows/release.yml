@@ -8,6 +8,13 @@ permissions:
   contents: write
 
 jobs:
+  desktop:
+    name: Build desktop installers
+    uses: ./.github/workflows/desktop.yml
+    with:
+      release_tag: ${{ github.ref_name }}
+    secrets: inherit
+
   build:
     name: Build & attach wheel
     runs-on: ubuntu-latest

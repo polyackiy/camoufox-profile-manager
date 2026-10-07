@@ -3,6 +3,8 @@
 import { useEffect, useState } from 'react'
 import { Check, Minus, Settings as SettingsIcon, TriangleAlert } from 'lucide-react'
 
+import { BrowserSetup } from '@/components/browser-setup'
+import { BackupSettings, UpdateSettings } from '@/components/recovery-settings'
 import { EmptyState } from '@/components/empty-state'
 import { useToast } from '@/components/toast'
 import {
@@ -65,6 +67,10 @@ export default function SettingsPage() {
         <p className="px-5 py-8 text-ink-faint">Loading…</p>
       ) : (
         <div className="mx-auto flex max-w-[760px] flex-col gap-6 px-5 py-6">
+          <BrowserSetup />
+          <UpdateSettings />
+          <BackupSettings />
+
           {/* Security first: these two decide whether this instance is safe to expose. */}
           <Group
             title="Security"
@@ -134,13 +140,6 @@ export default function SettingsPage() {
             <Row label="Database">
               <span className="break-all font-mono text-ink-dim">{config.database_path}</span>
             </Row>
-            <Toggle
-              on={config.camoufox_available}
-              label="Camoufox browser"
-              onText="Installed and ready to launch profiles."
-              offText="Not installed. Run: camoufox fetch"
-              warnWhenOff
-            />
           </Group>
 
           {status && (

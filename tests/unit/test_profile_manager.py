@@ -88,19 +88,20 @@ async def test_cloning_an_unknown_profile_returns_nothing(profile_manager):
 
 
 @pytest.mark.asyncio
-async def test_deleting_a_profile_removes_its_directory(profile_manager):
+async def test_deleting_a_profile_retains_its_directory_in_trash(profile_manager):
     profile = await profile_manager.create_profile(name="gone")
     directory = Path(profile.get_storage_path(str(profile_manager.profiles_dir)))
     (directory / "cookies.sqlite").write_bytes(b"session")
 
     assert await profile_manager.delete_profile(profile.id) is True
-    assert not directory.exists()
+    assert (directory / "cookies.sqlite").read_bytes() == b"session"
     assert await profile_manager.get_profile(profile.id) is None
+    assert [p.id for p in await profile_manager.list_trashed_profiles()] == [profile.id]
 
 
 @pytest.mark.asyncio
 async def test_the_data_can_be_kept_when_the_profile_is_deleted(profile_manager):
-    """The record goes, the directory stays — for a manual backup before a purge."""
+    """Legacy remove_data=False also preserves the recoverable profile."""
     profile = await profile_manager.create_profile(name="gone")
     directory = Path(profile.get_storage_path(str(profile_manager.profiles_dir)))
     (directory / "cookies.sqlite").write_bytes(b"session")

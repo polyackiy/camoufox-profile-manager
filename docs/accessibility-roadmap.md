@@ -1,149 +1,58 @@
-# Accessibility roadmap: reaching non-technical users
+# Accessibility roadmap: installation without a developer toolchain
 
-Today the project is developer-facing: it assumes a terminal, Python + uv,
-Node.js, manual `camoufox fetch`, and running two servers by hand. This document
-is a plan to progressively lower that barrier so people **without a technical
-background** can install and use it.
+Stage 1 adds the desktop path: download an installer, open the manager, install
+the browser with visible progress, and create a profile. The [beginner guide](getting-started.md)
+and [Russian guide](getting-started.ru.md) are the default entry points.
 
-It is organized by audience, from "comfortable with a terminal" to "double-click
-an app". Each level is independently shippable and raises the ceiling of who can
-use the tool.
+## Implemented in stage 1
 
-## Current barriers (baseline)
+- A dedicated desktop entry point opens a native window without `--desktop`.
+  The existing `camoufox-pm` CLI remains available for source/web deployments.
+- A writable OS data folder keeps the database, browser profiles and encryption
+  key outside the application bundle. A fresh desktop install generates a key;
+  an existing database with a missing key is not silently assigned a new one.
+- A private loopback server selects an available port. The launcher owns its
+  listening socket, rejects a second instance using the same data folder, and
+  shuts down the server and browser sessions when its window closes.
+- A dismissible setup banner installs the Camoufox browser in a background job
+  with visible status, progress, errors and retry; Settings offers **Retry download** for missing browser resources.
+- Empty states guide users to create their first profile. Fingerprint regeneration
+  and permanent deletion explain their consequences and ask for confirmation.
+- Profiles move to Trash before permanent deletion. Backups and restoration are
+  available in Settings; restoration creates a separate profile.
+- Update checks prepare a backup before linking to the official release downloads.
+  Users still download and install the package themselves.
+- Tag releases build macOS Apple Silicon/Intel DMGs, Windows x64 NSIS installers
+  and Linux x64 Debian/portable packages automatically. Manual builds remain
+  available. Signing runs conditionally when maintainers provide credentials.
 
-| Barrier | Impact on a non-technical user |
-| ------- | ------------------------------ |
-| Install uv, Python 3.10+, Node.js 20.9+ | Blocker — they won't know what these are |
-| Run the API and the web app as two separate processes | Blocker — two terminals, correct order |
-| `camoufox fetch` as a manual step | Confusing — silent failure if skipped |
-| Ports, `.env`, `API_PROXY_TARGET`, CORS | Blocker — env editing is not approachable |
-| No installer / binary — clone + build from source | Blocker |
-| The browser binary is large (~300 MB) and fetched separately | Slow first run, easy to misconfigure |
+The web UI is bundled with the backend. Neither Python, Node.js, two separate
+servers, `.env` edits nor a `camoufox fetch` command is needed for desktop users.
 
-The north star: **one download, one click, it just works — no terminal.**
+## Validation boundaries
 
----
+Build automation is an implementation, not proof that every installer runs on
+real hardware. See [release checks](releasing.md) for the target-system matrix.
+Signing/notarization could not be exercised without certificates. Unsigned builds
+can be blocked by OS policy and cannot yet promise a warning-free install.
 
-## Level 1 — One command (semi-technical users)
+Linux currently targets Ubuntu 22.04+ and compatible Debian x64. The Qt webview
+is bundled, while system graphics libraries remain dependencies. Other Linux
+distributions, AppImage, Windows ARM and Linux ARM are not currently packaged.
 
-**Audience:** people comfortable copy-pasting one command; power users.
-**Deliverable:** `docker compose up` starts everything.
+## Next work
 
-- Add a `Dockerfile` for the backend that fetches the Camoufox binary at build time.
-- Add a `docker-compose.yml` that runs the API and serves the built web UI on one
-  port (e.g. http://localhost:8000), with a persistent volume for the database.
-- Document a single quick-start: install Docker, run `docker compose up`, open the
-  printed URL.
+1. Verify fresh install, update, reinstall, backup restore and browser launch on
+   real macOS Intel/ARM, Windows and Linux machines, including downloaded/quarantined
+   artifacts. Capture current beginner screenshots after that verification.
+2. Configure and verify signing/notarization. Publish actual signing status and
+   supported OS versions with release assets.
+3. Add a verified installer download and a full app replacement/rollback mechanism
+   only after backup compatibility and signature verification are established.
+4. Translate the interface; documentation is English/Russian but UI controls remain
+   English. Add keyboard and screen-reader audits for dialogs and progress states.
+5. Add broader Linux distribution packaging once the supported package has been
+   exercised on real desktop systems.
 
-**Effort:** small. **Impact:** removes the Python/Node/uv toolchain entirely for
-anyone who has Docker. This is the highest ROI first step.
-
-**Open questions:** running a real browser inside a container needs Xvfb / the
-`headless="virtual"` Camoufox mode on Linux; document that launching browsers may
-require the host (or an X server) depending on the platform.
-
----
-
-## Level 2 — One process, no separate web server (developers → prosumers) ✅ shipped
-
-**Audience:** anyone who can run a single command or launcher script.
-**Deliverable:** the app is a single service that serves both the API and the UI.
-
-Status: the `camoufox-pm` console script runs the API and a Next.js **static
-export** on one port from FastAPI (same origin — no proxy/CORS), and each release
-attaches a wheel with the UI already built in, so `pip install` + one command
-works with no Node.js.
-
-- ✅ Build the web UI as a static export and serve it from FastAPI under `/`, so
-  there is only **one** server on one port.
-- ✅ A console entry point (`camoufox-pm`) that starts the server and opens the
-  browser automatically.
-- ✅ Ship the frontend build inside the published wheel.
-- Remaining: a first-run experience that creates the data directory and fetches
-  the browser with a progress bar, instead of leaving `camoufox fetch` as a
-  manual step. The Settings screen currently reports when the browser is
-  missing, which is a diagnosis rather than a fix.
-
-**Effort:** medium (build pipeline to embed the frontend; CI to produce the bundle).
-**Impact:** removes Node.js and the two-process dance for end users.
-
----
-
-## Level 3 — Double-click desktop app (non-technical users) 🚧 foundation shipped
-
-**Audience:** no terminal, no Docker — just an installer.
-**Deliverable:** signed installers for macOS (`.dmg`), Windows (`.exe`), Linux
-(`.AppImage`).
-
-Status: the foundation is in place and verified on macOS.
-
-- **Native window** — `camoufox-pm --desktop` runs the server and opens a native
-  window (pywebview; the `desktop` extra).
-- **Standalone binary** — `scripts/build_desktop.py` + `packaging/camoufox-pm.spec`
-  produce a PyInstaller bundle (and a macOS `.app`) that runs with no Python or
-  Node installed. The macOS `.app` is verified to serve the UI and API.
-- **CI** — `.github/workflows/desktop.yml` builds macOS/Windows/Linux bundles on
-  demand (all three are green) and can attach them to a release.
-
-Remaining (need maintainer resources, so not automated here):
-- **Code signing & notarization** — the workflow already has guarded signing steps
-  (Apple Developer ID + notarization for macOS, Authenticode for Windows); add the
-  secrets from [docs/signing.md](signing.md) to enable them. Without the secrets
-  the builds are unsigned and the OS warns users.
-- **Installers** — wrap the bundles as `.dmg` / `.exe` (NSIS) / `.AppImage`, and
-  verify the Windows/Linux builds on real hardware.
-- **Auto-update** — Sparkle (macOS) / a Windows updater, or a simple version check.
-- **Camoufox binary** — fetch it on first run with a visible progress UI (it is
-  intentionally not bundled).
-
-Two viable approaches:
-
-- **PyWebView / pywebview + PyInstaller:** wrap the FastAPI server + a native
-  webview window; package with PyInstaller. Lightest, reuses the existing stack.
-- **Tauri:** a Rust shell hosting the web UI, talking to a bundled backend. Smaller
-  binaries and good auto-update, but adds a Rust toolchain to the build.
-
-Requirements for this level:
-- Bundle or first-run-download the Camoufox binary with a visible progress UI.
-- A friendly first-run wizard: pick a data folder, optional proxy, done.
-- Auto-update (Sparkle / Tauri updater / a simple "new version" check).
-- Code signing / notarization so the OS doesn't warn users.
-- Release automation: GitHub Actions builds all three installers on tag and
-  attaches them to the Release.
-
-**Effort:** large. **Impact:** the actual "non-technical" unlock — users download
-one file and run it.
-
----
-
-## Cross-cutting improvements (help at every level)
-
-- ✅ **Onboarding & empty states:** shipped. Empty Profiles and Groups explain what
-  the thing is and offer a "Create your first profile" action.
-- **In-app guidance:** tooltips for fingerprint fields (what OS/timezone/WebRTC do),
-  a "Test fingerprint" button that opens a check page (e.g. a bot-detection test).
-- **No env editing:** the Settings screen now *reports* the effective configuration
-  (encryption, API key, bind address, database path, Camoufox availability) and
-  warns when secrets are unprotected. Editing those values in the UI still needs a
-  writable settings store; today they remain environment variables.
-- **Localization (i18n):** the codebase is English-only today; add a language
-  switcher (start with the languages of the core audience).
-- **Docs for non-developers:** a "Getting Started" page with screenshots and a short
-  screen-recording, separate from the developer `CONTRIBUTING` docs.
-- **Safer defaults:** encrypted proxy storage on by default (generate a key on first
-  run), localhost binding, clear warnings before exposing the app to a network.
-- **Guardrails:** friendly error messages (e.g. "Camoufox browser not found — click
-  to download") instead of stack traces.
-
----
-
-## Suggested order
-
-1. **Level 1 (Docker Compose)** — quick, unblocks power users immediately.
-2. **Onboarding/empty-state + in-app Settings** — improves everyone's experience and
-   is a prerequisite for a good desktop app.
-3. **Level 2 (single bundled service + `camoufox-pm` launcher)**.
-4. **Level 3 (desktop installers + auto-update)** — the largest effort, gated on the
-   single-service work from Level 2.
-
-Each step is worth shipping on its own; none blocks the current developer workflow.
+The Docker and CLI paths remain useful for advanced deployments; desktop users
+should start with the download guide.

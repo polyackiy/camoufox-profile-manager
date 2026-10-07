@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Camoufox Profile Manager
+Comment=Manage persistent Camoufox browser profiles
+Exec=camoufox-pm
+Icon=camoufox-pm
+Terminal=false
+Categories=Network;WebBrowser;

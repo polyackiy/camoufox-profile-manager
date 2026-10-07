@@ -279,7 +279,7 @@ async def update_profile(profile_id: str, request: ProfileUpdateRequest):
     response_model=ApiResponse[None],
     operation_id="delete_profile",
     summary="Delete a profile.",
-    description="Delete a profile and all associated data.",
+    description="Move a closed profile and its data to recoverable trash.",
 )
 async def delete_profile(profile_id: str):
     """Delete a profile."""
@@ -292,11 +292,11 @@ async def delete_profile(profile_id: str):
 
         logger.info(f"Deleted profile: ID {profile_id}")
 
-        return ApiResponse(
-            success=True, message=f"Profile {profile_id} deleted successfully", data=None
-        )
+        return ApiResponse(success=True, message=f"Profile {profile_id} moved to trash", data=None)
 
     except HTTPException:
+        raise
+    except ProfileLocked:
         raise
     except StaleWriteError:
         # Let it reach the app-level handler, which renders it as 409. The
@@ -382,6 +382,8 @@ async def clone_profile(profile_id: str, request: ProfileCloneRequest):
         # Without this the 404 raised above is caught by the handler below and
         # served as a 500: the client's own bad id reported as a server fault,
         # and a page for whoever watches the error rate.
+        raise
+    except ProfileLocked:
         raise
     except ValueError as e:
         # A missing source returns None above; a ValueError here is bad input

@@ -8,7 +8,7 @@
  * for the primary action and the running state. Everything else is greyscale so
  * a running browser is the only thing that draws the eye.
  *
- * Fonts are self-hosted by next/font (see layout.tsx) so the app works offline.
+ * Fonts are bundled from pinned Fontsource packages (see fonts.css) for offline use.
  */
 
 @theme {

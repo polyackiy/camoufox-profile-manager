@@ -94,7 +94,9 @@ def _copy_bounded(member: Any, handle: Any, budget: int) -> int:
         handle.write(chunk)
 
 
-def export_profile(profile: Profile, data_dir: Path, destination: Path) -> Path:
+def export_profile(
+    profile: Profile, data_dir: Path, destination: Path, *, strict: bool = False
+) -> Path:
     """Write ``profile`` and its browser data into a zip at ``destination``."""
     manifest = {
         "format_version": FORMAT_VERSION,
@@ -115,6 +117,8 @@ def export_profile(profile: Profile, data_dir: Path, destination: Path) -> Path:
 
         if data_dir.is_dir():
             for path in sorted(data_dir.rglob("*")):
+                if path.is_symlink():
+                    raise ValueError(f"Cannot archive symbolic link: {path.name}")
                 if not path.is_file():
                     continue
                 relative = path.relative_to(data_dir)
@@ -124,6 +128,8 @@ def export_profile(profile: Profile, data_dir: Path, destination: Path) -> Path:
                     archive.write(path, DATA_PREFIX + relative.as_posix())
                     written += 1
                 except OSError as exc:  # a file vanished or is locked
+                    if strict:
+                        raise
                     logger.warning(f"Skipped {relative} while exporting: {exc}")
 
     logger.info(f"Exported profile {profile.id} with {written} data files")

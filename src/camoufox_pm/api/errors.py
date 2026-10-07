@@ -22,6 +22,7 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from camoufox_pm.core.database import StaleWriteError
+from camoufox_pm.core.leases import ProfileLocked
 
 # Codes are keyed by status so a plain HTTPException still yields a stable,
 # machine-readable code without every raise site naming one.
@@ -79,6 +80,10 @@ def install_error_handlers(app: FastAPI) -> None:
             content=_payload(code, message, details),
             headers=getattr(exc, "headers", None),
         )
+
+    @app.exception_handler(ProfileLocked)
+    async def _profile_locked(request: Request, exc: ProfileLocked) -> JSONResponse:
+        return JSONResponse(status_code=409, content=_payload("conflict", str(exc)))
 
     @app.exception_handler(StaleWriteError)
     async def _stale_write(request: Request, exc: StaleWriteError) -> JSONResponse:

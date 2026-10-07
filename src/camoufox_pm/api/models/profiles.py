@@ -147,6 +147,7 @@ class ProfileResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     last_used: datetime | None
+    deleted_at: datetime | None = None
     # A short description of the pinned machine, not the stored config itself:
     # that is ~40 properties and tens of kilobytes, which nothing here needs.
     fingerprint: dict[str, Any] | None = Field(
@@ -193,6 +194,7 @@ class ProfileResponse(BaseModel):
             created_at=profile.created_at,
             updated_at=profile.updated_at,
             last_used=profile.last_used,
+            deleted_at=profile.deleted_at,
             fingerprint=fingerprint_store.summarize(
                 profile.fingerprint,
                 profile.browser_settings.os if profile.browser_settings else None,

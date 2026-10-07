@@ -23,6 +23,10 @@ from camoufox_pm.core.leases import lease_expired
 
 
 def main() -> None:
+    if "--desktop" in sys.argv[1:]:
+        from camoufox_pm.config import bootstrap_desktop
+
+        bootstrap_desktop()
     settings = get_settings()
     parser = argparse.ArgumentParser(
         prog="camoufox-pm",

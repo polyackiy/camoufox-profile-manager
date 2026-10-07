@@ -4,6 +4,9 @@ Guards the historic bug where ``BrowserSettings.to_camoufox_config()`` returned
 an empty dict, so geolocation/WebRTC/hardware settings never applied.
 """
 
+import pytest
+from pydantic import ValidationError
+
 from camoufox_pm.core.models import (
     BrowserSettings,
     Profile,
@@ -71,9 +74,9 @@ def test_window_tuple_from_width_height():
     assert p.to_camoufox_launch_options()["window"] == (1024, 768)
 
 
-def test_config_is_empty_when_nothing_set():
+def test_default_config_uses_desktop_browser_chrome():
     bs = BrowserSettings(os="macos")
-    assert bs.to_camoufox_config() == {}
+    assert bs.to_camoufox_config() == {"disableTheming": True, "showcursor": False}
 
 
 def test_launch_options_pass_high_level_params_and_config():
@@ -141,3 +144,12 @@ def test_launch_options_include_proxy():
     opts = p.to_camoufox_launch_options()
     assert opts["proxy"]["server"] == "http://1.2.3.4:8080"
     assert opts["proxy"]["username"] == "u"
+
+
+def test_camoufox_browser_chrome_is_an_explicit_choice():
+    assert BrowserSettings(browser_ui="camoufox").to_camoufox_config() == {"disableTheming": False}
+
+
+def test_invalid_browser_chrome_choice_is_rejected():
+    with pytest.raises(ValidationError):
+        BrowserSettings(browser_ui="unknown")

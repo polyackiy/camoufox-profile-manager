@@ -1,0 +1,14 @@
+/* Pinned Fontsource packages bundle the same IBM Plex faces and subsets locally.
+ * Every URL is emitted into the build; no Google request is needed to build or run.
+ * Licenses ship in public/fonts/ so exported desktop bundles retain attribution.
+ */
+@import "@fontsource/ibm-plex-sans/400.css";
+@import "@fontsource/ibm-plex-sans/500.css";
+@import "@fontsource/ibm-plex-sans/600.css";
+@import "@fontsource/ibm-plex-mono/400.css";
+@import "@fontsource/ibm-plex-mono/500.css";
+
+:root {
+  --font-plex-sans: "IBM Plex Sans";
+  --font-plex-mono: "IBM Plex Mono";
+}

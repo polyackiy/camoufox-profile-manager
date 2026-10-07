@@ -3,6 +3,24 @@
 This is a rough, non-binding plan. Priorities may change based on feedback.
 Track progress in [GitHub Issues](https://github.com/polyackiy/camoufox-profile-manager/issues).
 
+## Desktop adoption — current implementation
+
+Stage one now has native installers/build automation, in-app browser setup,
+short RU/EN onboarding, profile backups, Trash and backup-gated release checks.
+See [accessibility-roadmap.md](accessibility-roadmap.md) for remaining release
+acceptance checks, especially signing and real Windows/Linux first-run testing.
+An available build is not automatically a signed, published release.
+
+Manual browsing is part of this stage: use Camoufox's upstream theming toggle
+for ordinary tabs and controls, with a per-profile choice. See
+[browser-interface.md](browser-interface.md) for the implementation and policy
+for tracking upstream changes without maintaining an engine fork.
+
+Next priorities are proxy inventory, standard cookie import, reusable profile
+templates/extensions, and tags/saved filters. Team permissions and cross-device
+synchronisation require a separate design. In-place automatic application
+replacement remains separate from the implemented backup/download update flow.
+
 ## Since 0.2.0
 
 - The browser tests assert what a *page* sees, not what automation sees. Three

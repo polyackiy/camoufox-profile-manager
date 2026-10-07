@@ -98,6 +98,9 @@ class BrowserSettings(BaseModel):
     Camoufox cannot derive on its own are emitted via :meth:`to_camoufox_config`.
     """
 
+    # Browser chrome only; fingerprint and privacy settings remain independent.
+    browser_ui: Literal["desktop", "camoufox"] = "desktop"
+
     # Base settings
     os: str = "windows"  # windows, linux, macos
     screen: str = "1920x1080"
@@ -163,7 +166,9 @@ class BrowserSettings(BaseModel):
         own generator owns user-agent, WebGL, canvas and audio to keep the
         fingerprint internally consistent.
         """
-        config: dict[str, Any] = {}
+        config: dict[str, Any] = {"disableTheming": self.browser_ui == "desktop"}
+        if self.browser_ui == "desktop":
+            config["showcursor"] = False
         if self.geolocation:
             config["geolocation:latitude"] = self.geolocation["lat"]
             config["geolocation:longitude"] = self.geolocation["lon"]
@@ -228,6 +233,7 @@ class Profile(BaseModel):
     created_at: datetime = Field(default_factory=datetime.now)
     updated_at: datetime = Field(default_factory=datetime.now)
     last_used: datetime | None = None
+    deleted_at: datetime | None = None
 
     browser_settings: BrowserSettings = Field(default_factory=BrowserSettings)
     proxy: ProxyConfig | None = None
