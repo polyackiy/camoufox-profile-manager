@@ -14,6 +14,9 @@ concurrency:
   group: browser-compatibility-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   browser:
     name: Camoufox (${{ matrix.os }})
@@ -36,7 +39,9 @@ jobs:
           uv run playwright install-deps firefox
           sudo apt-get install -y xvfb libgl1-mesa-dri libegl1 mesa-utils
       - name: Install the upstream paired browser and resources
-        run: uv run camoufox fetch
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: uv run python scripts/install_ci_browser.py
       - name: Record the tested pair
         run: uv run camoufox version
       - name: Test real browsers against local synthetic sites (Linux)

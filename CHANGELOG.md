@@ -32,6 +32,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Documented coordinated manager/browser updates, complete installation
   checkpoints and safe rollback requirements in the update design.
 
+### Fixed
+- Preserve selected preset CPU identity and reconstruct all Windows fingerprint
+  configuration chunks instead of silently losing the pin.
+- Close cookie-store handles before atomic replacement on Windows, and omit
+  Firefox's root lock artifacts from portable archives without following links.
+- Preserve verified fingerprint-model resources and Playwright compatibility
+  metadata in desktop installers, including read-only installations.
+
 ## [0.6.0-rc.1] - 2026-10-07
 
 Desktop preview. Installers are unsigned; clean Windows/Linux installation and
