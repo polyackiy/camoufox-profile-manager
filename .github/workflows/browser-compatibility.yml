@@ -43,6 +43,9 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 35
     env:
+      # Bound a stuck SDK launch/close while allowing multi-launch workflows.
+      # Pytest 9.1 emits the current test and thread stacks before exiting.
+      PYTEST_ADDOPTS: -vv -o faulthandler_timeout=600 -o faulthandler_exit_on_timeout=true
       CPM_CANVAS_RASTER_MODE: ${{ inputs.raster_mode == 'text-probes' && 'default' || inputs.raster_mode || 'default' }}
       CPM_CANVAS_DIAGNOSTIC_DIR: canvas-diagnostics
       CPM_BROWSER_TARGET: ${{ inputs.suite == 'canvas' && 'tests/browser/test_fingerprint_stability.py::test_stable_canvas_survives_a_relaunch' || 'tests' }}
