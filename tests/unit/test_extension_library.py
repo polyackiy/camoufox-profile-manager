@@ -252,3 +252,43 @@ def test_localized_manifest_name_is_displayed_from_bounded_default_locale():
         validate_xpi(
             xpi(manifest_changes={"name": "__MSG_missing__", "default_locale": "../outside"})
         )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("tamper", ["code", "permissions", "extra"])
+async def test_forged_library_snapshot_is_not_trusted_or_reused(profile_manager, tamper):
+    library = ExtensionLibrary(profile_manager)
+    trusted_payload = xpi()
+    entry = await library.upload(trusted_payload)
+    profile = await profile_manager.create_profile("forged", generate_fingerprint=False)
+    saved = await library.assign(profile.id, [entry["id"]], profile.row_version)
+    loaded = await profile_manager.get_profile(profile.id)
+    target = Path(loaded.storage_path) / loaded.extensions[0]
+    if tamper == "code":
+        (target / "proof.js").write_text("foreignCode();")
+    elif tamper == "permissions":
+        manifest = json.loads((target / "manifest.json").read_text())
+        manifest["permissions"] = ["<all_urls>", "cookies"]
+        (target / "manifest.json").write_text(json.dumps(manifest))
+    else:
+        (target / "foreign.js").write_text("foreignCode();")
+    actual = await library.profile_extensions(profile.id)
+    assert actual["extensions"][0]["sha256"] != entry["sha256"]
+    if tamper == "permissions":
+        assert "cookies" in actual["extensions"][0]["permissions"]
+    with pytest.raises(ValueError, match="does not match"):
+        await library.assign(profile.id, [entry["id"]], saved["row_version"])
+    unchanged = await profile_manager.get_profile(profile.id)
+    assert unchanged.row_version == saved["row_version"]
+    assert target.exists()
+
+
+@pytest.mark.asyncio
+async def test_repacked_identical_snapshot_matches_and_reuses_library(profile_manager):
+    library = ExtensionLibrary(profile_manager)
+    entry = await library.upload(xpi(extra={"nested/asset.txt": "asset"}))
+    profile = await profile_manager.create_profile("same", generate_fingerprint=False)
+    saved = await library.assign(profile.id, [entry["id"]], profile.row_version)
+    assert saved["extensions"][0]["sha256"] == entry["sha256"]
+    again = await library.assign(profile.id, [entry["id"]], saved["row_version"])
+    assert again["extensions"][0]["sha256"] == entry["sha256"]

@@ -15,6 +15,7 @@ import unicodedata
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
+from types import SimpleNamespace
 
 from .archive_paths import portable_component
 from .database import StaleWriteError
@@ -261,6 +262,23 @@ def managed_default_exclusions(addon_paths: list[str]):
     return []
 
 
+def _content_digest(payload: bytes) -> str:
+    """Identify validated file contents independently of ZIP timestamps/compression."""
+    digest = hashlib.sha256()
+    with zipfile.ZipFile(io.BytesIO(payload)) as archive:
+        for entry in sorted(archive.infolist(), key=lambda item: item.filename):
+            if entry.is_dir():
+                continue
+            name = entry.filename.encode("utf-8")
+            digest.update(len(name).to_bytes(4, "big"))
+            digest.update(name)
+            digest.update(entry.file_size.to_bytes(8, "big"))
+            with archive.open(entry) as member:
+                while chunk := member.read(65536):
+                    digest.update(chunk)
+    return digest.hexdigest()
+
+
 def _install_snapshots(payloads: list[bytes], profile_dir: Path) -> tuple[list[str], list[Path]]:
     if len(payloads) > MAX_PROFILE_ADDONS:
         raise ValueError("Select at most 16 extensions")
@@ -281,7 +299,15 @@ def _install_snapshots(payloads: list[bytes], profile_dir: Path) -> tuple[list[s
             target = profile_dir / ref
             if target.is_symlink():
                 raise ValueError("Profile extension snapshot cannot be a symbolic link")
-            if not target.exists():
+            if target.exists():
+                existing = profile_extension_payloads(
+                    SimpleNamespace(extensions=[ref]), profile_dir
+                )[0]
+                if _content_digest(existing) != _content_digest(payload):
+                    raise ValueError(
+                        "Existing extension snapshot does not match selected extension"
+                    )
+            else:
                 temporary = Path(tempfile.mkdtemp(prefix=".install-", dir=parent))
                 try:
                     _extract(payload, temporary)
@@ -412,13 +438,23 @@ class ExtensionLibrary:
         payloads = await run_file_operation(
             profile_extension_payloads, profile, profile_data_path(self.manager, profile)
         )
-        return {
-            "row_version": profile.row_version,
-            "extensions": [
-                {**validate_xpi(payload), "id": ref, "sha256": ref.rsplit("/", 1)[-1]}
-                for ref, payload in zip(profile.extensions, payloads, strict=True)
-            ],
-        }
+        extensions = []
+        for ref, payload in zip(profile.extensions, payloads, strict=True):
+            metadata = validate_xpi(payload)
+            claimed_sha = ref.rsplit("/", 1)[-1]
+            row = self.connection.execute(
+                "SELECT xpi FROM extension_library WHERE sha256=?", (claimed_sha,)
+            ).fetchone()
+            if row is not None:
+                matches = await run_file_operation(
+                    lambda actual, expected: _content_digest(actual) == _content_digest(expected),
+                    payload,
+                    bytes(row["xpi"]),
+                )
+                if matches:
+                    metadata["sha256"] = claimed_sha
+            extensions.append({**metadata, "id": ref})
+        return {"row_version": profile.row_version, "extensions": extensions}
 
     async def assign(self, profile_id, extension_ids, row_version, retained_refs=None):
         return await self.assign_payloads(
