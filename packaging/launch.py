@@ -6,6 +6,7 @@ if __name__ == "__main__":
 
     freeze_support()
 
-    from camoufox_pm.desktop import main
+    from camoufox_pm.desktop import finish_packaged_desktop, main
 
     main()
+    finish_packaged_desktop()

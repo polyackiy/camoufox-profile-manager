@@ -16,10 +16,33 @@ def test_normal_entry_dispatches_freeze_support_before_desktop(monkeypatch):
     events = []
     monkeypatch.setattr(multiprocessing, "freeze_support", lambda: events.append("dispatch"))
     monkeypatch.setitem(
-        sys.modules, "camoufox_pm.desktop", SimpleNamespace(main=lambda: events.append("desktop"))
+        sys.modules,
+        "camoufox_pm.desktop",
+        SimpleNamespace(
+            main=lambda: events.append("desktop"),
+            finish_packaged_desktop=lambda: events.append("finish"),
+        ),
     )
     runpy.run_path(str(ENTRY_POINT), run_name="__main__")
-    assert events == ["dispatch", "desktop"]
+    assert events == ["dispatch", "desktop", "finish"]
+
+
+def test_failed_desktop_never_takes_successful_process_exit(monkeypatch):
+    monkeypatch.setattr(multiprocessing, "freeze_support", lambda: None)
+    finished = []
+
+    def fail():
+        raise SystemExit(1)
+
+    monkeypatch.setitem(
+        sys.modules,
+        "camoufox_pm.desktop",
+        SimpleNamespace(main=fail, finish_packaged_desktop=lambda: finished.append(True)),
+    )
+    with pytest.raises(SystemExit) as result:
+        runpy.run_path(str(ENTRY_POINT), run_name="__main__")
+    assert result.value.code == 1
+    assert finished == []
 
 
 @pytest.mark.parametrize(
