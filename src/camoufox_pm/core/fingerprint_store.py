@@ -176,10 +176,30 @@ def resolve(launch_options: dict[str, Any], preset: dict[str, Any] | None = None
     constraints["geoip"] = False
     if preset is not None:
         constraints["fingerprint_preset"] = preset
+        # The selected device is the identity, not a suggestion to regenerate
+        # its CPU from this host. Camoufox 0.5.8 otherwise replaces a preset's
+        # count with host parallelism (including rounding a two-core host to
+        # four). Mark it explicit before resolution, as replaying a pin already
+        # does on subsequent launches. An explicit profile override still wins.
+        cores = preset.get("navigator", {}).get("hardwareConcurrency")
+        if isinstance(cores, int) and not isinstance(cores, bool) and cores > 0:
+            config = dict(constraints.get("config") or {})
+            config.setdefault("navigator.hardwareConcurrency", cores)
+            constraints["config"] = config
 
     try:
         resolved = camoufox_launch_options(**constraints)
-        config = json.loads(resolved["env"]["CAMOU_CONFIG_1"])
+        # Windows limits each chunk to 2047 characters; fonts and WebGL data
+        # commonly span several chunks. Reassemble the entire config in numeric
+        # order, matching the browser, before freezing any identity properties.
+        chunks = sorted(
+            (int(match[1]), value)
+            for key, value in resolved["env"].items()
+            if (match := re.fullmatch(r"CAMOU_CONFIG_([1-9][0-9]*)", key))
+        )
+        if [number for number, _ in chunks] != list(range(1, len(chunks) + 1)) or not chunks:
+            raise ValueError("The resolved fingerprint configuration is incomplete")
+        config = json.loads("".join(value for _, value in chunks))
     except Exception as exc:  # noqa: BLE001 - never block a launch over this
         logger.warning(f"Could not resolve a fingerprint to pin: {exc}")
         return {}

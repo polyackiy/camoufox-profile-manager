@@ -62,15 +62,22 @@ _DISPOSABLE = frozenset(
         "saved-telemetry-pings",
         "security_state",
         "sessionstore-backups",
-        "lock",
-        ".parentlock",
     }
 )
 
 
+# Firefox uses a symlink named lock on Unix, and normal lock files on other
+# platforms. These exact root entries are ephemeral, never browser data.
+_PROFILE_LOCKS = frozenset({"lock", ".parentlock", "parent.lock"})
+
+
 def _should_skip(relative: Path) -> bool:
     """Skip disposable caches and the lock files of a running browser."""
-    return any(part in _DISPOSABLE for part in relative.parts)
+    # Nested extension/site assets may legitimately have cache or lock names.
+    return bool(relative.parts) and (
+        relative.parts[0] in _DISPOSABLE
+        or (len(relative.parts) == 1 and relative.name in _PROFILE_LOCKS)
+    )
 
 
 def _copy_bounded(member: Any, handle: Any, budget: int) -> int:
@@ -119,11 +126,15 @@ def export_profile(
 
         if data_dir.is_dir():
             for path in sorted(data_dir.rglob("*")):
+                relative = path.relative_to(data_dir)
+                # Do not stat/follow/read the Unix Firefox lock symlink. Only
+                # exact root lock artifacts are exempt from symlink rejection.
+                if len(relative.parts) == 1 and relative.name in _PROFILE_LOCKS:
+                    continue
                 if path.is_symlink():
                     raise ValueError(f"Cannot archive symbolic link: {path.name}")
                 if not path.is_file():
                     continue
-                relative = path.relative_to(data_dir)
                 if _should_skip(relative):
                     continue
                 try:

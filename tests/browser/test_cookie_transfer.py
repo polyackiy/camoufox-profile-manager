@@ -41,7 +41,14 @@ def cookie_site():
 
 
 async def launch_page(manager, profile_id, url):
-    await manager.launch_browser(profile_id, headless=True, geoip="8.8.8.8")
+    await manager.launch_browser(
+        profile_id,
+        headless=True,
+        geoip="8.8.8.8",
+        # Synthetic DNS names resolve to our loopback HTTP server. A domain
+        # cookie for single-label localhost is invalid in Firefox.
+        firefox_user_prefs={"network.dns.localDomains": "cookie.test,sub.cookie.test"},
+    )
     context = manager.browser_sessions.active_sessions[profile_id].camoufox.browser
     page = await context.new_page()
     await page.goto(url, wait_until="domcontentloaded", timeout=20000)
@@ -57,7 +64,7 @@ async def test_cookie_import_is_sent_with_scope_flags_and_sessions_end_on_close(
     expiry = int(time.time()) + 7200
     base = {
         "value": "synthetic",
-        "domain": "localhost",
+        "domain": "cookie.test",
         "path": "/",
         "expires": expiry,
         "httpOnly": False,
@@ -66,7 +73,7 @@ async def test_cookie_import_is_sent_with_scope_flags_and_sessions_end_on_close(
     }
     records = [
         {**base, "name": "host-proof"},
-        {**base, "name": "domain-proof", "domain": ".localhost"},
+        {**base, "name": "domain-proof", "domain": ".cookie.test"},
         {**base, "name": "path-proof", "path": "/restricted", "sameSite": "Strict"},
         {**base, "name": "http-only-proof", "httpOnly": True, "sameSite": "Strict"},
         {**base, "name": "secure-proof", "secure": True, "sameSite": "None"},
@@ -80,11 +87,11 @@ async def test_cookie_import_is_sent_with_scope_flags_and_sessions_end_on_close(
     assert len(parse_cookies(portable, "json").cookies) == 6
     # Export did not consume deferred sessions on the original profile.
     with cookie_site() as (port, observed):
-        context, page = await launch_page(manager, profile.id, f"http://localhost:{port}/")
+        context, page = await launch_page(manager, profile.id, f"http://cookie.test:{port}/")
         try:
             stored = {cookie["name"]: cookie for cookie in await context.cookies()}
-            assert stored["host-proof"]["domain"] == "localhost"
-            assert stored["domain-proof"]["domain"] == ".localhost"
+            assert stored["host-proof"]["domain"] == "cookie.test"
+            assert stored["domain-proof"]["domain"] == ".cookie.test"
             assert stored["path-proof"]["path"] == "/restricted"
             assert stored["path-proof"]["sameSite"] == "Strict"
             assert stored["http-only-proof"]["httpOnly"] is True
@@ -102,7 +109,7 @@ async def test_cookie_import_is_sent_with_scope_flags_and_sessions_end_on_close(
             document = await page.evaluate("document.cookie")
             assert "host-proof=synthetic" in document and "http-only-proof=" not in document
             await page.goto(
-                f"http://localhost:{port}/restricted/proof",
+                f"http://cookie.test:{port}/restricted/proof",
                 wait_until="domcontentloaded",
                 timeout=20000,
             )
@@ -112,7 +119,7 @@ async def test_cookie_import_is_sent_with_scope_flags_and_sessions_end_on_close(
             # Fulfill a synthetic subdomain locally before DNS/network. Browser
             # domain matching still runs against the subdomain document origin.
             await context.route(
-                f"http://sub.localhost:{port}/**",
+                f"http://sub.cookie.test:{port}/**",
                 lambda route: route.fulfill(
                     status=200,
                     content_type="text/html",
@@ -120,7 +127,7 @@ async def test_cookie_import_is_sent_with_scope_flags_and_sessions_end_on_close(
                 ),
             )
             await page.goto(
-                f"http://sub.localhost:{port}/", wait_until="domcontentloaded", timeout=20000
+                f"http://sub.cookie.test:{port}/", wait_until="domcontentloaded", timeout=20000
             )
             subdomain = await page.evaluate("document.cookie")
             assert "domain-proof=synthetic" in subdomain and "host-proof=" not in subdomain
@@ -129,7 +136,7 @@ async def test_cookie_import_is_sent_with_scope_flags_and_sessions_end_on_close(
         # Acknowledged imported session state is excluded from portable exports.
         exported_after = await transfer.export_cookies(profile.id, "json", imported["row_version"])
         assert "session-proof" not in {cookie["name"] for cookie in json.loads(exported_after)}
-        context, _ = await launch_page(manager, profile.id, f"http://localhost:{port}/")
+        context, _ = await launch_page(manager, profile.id, f"http://cookie.test:{port}/")
         try:
             names = {cookie["name"] for cookie in await context.cookies()}
             assert "host-proof" in names and "session-proof" not in names

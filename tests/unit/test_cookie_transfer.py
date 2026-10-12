@@ -44,6 +44,8 @@ COOKIE = {
         {"originAttributes": "secret"},
         {"storeId": "firefox-container-1"},
         {"domain": "127.0.0.1", "hostOnly": False},
+        {"domain": ".localhost"},
+        {"domain": "localhost", "hostOnly": False},
         {"value": "\ud800"},
         {"path": "/\ud800"},
     ],
@@ -128,7 +130,7 @@ def test_json_and_netscape_roundtrip_and_httponly_session_flags():
         {
             **COOKIE,
             "name": "session",
-            "domain": ".localhost",
+            "domain": ".example.test",
             "expires": -1,
             "sameSite": "Lax",
             "httpOnly": True,
@@ -138,9 +140,9 @@ def test_json_and_netscape_roundtrip_and_httponly_session_flags():
         text = ct.serialize_cookies(cookies, format)
         normalized = ct.parse_cookies(text, format, now=0).cookies
         assert normalized[0]["httpOnly"]
-        assert normalized[1]["domain"] == ".localhost" and normalized[1]["expires"] == -1
+        assert normalized[1]["domain"] == ".example.test" and normalized[1]["expires"] == -1
         assert normalized[0]["value"] == SECRET
-    assert "#HttpOnly_.localhost\tTRUE" in ct.serialize_cookies(cookies, "netscape")
+    assert "#HttpOnly_.example.test\tTRUE" in ct.serialize_cookies(cookies, "netscape")
 
 
 @pytest.mark.parametrize(
@@ -277,9 +279,42 @@ def test_pending_handoff_survives_interruption_until_durable_ack(tmp_path):
     assert ct._read_pending(database)["nonce"] != persisted["nonce"]
     with sqlite3.connect(database) as connection:
         connection.execute("UPDATE cpm_cookie_transfer SET payload = ?", ('{"cookies":"secret"}',))
+    connection.close()
     with pytest.raises(ct.CookieTransferError) as failure:
         ct.take_pending_cookies(tmp_path)
     assert "secret" not in str(failure.value)
+
+
+def test_offline_sqlite_handles_close_before_publication_and_after_validation_error(
+    tmp_path, monkeypatch
+):
+    # SQLite's transaction context manager does not close the handle. Retain
+    # strong references so this test cannot pass through garbage collection;
+    # leaked handles prevent replacement and temporary cleanup on Windows.
+    connect = sqlite3.connect
+    opened = []
+
+    def tracked_connect(*args, **kwargs):
+        connection = connect(*args, **kwargs)
+        opened.append(connection)
+        return connection
+
+    monkeypatch.setattr(ct.sqlite3, "connect", tracked_connect)
+    source, candidate, target = (tmp_path / name for name in ("source", "candidate", "target"))
+    ct._set_pending(source, {"replace": False, "cookies": [{**COOKIE, "expires": -1}]})
+    pending = ct._read_pending(source)
+    ct._copy_store(source, candidate)
+    ct._set_pending(target, None)
+    ct._publish_store(candidate, target)
+    assert ct._read_pending(target) == pending
+    with connect(target) as invalid:
+        invalid.execute("UPDATE cpm_cookie_transfer SET payload='invalid'")
+    invalid.close()
+    with pytest.raises(ct.CookieTransferError):
+        ct._read_pending(target)
+    for connection in opened:
+        with pytest.raises(sqlite3.ProgrammingError, match="closed database"):
+            connection.execute("SELECT 1")
 
 
 @pytest.mark.asyncio

@@ -344,3 +344,85 @@ class TestAppVersion:
         fingerprint_store._fill_app_version(pin)
 
         assert "navigator.appVersion" not in pin
+
+
+@pytest.mark.parametrize("selected_cores", [2, 8, 32])
+def test_resolve_marks_selected_preset_cpu_explicit_before_host_correction(
+    monkeypatch, selected_cores
+):
+    import json
+
+    from camoufox import utils
+
+    original = {"screen.width": 1920}
+    preset = {"navigator": {"hardwareConcurrency": selected_cores}}
+
+    def resolve_options(**options):
+        assert options["fingerprint_preset"] is preset
+        assert options["config"] is not original
+        # The wrapper's automatic host normalization only exempts an explicit
+        # navigator config. Preserve the selected device before it runs.
+        assert options["config"]["navigator.hardwareConcurrency"] == selected_cores
+        return {"env": {"CAMOU_CONFIG_1": json.dumps(options["config"])}}
+
+    monkeypatch.setattr(utils, "launch_options", resolve_options)
+    pinned = fingerprint_store.resolve({"config": original}, preset=preset)
+    assert pinned["navigator.hardwareConcurrency"] == selected_cores
+    assert original == {"screen.width": 1920}
+
+
+def test_resolve_preserves_explicit_profile_cpu_override_over_selected_preset(monkeypatch):
+    import json
+
+    from camoufox import utils
+
+    original = {"navigator.hardwareConcurrency": 16}
+
+    def resolve_options(**options):
+        assert options["config"]["navigator.hardwareConcurrency"] == 16
+        assert options["config"] is not original
+        return {"env": {"CAMOU_CONFIG_1": json.dumps(options["config"])}}
+
+    monkeypatch.setattr(utils, "launch_options", resolve_options)
+    pinned = fingerprint_store.resolve(
+        {"config": original}, preset={"navigator": {"hardwareConcurrency": 2}}
+    )
+    assert pinned["navigator.hardwareConcurrency"] == 16
+    assert original == {"navigator.hardwareConcurrency": 16}
+
+
+@pytest.mark.parametrize("chunk_size", [2047, 32767])
+def test_resolve_reassembles_all_browser_config_chunks_in_numeric_order(monkeypatch, chunk_size):
+    import json
+
+    from camoufox import utils
+
+    # This identity spans at least ten Windows chunks; sorting string keys would
+    # move chunk10 before chunk2. Unicode bytes/escaped strings can cross chunks.
+    config = {
+        **RESOLVED,
+        "navigator.appVersion": "5.0 (Windows)",
+        "fonts": [f"Synthetic font {index} — 中文" for index in range(1500)],
+    }
+    serialized = json.dumps(config, ensure_ascii=True)
+    chunks = {
+        f"CAMOU_CONFIG_{index // chunk_size + 1}": serialized[index : index + chunk_size]
+        for index in range(0, len(serialized), chunk_size)
+    }
+    assert len(chunks) >= (10 if chunk_size == 2047 else 2)
+    env = {"DISPLAY": ":99", **dict(reversed(list(chunks.items())))}
+    monkeypatch.setattr(utils, "launch_options", lambda **options: {"env": env})
+    pinned = fingerprint_store.resolve({})
+    assert pinned == fingerprint_store.freeze(config)
+    assert pinned["fonts"][-1] == config["fonts"][-1]
+
+
+@pytest.mark.parametrize(
+    "env",
+    [{}, {"CAMOU_CONFIG_2": "{}"}, {"CAMOU_CONFIG_1": "{", "CAMOU_CONFIG_3": "}"}],
+)
+def test_resolve_never_pins_an_incomplete_chunked_identity(monkeypatch, env):
+    from camoufox import utils
+
+    monkeypatch.setattr(utils, "launch_options", lambda **options: {"env": env})
+    assert fingerprint_store.resolve({}) == {}

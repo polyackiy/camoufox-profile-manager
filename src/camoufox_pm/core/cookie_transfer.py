@@ -16,6 +16,7 @@ import sqlite3
 import tempfile
 import time
 import uuid
+from contextlib import closing
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -132,6 +133,8 @@ def _normalize(item: Any, row: int) -> dict[str, Any]:
     host_only = _boolean(item.get("hostOnly", not domain.startswith(".")), row)
     domain = domain.lstrip(".") if host_only else "." + domain.lstrip(".")
     if not host_only:
+        if "." not in domain.lstrip("."):
+            _fail(row, "Single-label cookie domains must be host-only")
         try:
             ipaddress.ip_address(domain.lstrip("."))
         except ValueError:
@@ -303,7 +306,7 @@ def _read_pending(
         return None
     if database.is_symlink():
         raise CookieTransferError("Cookie storage must not be a symbolic link")
-    with sqlite3.connect(database) as connection:
+    with closing(sqlite3.connect(database)) as connection:
         exists = connection.execute(
             "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (_PENDING_TABLE,)
         ).fetchone()
@@ -339,7 +342,7 @@ def _read_pending(
 
 
 def _set_pending(database: Path, payload: dict | None, *, checkpoint: bool = True):
-    with sqlite3.connect(database) as connection:
+    with closing(sqlite3.connect(database)) as connection:
         connection.execute(
             f"CREATE TABLE IF NOT EXISTS {_PENDING_TABLE} (id INTEGER PRIMARY KEY CHECK(id=1), payload TEXT NOT NULL)"
         )
@@ -362,8 +365,8 @@ def _copy_store(source: Path, destination: Path):
     if source.is_symlink():
         raise CookieTransferError("Cookie storage must not be a symbolic link")
     if source.exists():
-        with sqlite3.connect(source.resolve().as_uri() + "?mode=ro", uri=True) as original:
-            with sqlite3.connect(destination) as target:
+        with closing(sqlite3.connect(source.resolve().as_uri() + "?mode=ro", uri=True)) as original:
+            with closing(sqlite3.connect(destination)) as target:
                 original.backup(target)
 
 
@@ -371,7 +374,7 @@ def _publish_store(candidate: Path, target: Path):
     if target.is_symlink():
         raise CookieTransferError("Cookie storage must not be a symbolic link")
     if target.exists():
-        with sqlite3.connect(target, timeout=5) as existing:
+        with closing(sqlite3.connect(target, timeout=5)) as existing:
             if existing.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()[0]:
                 raise CookieTransferError("Cookie storage is busy; close the browser and retry")
             existing.execute("PRAGMA journal_mode=DELETE")

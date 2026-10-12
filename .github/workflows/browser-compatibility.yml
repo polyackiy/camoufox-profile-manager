@@ -32,12 +32,22 @@ jobs:
         run: uv sync --locked --extra dev --python 3.12
       - name: Install Linux browser libraries
         if: runner.os == 'Linux'
-        run: uv run playwright install-deps firefox
+        run: |
+          uv run playwright install-deps firefox
+          sudo apt-get install -y xvfb libgl1-mesa-dri libegl1 mesa-utils
       - name: Install the upstream paired browser and resources
         run: uv run camoufox fetch
       - name: Record the tested pair
         run: uv run camoufox version
+      - name: Test real browsers against local synthetic sites (Linux)
+        if: runner.os == 'Linux'
+        env:
+          LIBGL_ALWAYS_SOFTWARE: '1'
+        # Even headless Firefox needs a display-backed software GL context for
+        # the hardware identity assertions, as in upstream Camoufox CI.
+        run: xvfb-run -a uv run pytest -m browser --no-network --junitxml=browser-results.xml
       - name: Test real browsers against local synthetic sites
+        if: runner.os != 'Linux'
         run: uv run pytest -m browser --no-network --junitxml=browser-results.xml
       - name: Upload test results
         if: always()

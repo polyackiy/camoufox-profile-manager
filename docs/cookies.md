@@ -44,7 +44,7 @@ Example JSON (synthetic values only):
     "value": "synthetic-value",
     "domain": "localhost",
     "path": "/",
-    "expires": 2000000000,
+    "expires": 1800000000,
     "httpOnly": true,
     "secure": false,
     "sameSite": "Strict"
@@ -53,17 +53,21 @@ Example JSON (synthetic values only):
 ```
 
 A leading dot in `domain` allows subdomains; a domain without that dot is
-host-only. An explicit `hostOnly` field takes precedence. `expirationDate` is
+host-only. Single-label names such as `localhost` must be host-only; Firefox
+[rejects them as domain cookies](https://searchfox.org/firefox-main/source/netwerk/cookie/CookieCommons.cpp).
+An explicit `hostOnly` field takes precedence. `expirationDate` is
 accepted as an alias for `expires`. Set `expires` to `-1`, omit expiry, or use
 `session: true` for a session cookie. `sameSite` accepts Strict, Lax, None, and
 EditThisCookie's `no_restriction`/`unspecified` spellings. SameSite=None requires
 Secure. The `__Secure-` and `__Host-` prefix rules are validated.
+Playwright's `url` form is also accepted: the URL supplies the host, its directory
+path, and the Secure flag for HTTPS. Supply either `url` or `domain`/`path`.
 
 Netscape rows contain seven tab-separated columns:
 
 ```text
 # Netscape HTTP Cookie File
-#HttpOnly_localhost	FALSE	/	FALSE	2000000000	example_token	synthetic-value
+#HttpOnly_localhost	FALSE	/	FALSE	1800000000	example_token	synthetic-value
 localhost	FALSE	/	FALSE	0	example_session	synthetic-value
 ```
 
@@ -71,6 +75,12 @@ Expiry timestamps use Unix **seconds**, not milliseconds. Netscape expiry `0`
 means a session cookie. Expired cookies are reported as skipped. When the input
 contains duplicate name/domain/path combinations, the last nonexpired entry
 wins and earlier entries are reported as skipped.
+
+Replace sample persistent timestamps with a future timestamp within the installed
+browser's expiry limit. Firefox's default client-side lifetime cap is
+[400 days](https://searchfox.org/firefox-main/source/modules/libpref/init/StaticPrefList.yaml).
+If the browser clamps or rejects a requested cookie attribute, the whole import
+is rejected before publication; the original profile cookie store is preserved.
 
 Transfers are bounded to 2 MiB, 10000 cookies, and 4096 UTF-8 bytes per combined
 cookie name/value. Invalid flags, cookie prefixes, domains, paths, expiries,
