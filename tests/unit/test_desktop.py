@@ -195,3 +195,10 @@ def test_native_quit_is_cancelled_while_server_is_still_running():
     assert desktop._stop_server(server, thread) is False
     assert server.should_exit
     assert server.force_exit
+
+
+def test_forced_server_exit_cannot_authorize_successful_native_quit():
+    server = SimpleNamespace(should_exit=False, force_exit=False)
+    thread = SimpleNamespace(join=Mock(), is_alive=Mock(side_effect=[True, False]))
+    assert desktop._stop_server(server, thread) is False
+    assert server.force_exit

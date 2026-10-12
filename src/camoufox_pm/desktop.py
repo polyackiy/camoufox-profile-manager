@@ -72,7 +72,9 @@ def _stop_server(server: uvicorn.Server, thread: threading.Thread) -> bool:
     if thread.is_alive():
         server.force_exit = True
         thread.join(timeout=3)
-    return not thread.is_alive()
+    # Uvicorn's force-exit path can skip lifespan cleanup. A stopped thread
+    # alone is not enough to authorize the successful packaged-process exit.
+    return not thread.is_alive() and not server.force_exit
 
 
 def run_desktop(
