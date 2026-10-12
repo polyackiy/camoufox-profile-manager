@@ -103,6 +103,11 @@ OIDC rather than a PyPI API token. Desktop installation does not require PyPI.
 - [Clean-system acceptance #62](https://github.com/polyackiy/camoufox-profile-manager/issues/62)
 - [Verified automatic updates #63](https://github.com/polyackiy/camoufox-profile-manager/issues/63) (later work)
 
+Use the [desktop acceptance protocol and recorded preview evidence](desktop-acceptance.md)
+for #61/#62. The [automatic updater proposal](automatic-updates.md) maps #63 to
+authentication, whole-installation checkpoints and interrupted-update recovery;
+it does not describe shipped behavior.
+
 Prerelease tags are excluded from the optional PyPI publish job. The application's
 stable update checker also intentionally excludes prereleases; preview testers
 download them explicitly from GitHub.
