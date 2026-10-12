@@ -193,7 +193,10 @@ async def test_backup_paths_and_symbolic_links_cannot_escape_storage(profile_man
 
 
 @pytest.mark.asyncio
-async def test_cancelled_backup_keeps_lease_until_io_finishes(profile_manager, monkeypatch):
+@pytest.mark.parametrize("cancellations", [1, 3])
+async def test_cancelled_backup_keeps_lease_until_io_finishes(
+    profile_manager, monkeypatch, cancellations
+):
     profile, _ = await seeded(profile_manager)
     backups = ProfileBackupManager(profile_manager)
     started, finish = threading.Event(), threading.Event()
@@ -208,9 +211,10 @@ async def test_cancelled_backup_keeps_lease_until_io_finishes(profile_manager, m
     task = asyncio.create_task(backups.create_backups())
     while not started.is_set():
         await asyncio.sleep(0.005)
-    task.cancel()
-    await asyncio.sleep(0.01)
-    assert not await profile_manager.storage.acquire_lease(profile.id, "racing-launch", 300)
+    for _ in range(cancellations):
+        task.cancel()
+        await asyncio.sleep(0.01)
+        assert not await profile_manager.storage.acquire_lease(profile.id, "racing-launch", 300)
     finish.set()
     with pytest.raises(asyncio.CancelledError):
         await task

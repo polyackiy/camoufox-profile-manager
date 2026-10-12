@@ -8,7 +8,13 @@ compare what a site would actually observe.
 Run with:  uv run pytest -m browser
 """
 
+import base64
 import hashlib
+import json
+import os
+import re
+import shutil
+from pathlib import Path
 
 import pytest
 from camoufox import AsyncCamoufox
@@ -122,7 +128,164 @@ CANVAS = """() => {
 }"""
 
 
-async def read_canvases(options, user_data_dir, *urls):
+# Preserve the PNG read itself exactly; collect raw pixels and font metrics only
+# for the restart failure diagnostic. Never print the image or complete config.
+CANVAS_DIAGNOSTIC = CANVAS.replace(
+    "return c.toDataURL();",
+    """const value = c.toDataURL();
+  const fontStatus = document.fonts.status;
+  const fontAvailable = document.fonts.check('16px Arial');
+  const m = x.measureText('canvas probe');
+  const metrics = {width: m.width, left: m.actualBoundingBoxLeft,
+    right: m.actualBoundingBoxRight, ascent: m.actualBoundingBoxAscent,
+    descent: m.actualBoundingBoxDescent};
+  const pixelBytes = x.getImageData(0, 0, c.width, c.height).data;
+  // Keep hashing in JS: Gecko's isolated world wraps typed arrays as Xrays,
+  // which crypto.subtle.digest cannot consume as a native BufferSource.
+  let h = 2166136261;
+  for (let i = 0; i < pixelBytes.length; i++) h = Math.imul(h ^ pixelBytes[i], 16777619) >>> 0;
+  const pixelHash = h.toString(16).padStart(8, '0');
+  return {value, pixelHash, fontStatus, fontAvailable, metrics,
+    dpr: devicePixelRatio, font: x.font, colorSpace: x.getContextAttributes?.().colorSpace ?? null};""",
+)
+
+
+def canvas_launch_diagnostic(options, snapshot, png_hash):
+    """Bounded synthetic diagnostics: hashes instead of fonts/config/images."""
+    config = options.get("config", {})
+
+    def digest(value):
+        return hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()[:16]
+
+    return {
+        "pngHash": png_hash,
+        **{key: value for key, value in snapshot.items() if key != "value"},
+        "configHash": digest(config),
+        "configKeyHashes": {key[:80]: digest(config[key]) for key in sorted(config)[:64]},
+        "baselineProtection": options.get("firefox_user_prefs", {}).get(
+            "privacy.baselineFingerprintingProtection"
+        ),
+        "rasterPrefs": {
+            key: value
+            for key, value in options.get("firefox_user_prefs", {}).items()
+            if key
+            in {
+                "gfx.canvas.azure.backends",
+                "gfx.canvas.accelerated",
+                "gfx.font_rendering.cleartype_params.rendering_mode",
+                "gfx.font_rendering.cleartype_params.force_gdi_classic_for_families",
+                "gfx.font_rendering.cleartype_params.force_gdi_classic_max_size",
+            }
+        },
+    }
+
+
+def canvas_profile_diagnostic(directory):
+    """Inspect only renderer preferences and named caches of this test profile."""
+    directory = Path(directory)
+    prefs = {}
+    prefs_file = directory / "prefs.js"
+    pref_files = {
+        name: {"bytes": (directory / name).stat().st_size}
+        for name in ("prefs.js", "user.js", "prefs.js.playwright")
+        if (directory / name).is_file()
+    }
+    if prefs_file.is_file() and prefs_file.stat().st_size <= 2_000_000:
+        for line in prefs_file.read_text(encoding="utf-8", errors="replace").splitlines():
+            match = re.fullmatch(r'user_pref\("([^"\\]+)", (.+)\);', line.strip())
+            if not match:
+                continue
+            key = match[1]
+            if not key.startswith(("gfx.", "font.")) and key not in {
+                "privacy.baselineFingerprintingProtection",
+                "privacy.resistFingerprinting",
+                "privacy.fingerprintingProtection",
+            }:
+                continue
+            try:
+                value = json.loads(match[2])
+            except ValueError:
+                continue
+            if isinstance(value, str):
+                # Font-family lists are useful; paths, URLs and unbounded text
+                # are not. Hash those rather than publishing their content.
+                if len(value) > 200 or "/" in value or "\\" in value or ":" in value:
+                    value = {"sha256": hashlib.sha256(value.encode()).hexdigest()[:16]}
+            elif not isinstance(value, (bool, int, float, type(None))):
+                continue
+            prefs[key] = value
+    caches = {}
+    for name in ("startupCache", "shader-cache", "cache2", "fontcache", "compatibility.ini"):
+        path = directory / name
+        if path.is_dir():
+            caches[name] = {"present": True, "entries": min(sum(1 for _ in path.iterdir()), 1000)}
+        elif path.is_file():
+            caches[name] = {"present": True, "bytes": path.stat().st_size}
+    return {
+        "persistedPrefs": dict(sorted(prefs.items())[:128]),
+        "prefFiles": pref_files,
+        "caches": caches,
+    }
+
+
+async def canvas_graphics_diagnostic(browser):
+    """Read bounded public about:support DOM rows, not privileged browser APIs."""
+    page = await browser.new_page()
+    try:
+        await page.goto("about:support", wait_until="load", timeout=15000)
+        await (
+            page.locator("#graphics-features-tbody tr")
+            .nth(1)
+            .wait_for(state="attached", timeout=5000)
+        )
+        return await page.evaluate("""() => {
+          const rows = document.querySelectorAll(
+            '#graphics-features-tbody tr, #graphics-diagnostics-tbody tr');
+          return Array.from(rows).map(row => {
+            const label = row.querySelector('th');
+            const value = row.querySelector('td');
+            const key = label?.getAttribute('data-l10n-id') || label?.textContent || '';
+            return {key: key.trim().slice(0, 100), value: value?.textContent?.trim() || ''};
+          }).filter(row => /azure|directwrite|cleartype|compositing|font|pixel.?ratio/i.test(row.key))
+            .slice(0, 24).map(row => ({...row, value: row.value.slice(0, 200)}));
+        }""")
+    except Exception as exc:  # Diagnostics must not replace the exact assertion.
+        return {"unavailable": type(exc).__name__}
+    finally:
+        await page.close()
+
+
+def save_canvas_diagnostic(directory, launch_number, png_value, record):
+    """Only the fixed synthetic drawing and sanitized metadata enter artifacts."""
+    directory = Path(directory)
+    directory.mkdir(parents=True, exist_ok=True)
+    prefix = directory / f"launch-{launch_number}"
+    if png_value.startswith("data:image/png;base64,") and len(png_value) < 200_000:
+        prefix.with_suffix(".png").write_bytes(base64.b64decode(png_value.split(",", 1)[1]))
+    prefix.with_suffix(".json").write_text(json.dumps(record, sort_keys=True, indent=2))
+
+
+def remove_synthetic_canvas_caches(profile_directory, test_directory):
+    """Remove only named caches in one direct child of pytest's temporary root."""
+    root = Path(test_directory).resolve()
+    profile = Path(profile_directory)
+    if profile.is_symlink() or profile.resolve().parent != root:
+        raise ValueError("The cache probe requires a direct synthetic test-profile directory")
+    removed = []
+    for name in ("startupCache", "fontcache"):
+        cache = profile / name
+        if cache.is_symlink():
+            raise ValueError("The cache probe must not follow cache symlinks")
+        if cache.is_dir():
+            shutil.rmtree(cache)
+            removed.append(name)
+        elif cache.is_file():
+            cache.unlink()
+            removed.append(name)
+    return removed
+
+
+async def read_canvases(options, user_data_dir, *urls, diagnostics=None):
     """Read the canvas at each URL within a single launch.
 
     One session, several origins: that is the only way to observe the per-site
@@ -136,14 +299,50 @@ async def read_canvases(options, user_data_dir, *urls):
         seen = []
         for url in urls:
             await page.goto(url, wait_until="domcontentloaded", timeout=45000)
-            value = await page.evaluate(CANVAS)
-            seen.append(hashlib.sha256(value.encode()).hexdigest()[:16])
-        return seen
+            if diagnostics is None:
+                value = await page.evaluate(CANVAS)
+            else:
+                snapshot = await page.evaluate(CANVAS_DIAGNOSTIC)
+                value = snapshot["value"]
+            png_hash = hashlib.sha256(value.encode()).hexdigest()[:16]
+            seen.append(png_hash)
+            if diagnostics is not None:
+                record = canvas_launch_diagnostic(options, snapshot, png_hash)
+                # Evaluate a separate identical draw as a real page script.
+                # Reading its result through DOM text avoids isolated-world
+                # window/typed-array wrappers. This does not replace the exact
+                # PNG measurement above or change its stability assertion.
+                await page.add_script_tag(
+                    content=(
+                        "(() => { const result = (" + CANVAS_DIAGNOSTIC + ")();"
+                        "const out = document.createElement('pre');"
+                        "out.id = 'cpm-canvas-mainworld';"
+                        "out.textContent = JSON.stringify(result);"
+                        "document.body.appendChild(out); })();"
+                    )
+                )
+                main_snapshot = json.loads(
+                    await page.locator("#cpm-canvas-mainworld").text_content()
+                )
+                record["mainWorld"] = {
+                    "pngHash": hashlib.sha256(main_snapshot["value"].encode()).hexdigest()[:16],
+                    **{key: item for key, item in main_snapshot.items() if key != "value"},
+                }
+                diagnostics.append(record)
+        diagnostic_dir = os.environ.get("CPM_CANVAS_DIAGNOSTIC_DIR")
+        if diagnostics is not None and diagnostic_dir:
+            diagnostics[-1]["graphics"] = await canvas_graphics_diagnostic(browser)
+    if diagnostics is not None and diagnostic_dir:
+        # Firefox persists user prefs on shutdown: inspect only after the
+        # context is closed, so first/second snapshots describe disk state.
+        diagnostics[-1].update(canvas_profile_diagnostic(user_data_dir))
+        save_canvas_diagnostic(diagnostic_dir, len(diagnostics), value, diagnostics[-1])
+    return seen
 
 
-async def read_canvas(options, user_data_dir, url):
+async def read_canvas(options, user_data_dir, url, *, diagnostics=None):
     """One canvas from one launch, which is what the cross-launch tests compare."""
-    return (await read_canvases(options, user_data_dir, url))[0]
+    return (await read_canvases(options, user_data_dir, url, diagnostics=diagnostics))[0]
 
 
 def pinned_options(profile):
@@ -153,15 +352,56 @@ def pinned_options(profile):
     return fresh
 
 
+def canvas_probe_options(profile, mode):
+    """Controlled CI-only backend experiment; default acceptance stays unchanged.
+
+    The beta.36 browser defaults its Azure backend to Skia. Mozilla declares
+    gfx.canvas.accelerated as a Windows boolean, so disabling it tests whether
+    first-run acceleration selection changes raster output. This is not a
+    manager launch setting or a proposed product workaround.
+    """
+    options = pinned_options(profile)
+    if mode == "software":
+        options["firefox_user_prefs"] = {
+            **options.get("firefox_user_prefs", {}),
+            "gfx.canvas.azure.backends": "skia",
+            "gfx.canvas.accelerated": False,
+        }
+    elif mode in {"gdi-classic", "natural-symmetric"}:
+        # Mozilla all.js documents 2=GDI Classic, 5=Natural Symmetric.
+        # gfxDWriteFont::UpdateClearTypeVars validates these and updates the
+        # native DirectWrite rendering parameters. Only CI probes use them.
+        options["firefox_user_prefs"] = {
+            **options.get("firefox_user_prefs", {}),
+            "gfx.font_rendering.cleartype_params.rendering_mode": (
+                2 if mode == "gdi-classic" else 5
+            ),
+        }
+    elif mode == "gdi-family":
+        # gfxDWriteFont::GetForceGDIClassic requires a listed family, size
+        # threshold and rendering_mode=-1. ScaledFontDWrite then disables
+        # subpixel positioning and Skia explicitly enters its ForceGDI path.
+        options["firefox_user_prefs"] = {
+            **options.get("firefox_user_prefs", {}),
+            "gfx.font_rendering.cleartype_params.rendering_mode": -1,
+            "gfx.font_rendering.cleartype_params.force_gdi_classic_for_families": "Arial",
+            "gfx.font_rendering.cleartype_params.force_gdi_classic_max_size": 32,
+        }
+    elif mode != "default":
+        raise ValueError(
+            "Select default, software, gdi-classic, natural-symmetric or gdi-family raster mode"
+        )
+    return options
+
+
 @pytest.mark.browser
 @pytest.mark.asyncio
 async def test_stable_canvas_survives_a_relaunch(tmp_path, local_sites):
     """The whole point of the setting: the canvas reads the same next session.
 
-    Needs both halves — the pref stops the pixel randomisation, and the pinned
-    fonts:spacing_seed keeps text rendering identical. Text is deliberately drawn
-    here because it follows the font seed rather than the canvas path, and that
-    is what made this look broken while only the pref was in place.
+    The protection preference and pinned font list must keep text and pixels
+    stable. Camoufox 0.5.8 no longer emits canvas or glyph-spacing noise seeds;
+    retaining the complete equality check still verifies the page-visible result.
     """
     profile = Profile(
         name="stable-canvas",
@@ -171,11 +411,54 @@ async def test_stable_canvas_survives_a_relaunch(tmp_path, local_sites):
     assert options["firefox_user_prefs"] == {"privacy.baselineFingerprintingProtection": False}
 
     profile.fingerprint = fingerprint_store.resolve(options)
-    assert profile.fingerprint, "the pin carries the font seed this relies on"
+    assert profile.fingerprint, "the pin carries the font list this relies on"
 
-    first = await read_canvas(pinned_options(profile), tmp_path / "a", local_sites.first)
-    second = await read_canvas(pinned_options(profile), tmp_path / "a", local_sites.first)
-    assert first == second, f"canvas drifted between launches: {first} vs {second}"
+    mode = os.environ.get("CPM_CANVAS_RASTER_MODE", "default")
+    diagnostics = []
+    first = await read_canvas(
+        canvas_probe_options(profile, mode),
+        tmp_path / "a",
+        local_sites.first,
+        diagnostics=diagnostics,
+    )
+    second = await read_canvas(
+        canvas_probe_options(profile, mode),
+        tmp_path / "a",
+        local_sites.first,
+        diagnostics=diagnostics,
+    )
+    if os.environ.get("CPM_CANVAS_CACHE_PROBE") == "1":
+        diagnostics[0]["phase"] = "initial"
+        diagnostics[1]["phase"] = "restart"
+        for phase, directory in (
+            ("third-launch", tmp_path / "a"),
+            ("fresh-directory", tmp_path / "fresh"),
+        ):
+            await read_canvas(
+                canvas_probe_options(profile, mode),
+                directory,
+                local_sites.first,
+                diagnostics=diagnostics,
+            )
+            diagnostics[-1]["phase"] = phase
+        removed = remove_synthetic_canvas_caches(tmp_path / "a", tmp_path)
+        await read_canvas(
+            canvas_probe_options(profile, mode),
+            tmp_path / "a",
+            local_sites.first,
+            diagnostics=diagnostics,
+        )
+        diagnostics[-1].update({"phase": "after-cache-removal", "removedCaches": removed})
+        diagnostic_dir = os.environ.get("CPM_CANVAS_DIAGNOSTIC_DIR")
+        if diagnostic_dir:
+            for number, record in enumerate(diagnostics, 1):
+                (Path(diagnostic_dir) / f"launch-{number}.json").write_text(
+                    json.dumps(record, sort_keys=True, indent=2)
+                )
+    assert first == second, (
+        f"canvas drifted between launches ({mode} raster): {first} vs {second}; "
+        f"diagnostics={json.dumps(diagnostics, sort_keys=True)}"
+    )
 
 
 @pytest.mark.browser

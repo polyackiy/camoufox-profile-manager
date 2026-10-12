@@ -7,6 +7,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- Standard JSON/Netscape cookie import and export with validation, merge/replace
+  choices and a recovery snapshot before replacement.
+- Reusable profile templates that preserve settings and extension selections
+  while creating independent browser identities without copied sessions.
+- A local Firefox extension library with permission summaries, validated XPI
+  uploads and portable per-profile snapshots using Camoufox's add-on support.
+- Profile tags, bulk tag changes and persistent saved search/filter/order views.
 - A reusable proxy library with named entries, encrypted write-only passwords,
   on-demand health checks and bulk URL-list import with safe line diagnostics.
 - Bulk proxy assignment to closed profiles with concurrency checks and explicit
@@ -15,6 +22,30 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Authenticated SOCKS5 browsing through a session-owned loopback relay, with
   upstream DNS, memory-only credentials and cleanup on browser exit. The manager
   resolves GeoIP through the original proxy before launch without forking Camoufox.
+
+### Changed
+- Clarified native canvas behavior: disabling randomization does not guarantee
+  identical pixels after host-renderer, font or browser changes. Cold Windows
+  variation is tracked separately with a native Firefox control.
+- Camoufox 0.5.8 with its paired Firefox 156 beta.36 browser and Playwright 1.62.
+  Setup now prepares the verified fpgen model; desktop builds carry the model.
+  Browser readiness checks reject unsupported protocol interfaces before launch.
+- Real-browser compatibility checks on Linux, Windows and macOS, including the
+  combined stage-two workflow and offline synthetic test sites.
+- Documented coordinated manager/browser updates, complete installation
+  checkpoints and safe rollback requirements in the update design.
+
+### Fixed
+- Verify imported extension file contents before trusting a library identity or
+  reusing an existing snapshot, including its displayed permissions.
+- Preserve native zero screen origins in new and existing fingerprints instead
+  of allowing omitted coordinates to change between launches.
+- Preserve selected preset CPU identity and reconstruct all Windows fingerprint
+  configuration chunks instead of silently losing the pin.
+- Close cookie-store handles before atomic replacement on Windows, and omit
+  Firefox's root lock artifacts from portable archives without following links.
+- Preserve verified fingerprint-model resources and Playwright compatibility
+  metadata in desktop installers, including read-only installations.
 
 ## [0.6.0-rc.1] - 2026-10-07
 

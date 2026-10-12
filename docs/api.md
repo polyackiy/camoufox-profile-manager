@@ -360,6 +360,60 @@ itself. It is `null` until the profile is checked, and again whenever its proxy
 changes, because an answer from the previous proxy says nothing about the new one.
 Nothing writes it but a check that was asked for; there is no polling.
 
+## Cookies, templates and extensions
+
+All paths below use the same authentication guard as profiles and have `/api`
+aliases. These operations use the action envelope unless downloading a file.
+See [cookies](cookies.md), [templates](templates.md) and
+[extensions](extensions.md) for formats, browser requirements and limits.
+
+| Method and path (under `/api/v1`) | Purpose |
+| --- | --- |
+| `POST /profiles/{id}/cookies/preview` | Validate `{format, text}` and return counts and safe row diagnostics |
+| `POST /profiles/{id}/cookies/import` | Import `{format, text, mode, row_version, confirm_replace}` into a closed profile |
+| `GET /profiles/{id}/cookies/export?format=json&row_version=N` | Download JSON or Netscape cookies from a closed profile |
+| `GET /templates` / `POST /templates` | List or create reusable settings and extension snapshots |
+| `POST /templates/from-profile` | Save `{profile_id, profile_row_version, name}` as a template |
+| `PATCH /templates/{id}` | Change template fields with `row_version` |
+| `DELETE /templates/{id}?row_version=N` | Remove a template without changing created profiles |
+| `POST /templates/{id}/profiles` | Create an independent profile from `{name, group?, row_version}` |
+| `GET /extensions` / `POST /extensions` | List extensions or upload a multipart `file` containing a local XPI |
+| `DELETE /extensions/{id}?row_version=N` | Remove a library entry while preserving assigned copies |
+| `GET /profiles/{id}/extensions` | Inspect the profile's extension snapshots and permissions |
+| `PUT /profiles/{id}/extensions` | Set `{extension_ids, row_version}` on a closed profile |
+
+Cookie formats are `json` and `netscape`; modes are `merge` and `replace`.
+Replacement requires `confirm_replace: true` and a successful recovery archive.
+Cookie contents never belong in application logs. Exports are sensitive files.
+Templates exclude proxy credentials, stored sessions and the pinned fingerprint.
+Extension assignment stores relative snapshots within profile data, so browser
+launch and archive transfer do not depend on the original library entry.
+
+## Tags and saved views
+
+Profile create/update accepts `tags`; `[]` clears them. Tags are normalized,
+deduplicated labels (at most 20, each at most 32 characters). List filters include
+`search`, `group`, `status`, `tag` and repeated `tags`. Multiple tags must all
+match; filtering happens before pagination. `group=__ungrouped__` selects profiles
+without a group, and search matches names or IDs.
+
+`POST /profiles/tags` accepts `{profiles: [{id, row_version}], add: [], remove: []}`.
+It returns `data.updated` and `data.skipped`; a conflict in one profile does not
+silently overwrite it or discard other successes. Tags are metadata and can be
+edited while a browser runs.
+
+`GET /saved-filters` returns `data.filters`. Create with `POST /saved-filters`
+using `{name, config}`. Config stores `search`, `status`, `group`, `tags`,
+`sort_key` and `sort_direction`. Update with `PATCH /saved-filters/{id}` and
+`row_version`; delete with `DELETE /saved-filters/{id}?row_version=N`.
+These views are shared by authorized users of the instance, not private per-user
+records. See [profile organization](profile-organization.md).
+
+Settings recovery archives contain profile data, including assigned extensions
+and tags. They do not back up the application's template, extension-library or
+saved-view tables; preserving those requires the application database and its
+encryption key as part of an offline installation backup.
+
 ## Running browsers
 
 ```http

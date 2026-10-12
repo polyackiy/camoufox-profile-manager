@@ -85,6 +85,8 @@ class DesktopUI(unittest.TestCase):
             data = {"id": "new-profile", **request.post_data_json}
         elif path == "/groups":
             data = {"groups": [], "total": 0}
+        elif path == "/saved-filters":
+            data, envelope = {"filters": []}, True
         elif path == "/schedules":
             data = {"schedules": [], "total": 0}
         elif path == "/browsers/active":

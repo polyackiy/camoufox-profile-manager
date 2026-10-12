@@ -22,6 +22,7 @@ import {
 
 interface FormState {
   name: string
+  tags: string
   group: string
   status: string
   notes: string
@@ -45,6 +46,7 @@ interface FormState {
 
 const EMPTY: FormState = {
   name: '',
+  tags: '',
   group: '',
   status: 'active',
   notes: '',
@@ -74,6 +76,7 @@ function fromProfile(profile: Profile): FormState {
   const lon = geo?.lon ?? geo?.longitude
   return {
     name: profile.name,
+    tags: (profile.tags ?? []).join(', '),
     group: profile.group ?? '',
     status: profile.status,
     notes: profile.notes ?? '',
@@ -273,6 +276,7 @@ export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) 
     try {
       const payload: Record<string, unknown> = {
         name: form.name.trim(),
+        tags: form.tags.split(',').map(tag => tag.trim()).filter(Boolean),
         group: form.group || null,
         notes: form.notes.trim() || null,
         browser_settings: buildBrowserSettings(),
@@ -538,6 +542,12 @@ export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) 
           )}
 
           <div className="col-span-2">
+            <label className="field-label" htmlFor="pf-tags">{t('Tags')}</label>
+            <input id="pf-tags" className="field" value={form.tags} onChange={event => set('tags', event.target.value)} placeholder={t('work, client-a')} maxLength={700} aria-describedby="pf-tags-help" />
+            <p id="pf-tags-help" className="mt-1 text-ink-dim">{t('Comma-separated labels, up to 20. Tags are normalized to lowercase and do not change the browser fingerprint.')}</p>
+          </div>
+
+          <div className="col-span-2">
             <label className="field-label" htmlFor="pf-notes">
               {t('Notes')}
             </label>
@@ -766,11 +776,11 @@ export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) 
               onChange={(e) => set('stableCanvas', e.target.value === 'stable')}
             >
               <option value="randomised">{t('Randomised each session (default)')}</option>
-              <option value="stable">{t('Same canvas every launch')}</option>
+              <option value="stable">{t('Native canvas (no randomisation)')}</option>
             </select>
             <p className="mt-1.5 text-ink-faint">
               {form.stableCanvas
-                ? t('Reads the same to a site across launches, like real hardware — but also the same on every site, so sites can link this profile between them.')
+                ? t('Disables canvas noise across sessions and sites. Sites can link this profile; browser, font and system rendering changes may still change its canvas.')
                 : t('A site sees a different canvas each session, and a different one per site. Safer against tracking, but a long-lived account looks like new hardware every visit.')}
             </p>
           </div>
@@ -968,7 +978,7 @@ function PinnedMachine({
               {t('This profile still reports Firefox {current}; the installed browser is {installed}.', { current: fingerprint.browser_major, installed: fingerprint.installed_major })}
             </p>
             <p className="mt-0.5 text-ink-faint">
-              {t('Updating changes only the browser version. The screen, GPU, cores, fonts and canvas stay exactly as they are — the same computer, with its browser updated.')}
+              {t('Updating preserves this profile’s saved screen, GPU, core count and font settings. A newer browser may render canvas differently.')}
             </p>
           </div>
           <button

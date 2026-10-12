@@ -248,6 +248,26 @@ async def test_a_pinned_machine_is_replayed_on_every_launch(profile_manager, lau
 
 
 @pytest.mark.asyncio
+async def test_existing_pin_keeps_native_zero_screen_origin(profile_manager, launches):
+    profile = await profile_manager.create_profile(name="p")
+    profile.fingerprint = {
+        **PINNED,
+        "screen.availWidth": 1920,
+        "screen.availHeight": 1040,
+    }
+    await profile_manager.storage.update_profile(profile)
+
+    await profile_manager.launch_browser(profile.id)
+
+    config = launches[0]["config"]
+    assert config["screen.availLeft"] == config["screen.availTop"] == 0
+    stored = await profile_manager.get_profile(profile.id)
+    assert stored.fingerprint["screen.availLeft"] == 0
+    assert stored.fingerprint["screen.availTop"] == 0
+    assert stored.fingerprint["webGl:renderer"] == PINNED["webGl:renderer"]
+
+
+@pytest.mark.asyncio
 async def test_the_profiles_own_settings_still_beat_the_pin(profile_manager, launches, monkeypatch):
     """A pin is the hardware; timezone and geolocation follow the proxy, and the
     profile's explicit values have to survive the merge."""

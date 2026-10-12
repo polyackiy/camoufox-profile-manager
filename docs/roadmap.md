@@ -16,15 +16,16 @@ for ordinary tabs and controls, with a per-profile choice. See
 [browser-interface.md](browser-interface.md) for the implementation and policy
 for tracking upstream changes without maintaining an engine fork.
 
-Stage two starts with the [proxy library](proxy-library.md): reusable entries,
+Stage two includes the [proxy library](proxy-library.md): reusable entries,
 bulk import, health checks and assignment to closed profiles. Authenticated
 SOCKS5 uses a session-owned relay without changing the Camoufox engine.
-Implementation and acceptance are tracked in
-[#69](https://github.com/polyackiy/camoufox-profile-manager/issues/69).
-Next priorities are standard cookie import, reusable profile
-templates/extensions, and tags/saved filters. Team permissions and cross-device
-synchronisation require a separate design. In-place automatic application
-replacement remains separate from the implemented backup/download update flow.
+It also adds [JSON/Netscape cookies](cookies.md), reusable [templates](templates.md),
+managed [Firefox extensions](extensions.md), and [tags/saved views](profile-organization.md).
+See [stage-two.md](stage-two.md) for the acceptance record and linked GitHub work.
+The [Camoufox compatibility review](camoufox-compatibility.md) records the tested
+wrapper/browser pair. Team permissions and cross-device synchronisation require
+a separate design. [Coordinated manager/browser updates](update-design.md) are
+planned separately from the implemented backup/download update flow.
 
 ## Since 0.2.0
 
@@ -143,31 +144,35 @@ order of how much they would hurt if left alone:
 ## Canvas stability
 
 By default a site sees a different canvas hash each time a profile is launched.
-Within one session it is stable per site; the problem is only across sessions,
-where a real browser would be unchanging.
+Within one session it is stable per site. The current supported pair is
+Camoufox 0.5.8 / 156.0.1-beta.36; see
+[Camoufox compatibility](camoufox-compatibility.md).
 
 **Done: the `stable_canvas` per-profile setting.** Turning it on launches with
-`privacy.baselineFingerprintingProtection = false`, which together with the
-pinned `fonts:spacing_seed` makes the canvas reproducible across launches. Off by
-default, because the trade is that the canvas is then the same across sites — what
-a real machine looks like, and what the randomisation existed to prevent. Covered
-by browser tests that assert the stability, the drift when it is off, and the
-cross-site linkability it costs.
+`privacy.baselineFingerprintingProtection = false` to disable randomised image
+export. The pinned font list retains the profile's font identity.
+Camoufox 0.5.8 no longer generates `canvas:seed` or
+`fonts:spacing_seed`. The setting remains off by default: native canvas output
+can correlate the same machine across sites. Browser tests cover default drift,
+cross-site linkability with randomisation disabled, and exact restart equality
+within an initialized renderer environment.
 
-**Reported upstream, still open:
-[daijro/camoufox#721](https://github.com/daijro/camoufox/issues/721).** `canvas:seed`
-is advertised in Camoufox's property manifest and emitted by its Python layer, but
-its C++ config reader never reads it and no patch implements it;
-`window.setCanvasSeed()` is documented but absent from the shipped build. A working
-seed would be better than the pref, because it would give each profile its own
-canvas value instead of one shared true render.
+**Known limit: cold-host Windows rendering.** The native Firefox 153 control in
+[run 38319076724](https://github.com/polyackiy/camoufox-profile-manager/actions/runs/38319076724)
+reproduced the same first-render/restart pixel shift seen with Camoufox 156.
+CI preserves those cold-host observations, initializes the host renderer with a
+bounded synthetic preflight, and then runs the unchanged strict profile checks
+and repeated restart assertions. It does not establish an exact-byte guarantee
+for first use on a fresh Windows host. There is no product warmup or engine/pref
+workaround. See [issue #73](https://github.com/polyackiy/camoufox-profile-manager/issues/73)
+and [Windows canvas rendering](windows-canvas-rendering.md).
 
-Checked again on 2026-08-20: no answer and no change — `MaskConfig.hpp` at
-upstream `HEAD` still does not mention canvas at all. Not a stalled project, just
-a busy one; there are 57 commits between `beta.28` and `beta.29`. Nothing to do
-but keep the pref and re-check on each release. A fork is not the answer — it
-would mean building and hosting Firefox for every platform and rebasing on every
-Camoufox release, for one seed value.
+**Historical upstream report:**
+[daijro/camoufox#721](https://github.com/daijro/camoufox/issues/721) described an
+inert advertised canvas seed and absent per-context hook in Camoufox 152.
+Upstream closed it through [PR #787](https://github.com/daijro/camoufox/pull/787),
+which audited documentation and dead code. It is no longer an open request or
+evidence that 0.5.8 offers a deterministic per-profile canvas seed.
 
 See [profile-settings.md](profile-settings.md#known-limitations) for the measured
 behaviour and the trade-off table.

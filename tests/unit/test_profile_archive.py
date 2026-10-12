@@ -128,6 +128,20 @@ def test_extract_refuses_an_oversized_archive(tmp_path, monkeypatch):
         profile_archive.extract_data(bomb, tmp_path / "target")
 
 
+@pytest.mark.parametrize(
+    "name", ["CON", "aux.js", "COM1.txt", "LPT².js", "file:stream", "name.", "dir\\NUL"]
+)
+def test_archive_rejects_windows_device_paths_before_extracting_any_file(tmp_path, name):
+    source = tmp_path / "unsafe.zip"
+    with zipfile.ZipFile(source, "w") as archive:
+        archive.writestr("data/safe.txt", "must not be extracted first")
+        archive.writestr("data/.cpm-addons/" + "a" * 64 + "/" + name, "unsafe")
+    target = tmp_path / "target"
+    with pytest.raises(ValueError, match="unsafe file name"):
+        profile_archive.extract_data(source, target)
+    assert not (target / "safe.txt").exists()
+
+
 def test_extract_refuses_repeated_members_that_exceed_the_cap(tmp_path, monkeypatch):
     """The declared total counts a duplicated name once; extraction writes it twice.
 
@@ -169,3 +183,55 @@ def test_export_survives_a_missing_data_directory(tmp_path):
 
     record = profile_archive.read_archive(archive_path)
     assert record["name"] == "warmed-up"
+
+
+@pytest.mark.parametrize("strict", [False, True])
+@pytest.mark.parametrize("name", ["lock", ".parentlock", "parent.lock"])
+def test_root_firefox_lock_symlinks_are_excluded_without_following_targets(tmp_path, name, strict):
+    data = build_data_dir(tmp_path)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "private.txt").write_text("must never be copied")
+    try:
+        (data / name).symlink_to(outside, target_is_directory=True)
+    except OSError:
+        pytest.skip("Creating symlinks requires platform privileges")
+    archive_path = tmp_path / "locks.zip"
+    profile_archive.export_profile(build_profile(), data, archive_path, strict=strict)
+    with zipfile.ZipFile(archive_path) as archive:
+        names = archive.namelist()
+    assert not any(part in names for part in (f"data/{name}", f"data/{name}/private.txt"))
+    assert (outside / "private.txt").read_text() == "must never be copied"
+    assert "data/cookies.sqlite" in names
+
+
+@pytest.mark.parametrize(
+    "name", ["outside", "storage/lock", "cache2/lock", ".cpm-addons/snapshot/lock"]
+)
+def test_every_other_symlink_remains_rejected_including_nested_lock_names(tmp_path, name):
+    data = build_data_dir(tmp_path)
+    target = tmp_path / "private.txt"
+    target.write_text("private")
+    link = data / name
+    link.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        link.symlink_to(target)
+    except OSError:
+        pytest.skip("Creating symlinks requires platform privileges")
+    with pytest.raises(ValueError, match="symbolic link"):
+        profile_archive.export_profile(build_profile(), data, tmp_path / "unsafe.zip", strict=True)
+
+
+def test_nested_extension_cache_and_lock_named_assets_are_preserved(tmp_path):
+    data = build_data_dir(tmp_path)
+    extension = data / ".cpm-addons" / ("a" * 64)
+    (extension / "cache2").mkdir(parents=True)
+    (extension / "lock").write_bytes(b"extension asset")
+    (extension / "cache2" / "needed.js").write_bytes(b"extension code")
+    (data / "parent.lock").write_bytes(b"ephemeral Windows lock")
+    archive_path = tmp_path / "extension.zip"
+    profile_archive.export_profile(build_profile(), data, archive_path, strict=True)
+    with zipfile.ZipFile(archive_path) as archive:
+        assert archive.read(f"data/.cpm-addons/{'a' * 64}/lock") == b"extension asset"
+        assert archive.read(f"data/.cpm-addons/{'a' * 64}/cache2/needed.js") == b"extension code"
+        assert "data/parent.lock" not in archive.namelist()

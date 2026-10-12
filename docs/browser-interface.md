@@ -15,8 +15,8 @@ Existing profiles without the new setting use the desktop choice too.
 
 This is a supported Camoufox switch, introduced by its maintainer in
 [upstream issue #179](https://github.com/daijro/camoufox/issues/179). The current
-[property manifest](https://github.com/daijro/camoufox/blob/main/settings/properties.json)
-and installed 152.0.4-beta.29 both contain these keys. Camoufox accepts config
+[property manifest](https://github.com/daijro/camoufox/blob/main/browser/settings/properties.json)
+contains these keys. Camoufox accepts config
 overrides through its [Python API](https://camoufox.com/python/usage/).
 
 No installed browser files, bundled CSS, engine patches or fingerprint properties
@@ -43,8 +43,8 @@ that every Firefox feature disabled by Camoufox has been restored. Playwright's
 3. If a control cannot be restored through supported settings, propose a small
    upstream toggle with a reproduction. A new engine fork is disproportionate
    to a browser-chrome problem.
-4. Extensions can add bookmarks or tab-management tools later; they are not a
-   replacement for native window controls. Avoid a large userChrome.css skin:
+4. The [extension library](extensions.md) can add bookmarks or tab-management
+   tools; these complement native window controls. Avoid a large userChrome.css skin:
    Firefox's internal UI selectors are not a stable integration contract.
 5. Do not embed web pages in an Electron/WebView replacement or implement a
    screenshot-stream browser shell. Those approaches either replace Camoufox's
@@ -53,3 +53,5 @@ that every Firefox feature disabled by Camoufox has been restored. Playwright's
 Next candidates are optional bookmark-toolbar visibility and explicit startup
 page/session preferences. They should stay independent of hardware identity,
 with clear user control and compatibility checks per upstream release.
+The current dependency pairing and upstream changes are recorded in
+[Camoufox compatibility](camoufox-compatibility.md).

@@ -106,11 +106,22 @@ def install_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(RequestValidationError)
     async def _validation_error(request: Request, exc: RequestValidationError) -> JSONResponse:
         errors = exc.errors()
-        if any(
+        sensitive_cookie_path = (
+            request.url.path.startswith(("/api/profiles/", "/api/v1/profiles/"))
+            and "/cookies/" in request.url.path
+        )
+        if sensitive_cookie_path or any(
             request.url.path == prefix or request.url.path.startswith(prefix + "/")
-            for prefix in ("/api/proxies", "/api/v1/proxies")
+            for prefix in (
+                "/api/proxies",
+                "/api/v1/proxies",
+                "/api/templates",
+                "/api/v1/templates",
+                "/api/extensions",
+                "/api/v1/extensions",
+            )
         ):
-            # Proxy inputs can contain passwords or a whole credential-bearing list.
+            # Proxy lists and cookie files can contain account credentials.
             errors = [
                 {key: value for key, value in error.items() if key not in {"input", "ctx"}}
                 for error in errors

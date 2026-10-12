@@ -16,7 +16,7 @@ from camoufox_pm.core.browser_session import BrowserLaunchError
 @pytest.fixture
 def upstream_cache(tmp_path, monkeypatch):
     """Every upstream cache path is temporary; imports never start downloads."""
-    from camoufox import addons, geolocation, multiversion, pkgman
+    from camoufox import addons, fpgen_model, geolocation, multiversion, pkgman
 
     browser = tmp_path / "browser"
     browser.mkdir()
@@ -26,6 +26,10 @@ def upstream_cache(tmp_path, monkeypatch):
     monkeypatch.setattr(multiversion, "get_active_path", lambda: browser)
     monkeypatch.setattr(pkgman.Version, "from_path", lambda path: version)
     monkeypatch.setattr(pkgman, "launch_path", lambda path: str(executable))
+    monkeypatch.setattr(pkgman, "installed_interface", lambda path: 1)
+    monkeypatch.setattr(pkgman, "interface_supported", lambda interface: interface == 1)
+    monkeypatch.setattr(fpgen_model, "is_pinned", lambda: True)
+    monkeypatch.setattr(fpgen_model, "ensure_fpgen_model", lambda: None)
     monkeypatch.setattr(
         pkgman, "camoufox_path", Mock(side_effect=AssertionError("implicit download"))
     )
@@ -109,6 +113,35 @@ def test_missing_location_database_blocks_launch(upstream_cache):
     (upstream_cache.geolocation.MMDB_DIR / "example-combined.mmdb").unlink()
     with pytest.raises(BrowserLaunchError):
         browser_install.ensure_browser_ready()
+
+
+def test_missing_fpgen_model_blocks_launch_without_downloading(upstream_cache, monkeypatch):
+    from camoufox import fpgen_model
+
+    write_resources(upstream_cache)
+    monkeypatch.setattr(fpgen_model, "is_pinned", lambda: False)
+    download = Mock(side_effect=AssertionError("implicit model download"))
+    monkeypatch.setattr(fpgen_model, "ensure_fpgen_model", download)
+    with pytest.raises(BrowserLaunchError, match="Settings"):
+        browser_install.ensure_browser_ready()
+    download.assert_not_called()
+
+
+def test_incompatible_browser_interface_is_not_ready(upstream_cache, monkeypatch):
+    write_resources(upstream_cache)
+    monkeypatch.setattr(upstream_cache.pkgman, "installed_interface", lambda path: 999)
+    assert browser_install.installed_browser() == (False, None)
+
+
+def test_explicit_setup_prepares_the_pinned_model(upstream_cache, monkeypatch):
+    from camoufox import fpgen_model
+
+    write_resources(upstream_cache)
+    model = Mock()
+    monkeypatch.setattr(fpgen_model, "ensure_fpgen_model", model)
+    monkeypatch.setattr(upstream_cache.addons, "maybe_download_addons", lambda addons: None)
+    browser_install.BrowserInstaller()._install()
+    model.assert_called_once_with()
 
 
 def test_repeated_install_clicks_share_one_background_job(upstream_cache, monkeypatch):

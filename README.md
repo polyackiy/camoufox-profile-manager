@@ -57,6 +57,16 @@ from it in January still looks like the same computer in June.
   argon2id hashes, HttpOnly session cookies, a logout that really invalidates.
 - **Move a profile anywhere.** Export a profile with its fingerprint *and* its
   browser data into one archive, and import it on another machine.
+- **Cookie transfer** — import and export standard JSON or Netscape cookie files,
+  with validation, explicit merge/replacement and recovery before replacement.
+  See [cookies](docs/cookies.md).
+- **Templates and Firefox extensions** — reuse browser settings in independent
+  profiles and manage local add-ons without modifying Camoufox. Assigned add-ons
+  travel with profile archives. See [templates](docs/templates.md) and
+  [extensions](docs/extensions.md).
+- **Tags and saved views** — label profiles individually or in bulk, then save
+  your search, filters and ordering for repeated work. See
+  [profile organization](docs/profile-organization.md).
 - **Bulk editing via Excel** — [docs/excel.md](docs/excel.md).
 - **REST API and web UI**, served on one port from one process.
 - **English and Simplified Chinese UI.** Switch languages in the sidebar or on

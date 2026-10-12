@@ -21,13 +21,15 @@ password, so it is exactly as sensitive as the account it belongs to.
 
 import json
 import zipfile
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from loguru import logger
 
 from camoufox_pm import __version__
 from camoufox_pm.core.models import Profile
+
+from .archive_paths import portable_component
 
 FORMAT_VERSION = 1
 MANIFEST_NAME = "manifest.json"
@@ -60,15 +62,22 @@ _DISPOSABLE = frozenset(
         "saved-telemetry-pings",
         "security_state",
         "sessionstore-backups",
-        "lock",
-        ".parentlock",
     }
 )
 
 
+# Firefox uses a symlink named lock on Unix, and normal lock files on other
+# platforms. These exact root entries are ephemeral, never browser data.
+_PROFILE_LOCKS = frozenset({"lock", ".parentlock", "parent.lock"})
+
+
 def _should_skip(relative: Path) -> bool:
     """Skip disposable caches and the lock files of a running browser."""
-    return any(part in _DISPOSABLE for part in relative.parts)
+    # Nested extension/site assets may legitimately have cache or lock names.
+    return bool(relative.parts) and (
+        relative.parts[0] in _DISPOSABLE
+        or (len(relative.parts) == 1 and relative.name in _PROFILE_LOCKS)
+    )
 
 
 def _copy_bounded(member: Any, handle: Any, budget: int) -> int:
@@ -117,11 +126,15 @@ def export_profile(
 
         if data_dir.is_dir():
             for path in sorted(data_dir.rglob("*")):
+                relative = path.relative_to(data_dir)
+                # Do not stat/follow/read the Unix Firefox lock symlink. Only
+                # exact root lock artifacts are exempt from symlink rejection.
+                if len(relative.parts) == 1 and relative.name in _PROFILE_LOCKS:
+                    continue
                 if path.is_symlink():
                     raise ValueError(f"Cannot archive symbolic link: {path.name}")
                 if not path.is_file():
                     continue
-                relative = path.relative_to(data_dir)
                 if _should_skip(relative):
                     continue
                 try:
@@ -174,6 +187,25 @@ def extract_data(source: Path, target_dir: Path) -> int:
         )
         if declared > _MAX_EXTRACTED_BYTES:
             raise ValueError("Profile archive is larger than the import limit")
+
+        # Windows device names and alternate streams are unsafe before any
+        # browser/add-on validation can run. Validate every portable component
+        # before extracting even the first file, on every host OS.
+        for name in archive.namelist():
+            if not name.startswith(DATA_PREFIX):
+                continue
+            relative = name[len(DATA_PREFIX) :]
+            if (
+                "\\" in relative
+                or ":" in relative
+                or any(ord(char) < 32 for char in relative)
+                or any(
+                    not portable_component(part)
+                    for part in PurePosixPath(relative).parts
+                    if part not in {"..", "/"}
+                )
+            ):
+                raise ValueError("Profile archive contains an unsafe file name")
 
         budget = _MAX_EXTRACTED_BYTES
         for name in archive.namelist():

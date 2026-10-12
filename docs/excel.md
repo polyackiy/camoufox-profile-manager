@@ -46,13 +46,18 @@ creating the profile through the UI instead.
 | Locale | e.g. `en_US`. |
 | WebRTC mode | `replace`, `real`, `forward`, `none`. `none` disables WebRTC. |
 | Canvas noise / WebGL noise / Audio noise | Stored intent; Camoufox owns this spoofing. |
-| Stable canvas | `true` keeps the canvas identical across launches, at the cost of being identical across sites too. Off by default — see [profile-settings.md](profile-settings.md#known-limitations). |
+| Stable canvas | `true` disables randomised canvas image export. Native output can correlate a machine across sites; cold Windows rendering and host/engine changes can still alter pixels. Off by default — see [profile-settings.md](profile-settings.md#known-limitations) and [Windows canvas rendering](windows-canvas-rendering.md). |
 | CPU cores | Reported as `navigator.hardwareConcurrency`. |
 | Device memory | Stored; not all values map onto Camoufox. |
-| Touch points | Stored, but Camoufox 152 ignores it — see the limitations in [profile-settings.md](profile-settings.md#known-limitations). |
+| Touch points | Stored; nonzero overrides are forwarded, but page-visible behavior is unverified on 0.5.8 / beta.36. Camoufox 152 ignoring it is a historical observation — see [profile-settings.md](profile-settings.md#known-limitations). |
 | Proxy type | `http`, `https`, `socks4`, `socks5`. |
 | Proxy server | `host:port`. |
 | Proxy username / Proxy password | Supported with HTTP/HTTPS and SOCKS5; SOCKS4 credentials are unsupported. |
 | Geolocation mode | `auto` follows the proxy IP; `manual` uses the coordinates below. |
 | Latitude / Longitude / Geolocation accuracy | Used when the mode is `manual`. |
 | Notes | Free text. |
+
+The supported wrapper/browser pair and upgrade guidance are recorded in
+[Camoufox compatibility](camoufox-compatibility.md). A spreadsheet retains these
+settings; it does not preserve native OS rendering state or establish identical
+canvas pixels on another machine.

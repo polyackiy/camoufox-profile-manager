@@ -30,13 +30,13 @@ def installed_browser() -> tuple[bool, str | None]:
     """Inspect the active executable without fetching or clearing old caches."""
     try:
         from camoufox.multiversion import get_active_path
-        from camoufox.pkgman import Version, launch_path
+        from camoufox.pkgman import Version, installed_interface, interface_supported, launch_path
 
         active = get_active_path()
         if active is None:
             return False, None
         version = Version.from_path(active)
-        if not version.is_supported():
+        if not version.is_supported() or not interface_supported(installed_interface(active)):
             return False, None
         executable = launch_path(active)
         return Path(executable).is_file(), version.full_string
@@ -60,13 +60,14 @@ def browser_resources_ready() -> bool:
     """The files a normal launch otherwise downloads without a progress UI."""
     try:
         from camoufox.addons import DefaultAddons, get_addon_path
+        from camoufox.fpgen_model import is_pinned
         from camoufox.geolocation import MMDB_DIR, load_geoip_config
 
         for addon in DefaultAddons:
             if not valid_addon(Path(get_addon_path(addon.name))):
                 return False
         config = load_geoip_config()
-        return all(
+        return is_pinned() and all(
             (MMDB_DIR / f"{config['name'].lower()}-{kind}.mmdb").is_file()
             for kind in config["urls"]
         )
@@ -189,6 +190,7 @@ class BrowserInstaller:
 
     def _install(self) -> None:
         from camoufox.addons import DefaultAddons, get_addon_path, maybe_download_addons
+        from camoufox.fpgen_model import ensure_fpgen_model
         from camoufox.geolocation import download_mmdb
         from camoufox.pkgman import CamoufoxFetcher
 
@@ -236,6 +238,7 @@ class BrowserInstaller:
                     replace = True
             fetcher.install(replace=replace)
         self._update(progress=97, message="Preparing location data and browser add-ons…")
+        ensure_fpgen_model()
         if not browser_resources_ready():
             download_mmdb()
         # Upstream treats an existing empty directory as a successful install.

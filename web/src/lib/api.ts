@@ -74,6 +74,7 @@ export interface Profile {
   id: string
   name: string
   group?: string | null
+  tags?: string[]
   status: string
   browser_settings: BrowserSettings
   proxy_config?: ProxyConfig | null
@@ -168,7 +169,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     // merged object, silently dropping Content-Type and the API key.
     ...options,
     headers: {
-      'Content-Type': 'application/json',
+      ...(typeof FormData !== 'undefined' && options?.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
       ...authHeaders(),
       ...(options?.headers ?? {}),
     },
@@ -192,10 +193,14 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   return response.json() as Promise<T>
 }
 
+/** Shared client for feature modules; preserves cookie/key auth and API errors. */
+export const apiRequest = request
+
 function toQuery(params: Record<string, unknown>): string {
   const query = new URLSearchParams()
   for (const [key, value] of Object.entries(params)) {
-    if (value !== undefined && value !== null && value !== '') query.set(key, String(value))
+    if (Array.isArray(value)) value.forEach(item => query.append(key, String(item)))
+    else if (value !== undefined && value !== null && value !== '') query.set(key, String(value))
   }
   return query.toString() ? `?${query.toString()}` : ''
 }
@@ -291,7 +296,52 @@ export const proxiesAPI = {
   },
 }
 
+export interface ProfileViewConfig {
+  search: string
+  status: 'all' | 'active' | 'inactive' | 'blocked' | 'maintenance'
+  group: string | null
+  tags: string[]
+  sort_key: 'name' | 'id' | 'group' | 'os' | 'status' | 'last_used'
+  sort_direction: 'asc' | 'desc'
+}
+
+export interface SavedFilter {
+  id: string
+  name: string
+  config: ProfileViewConfig
+  row_version: number
+  created_at: string
+  updated_at: string
+}
+
+export const savedFiltersAPI = {
+  async list(): Promise<SavedFilter[]> {
+    const body = await request<{ data: { filters: SavedFilter[] } }>(`${API_PREFIX}/saved-filters`)
+    return body.data.filters
+  },
+  async create(name: string, config: ProfileViewConfig): Promise<SavedFilter> {
+    const body = await request<{ data: SavedFilter }>(`${API_PREFIX}/saved-filters`, { method: 'POST', body: JSON.stringify({ name, config }) })
+    return body.data
+  },
+  async update(view: SavedFilter, data: { name?: string; config?: ProfileViewConfig }): Promise<SavedFilter> {
+    const body = await request<{ data: SavedFilter }>(`${API_PREFIX}/saved-filters/${view.id}`, { method: 'PATCH', body: JSON.stringify({ ...data, row_version: view.row_version }) })
+    return body.data
+  },
+  remove(view: SavedFilter): Promise<unknown> {
+    return request(`${API_PREFIX}/saved-filters/${view.id}?row_version=${view.row_version}`, { method: 'DELETE' })
+  },
+}
+
+export interface BulkTagsResult {
+  updated: Profile[]
+  skipped: { id: string; reason: string }[]
+}
+
 export const profilesAPI = {
+  async bulkTags(profiles: Profile[], add: string[], remove: string[]): Promise<BulkTagsResult> {
+    const body = await request<{ data: BulkTagsResult }>(`${API_PREFIX}/profiles/tags`, { method: 'POST', body: JSON.stringify({ profiles: profiles.map(({ id, row_version }) => ({ id, row_version })), add, remove }) })
+    return body.data
+  },
   getProfiles(params: Record<string, unknown> = {}): Promise<ProfilesResponse> {
     return request<ProfilesResponse>(`${API_PREFIX}/profiles${toQuery(params)}`)
   },

@@ -1,4 +1,6 @@
 Unicode True
+; Preserve the pinned fpgen model dates through installation.
+SetDateSave on
 !include "MUI2.nsh"
 Name "Camoufox Profile Manager"
 OutFile "${OUTPUT}"

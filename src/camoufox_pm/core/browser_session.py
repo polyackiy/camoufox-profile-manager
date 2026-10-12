@@ -364,6 +364,8 @@ class BrowserSessionManager:
         self._starting[profile_id] = self._starting.get(profile_id, 0) + 1
         relay: SocksRelay | None = None
         camoufox = None
+        cookie_directory: Path | None = None
+        pending_cookies = None
         try:
             try:
                 options = _browser_launch_options(launch_options)
@@ -379,9 +381,19 @@ class BrowserSessionManager:
                     prefs = dict(options.get("firefox_user_prefs") or {})
                     prefs["network.proxy.socks_remote_dns"] = True
                     options["firefox_user_prefs"] = prefs
+                if options.get("persistent_context") and options.get("user_data_dir"):
+                    from .cookie_transfer import take_pending_cookies
+
+                    cookie_directory = Path(options["user_data_dir"])
+                    pending_cookies = take_pending_cookies(cookie_directory)
                 with _linux_ime_startup_preferences(options):
                     camoufox = AsyncCamoufox(**options)
                     browser = await camoufox.start()
+                    if pending_cookies is not None:
+                        from .cookie_transfer import apply_pending_cookies
+
+                        assert cookie_directory is not None
+                        await apply_pending_cookies(browser, pending_cookies, cookie_directory)
             except Exception as exc:  # noqa: BLE001
                 raise BrowserLaunchError(f"Failed to launch browser: {exc}") from exc
 
@@ -395,7 +407,16 @@ class BrowserSessionManager:
             failed_session = BrowserSession(
                 profile_id, camoufox, _resolve_process_id(camoufox), socks_relay=relay
             )
-            await failed_session.terminate()
+            try:
+                await failed_session.terminate()
+            finally:
+                if cookie_directory is not None and pending_cookies is not None:
+                    from .cookie_transfer import discard_pending_ack
+                    from .profile_operations import run_file_operation
+
+                    await run_file_operation(
+                        discard_pending_ack, cookie_directory, pending_cookies["nonce"]
+                    )
             raise
         finally:
             remaining = self._starting.get(profile_id, 1) - 1

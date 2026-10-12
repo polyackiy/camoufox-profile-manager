@@ -75,17 +75,37 @@ _BROWSER_VERSION_KEYS = frozenset(
 _UA_VERSION = re.compile(r"rv:(\d+)")
 
 
+def normalize_screen_origin(pin: dict[str, Any]) -> dict[str, Any]:
+    """Pin the browser's existing zero defaults for a complete available rect.
+
+    Camoufox's fpgen converter drops zero values, but each subsequent launch
+    fills absent config keys from another generated fingerprint. An omitted
+    availLeft can therefore become another monitor's nonzero origin. The native
+    MaskConfig::GetRect defaults only left/top to zero when both available
+    dimensions exist. Make those supported defaults explicit; do not infer any
+    other missing properties or incomplete screen geometry.
+    """
+    normalized = dict(pin)
+    dimensions = (pin.get("screen.availWidth"), pin.get("screen.availHeight"))
+    if all(type(value) is int and 0 < value <= 4_294_967_295 for value in dimensions):
+        normalized.setdefault("screen.availLeft", 0)
+        normalized.setdefault("screen.availTop", 0)
+    return normalized
+
+
 def freeze(resolved: dict[str, Any]) -> dict[str, Any]:
     """Return the subset of a resolved Camoufox config that identifies the machine.
 
     Everything else — geolocation, timezone, locale, WebRTC, request headers —
     is left out so it keeps tracking the profile's settings and its proxy.
     """
-    return {
-        key: value
-        for key, value in resolved.items()
-        if key not in _NEVER_FROZEN and key.startswith(_FROZEN_PREFIXES)
-    }
+    return normalize_screen_origin(
+        {
+            key: value
+            for key, value in resolved.items()
+            if key not in _NEVER_FROZEN and key.startswith(_FROZEN_PREFIXES)
+        }
+    )
 
 
 # Tokens that name the machine rather than the platform. Firefox leaves every
@@ -176,10 +196,30 @@ def resolve(launch_options: dict[str, Any], preset: dict[str, Any] | None = None
     constraints["geoip"] = False
     if preset is not None:
         constraints["fingerprint_preset"] = preset
+        # The selected device is the identity, not a suggestion to regenerate
+        # its CPU from this host. Camoufox 0.5.8 otherwise replaces a preset's
+        # count with host parallelism (including rounding a two-core host to
+        # four). Mark it explicit before resolution, as replaying a pin already
+        # does on subsequent launches. An explicit profile override still wins.
+        cores = preset.get("navigator", {}).get("hardwareConcurrency")
+        if isinstance(cores, int) and not isinstance(cores, bool) and cores > 0:
+            config = dict(constraints.get("config") or {})
+            config.setdefault("navigator.hardwareConcurrency", cores)
+            constraints["config"] = config
 
     try:
         resolved = camoufox_launch_options(**constraints)
-        config = json.loads(resolved["env"]["CAMOU_CONFIG_1"])
+        # Windows limits each chunk to 2047 characters; fonts and WebGL data
+        # commonly span several chunks. Reassemble the entire config in numeric
+        # order, matching the browser, before freezing any identity properties.
+        chunks = sorted(
+            (int(match[1]), value)
+            for key, value in resolved["env"].items()
+            if (match := re.fullmatch(r"CAMOU_CONFIG_([1-9][0-9]*)", key))
+        )
+        if [number for number, _ in chunks] != list(range(1, len(chunks) + 1)) or not chunks:
+            raise ValueError("The resolved fingerprint configuration is incomplete")
+        config = json.loads("".join(value for _, value in chunks))
     except Exception as exc:  # noqa: BLE001 - never block a launch over this
         logger.warning(f"Could not resolve a fingerprint to pin: {exc}")
         return {}
@@ -319,7 +359,7 @@ def refresh_browser_version(pinned: dict[str, Any], resolved: dict[str, Any]) ->
     from ``pinned``, which is what a real device looks like after an update: same
     GPU, screen, cores, fonts and noise seeds; newer user agent.
     """
-    updated = dict(pinned)
+    updated = normalize_screen_origin(pinned)
     for key in _BROWSER_VERSION_KEYS:
         if key in resolved:
             updated[key] = resolved[key]

@@ -87,6 +87,64 @@ def test_freeze_is_stable_and_lossless_for_hardware():
     assert once["fonts"] == ["Arial", "Calibri"]
 
 
+def test_zero_available_origin_remains_pinned_when_later_generated_screen_moves():
+    """Real upstream zero omission must not adopt a later monitor's origin."""
+    from camoufox.fingerprints import from_fpgen
+    from camoufox.utils import merge_into
+
+    source = {
+        "screen": {
+            "width": 1920,
+            "height": 1080,
+            "availWidth": 1920,
+            "availHeight": 1040,
+            "availLeft": 0,
+            "availTop": 0,
+        },
+    }
+    generated = from_fpgen(source)
+    assert "screen.availLeft" not in generated and "screen.availTop" not in generated
+    pinned = fingerprint_store.freeze(generated)
+    assert pinned["screen.availLeft"] == pinned["screen.availTop"] == 0
+    first, second = dict(pinned), dict(pinned)
+    merge_into(first, {"screen.availLeft": 2560, "screen.availTop": 30})
+    merge_into(second, {})
+    assert first == second == pinned
+    assert "navigator.maxTouchPoints" not in pinned
+
+
+def test_normalize_existing_pin_preserves_explicit_offsets_without_mutating_it():
+    pin = {"screen.availWidth": 1920, "screen.availHeight": 1040, "screen.availLeft": 2560}
+    normalized = fingerprint_store.normalize_screen_origin(pin)
+    assert normalized == {**pin, "screen.availTop": 0}
+    assert "screen.availTop" not in pin
+    assert fingerprint_store.normalize_screen_origin(normalized) == normalized
+    refreshed = fingerprint_store.refresh_browser_version(pin, {"navigator.userAgent": UA_NEW})
+    assert refreshed["screen.availLeft"] == 2560 and refreshed["screen.availTop"] == 0
+
+
+@pytest.mark.parametrize(
+    "width,height",
+    [
+        (1920, None),
+        (None, 1080),
+        (True, 1080),
+        (0, 1080),
+        (-1, 1080),
+        (1920, 1080.0),
+        (2**32, 1080),
+    ],
+)
+def test_normalize_never_invents_origin_for_incomplete_or_unsupported_geometry(width, height):
+    pin = {"screen.width": 1920, "screen.height": 1080}
+    if width is not None:
+        pin["screen.availWidth"] = width
+    if height is not None:
+        pin["screen.availHeight"] = height
+    assert fingerprint_store.normalize_screen_origin(pin) == pin
+    assert fingerprint_store.normalize_screen_origin({}) == {}
+
+
 def test_summarize_reports_the_values_a_user_recognises():
     summary = fingerprint_store.summarize(fingerprint_store.freeze(RESOLVED))
     assert summary is not None
@@ -344,3 +402,85 @@ class TestAppVersion:
         fingerprint_store._fill_app_version(pin)
 
         assert "navigator.appVersion" not in pin
+
+
+@pytest.mark.parametrize("selected_cores", [2, 8, 32])
+def test_resolve_marks_selected_preset_cpu_explicit_before_host_correction(
+    monkeypatch, selected_cores
+):
+    import json
+
+    from camoufox import utils
+
+    original = {"screen.width": 1920}
+    preset = {"navigator": {"hardwareConcurrency": selected_cores}}
+
+    def resolve_options(**options):
+        assert options["fingerprint_preset"] is preset
+        assert options["config"] is not original
+        # The wrapper's automatic host normalization only exempts an explicit
+        # navigator config. Preserve the selected device before it runs.
+        assert options["config"]["navigator.hardwareConcurrency"] == selected_cores
+        return {"env": {"CAMOU_CONFIG_1": json.dumps(options["config"])}}
+
+    monkeypatch.setattr(utils, "launch_options", resolve_options)
+    pinned = fingerprint_store.resolve({"config": original}, preset=preset)
+    assert pinned["navigator.hardwareConcurrency"] == selected_cores
+    assert original == {"screen.width": 1920}
+
+
+def test_resolve_preserves_explicit_profile_cpu_override_over_selected_preset(monkeypatch):
+    import json
+
+    from camoufox import utils
+
+    original = {"navigator.hardwareConcurrency": 16}
+
+    def resolve_options(**options):
+        assert options["config"]["navigator.hardwareConcurrency"] == 16
+        assert options["config"] is not original
+        return {"env": {"CAMOU_CONFIG_1": json.dumps(options["config"])}}
+
+    monkeypatch.setattr(utils, "launch_options", resolve_options)
+    pinned = fingerprint_store.resolve(
+        {"config": original}, preset={"navigator": {"hardwareConcurrency": 2}}
+    )
+    assert pinned["navigator.hardwareConcurrency"] == 16
+    assert original == {"navigator.hardwareConcurrency": 16}
+
+
+@pytest.mark.parametrize("chunk_size", [2047, 32767])
+def test_resolve_reassembles_all_browser_config_chunks_in_numeric_order(monkeypatch, chunk_size):
+    import json
+
+    from camoufox import utils
+
+    # This identity spans at least ten Windows chunks; sorting string keys would
+    # move chunk10 before chunk2. Unicode bytes/escaped strings can cross chunks.
+    config = {
+        **RESOLVED,
+        "navigator.appVersion": "5.0 (Windows)",
+        "fonts": [f"Synthetic font {index} — 中文" for index in range(1500)],
+    }
+    serialized = json.dumps(config, ensure_ascii=True)
+    chunks = {
+        f"CAMOU_CONFIG_{index // chunk_size + 1}": serialized[index : index + chunk_size]
+        for index in range(0, len(serialized), chunk_size)
+    }
+    assert len(chunks) >= (10 if chunk_size == 2047 else 2)
+    env = {"DISPLAY": ":99", **dict(reversed(list(chunks.items())))}
+    monkeypatch.setattr(utils, "launch_options", lambda **options: {"env": env})
+    pinned = fingerprint_store.resolve({})
+    assert pinned == fingerprint_store.freeze(config)
+    assert pinned["fonts"][-1] == config["fonts"][-1]
+
+
+@pytest.mark.parametrize(
+    "env",
+    [{}, {"CAMOU_CONFIG_2": "{}"}, {"CAMOU_CONFIG_1": "{", "CAMOU_CONFIG_3": "}"}],
+)
+def test_resolve_never_pins_an_incomplete_chunked_identity(monkeypatch, env):
+    from camoufox import utils
+
+    monkeypatch.setattr(utils, "launch_options", lambda **options: {"env": env})
+    assert fingerprint_store.resolve({}) == {}

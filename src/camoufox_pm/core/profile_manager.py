@@ -13,6 +13,7 @@ from camoufox_pm.config import get_settings
 from . import fingerprint_store, profile_archive, proxy_check
 from .browser_session import BrowserSessionManager
 from .database import StaleWriteError, StorageManager
+from .extension_library import managed_default_exclusions, resolve_profile_addons
 from .fingerprint_generator import FingerprintGenerator
 from .leases import ProfileLocked, make_lease_holder
 from .models import (
@@ -22,6 +23,7 @@ from .models import (
     ProfileStatus,
     UsageStats,
     generate_profile_id,
+    normalize_tags,
 )
 from .profile_operations import profile_data_path, profile_operation, run_file_operation
 
@@ -59,6 +61,7 @@ class ProfileManager:
         notes: str | None = None,
         fingerprint_preset: str | None = None,
         status: ProfileStatus | str | None = None,
+        tags: list[str] | None = None,
     ) -> Profile:
         """Create a new profile.
 
@@ -70,7 +73,7 @@ class ProfileManager:
 
         # Notes belong to the user; the creation time is already in created_at,
         # so it is not stamped into the field the user types into.
-        profile = Profile(name=name, group=group, notes=notes)
+        profile = Profile(name=name, group=group, notes=notes, tags=tags or [])
         if status:
             # Raises for an unknown value rather than falling back to active: a
             # bulk import is where a typo would otherwise reactivate a fleet of
@@ -217,8 +220,10 @@ class ProfileManager:
                 key = "proxy"
 
             if hasattr(profile, key):
+                if key == "tags":
+                    value = normalize_tags(value if value is not None else [])
                 # Coerce status string to enum
-                if key == "status" and isinstance(value, str):
+                elif key == "status" and isinstance(value, str):
                     value = ProfileStatus(value)
                 # Coerce proxy dict to ProxyConfig
                 elif key == "proxy" and value is not None:
@@ -333,6 +338,37 @@ class ProfileManager:
         profiles = await self.storage.list_profiles(combined_filters, limit, offset)
         logger.debug(f"Loaded {len(profiles)} profiles")
         return profiles
+
+    async def bulk_update_tags(
+        self, profiles: list[dict], add: list[str], remove: list[str]
+    ) -> dict:
+        add, remove = normalize_tags(add), normalize_tags(remove)
+        result: dict[str, list] = {"updated": [], "skipped": []}
+        seen: set[str] = set()
+        for target in profiles:
+            profile_id = target["id"]
+            if profile_id in seen:
+                continue
+            seen.add(profile_id)
+            profile = await self.get_profile(profile_id)
+            if profile is None:
+                result["skipped"].append(
+                    {"id": profile_id, "reason": "Profile not found or in Trash"}
+                )
+                continue
+            try:
+                tags = normalize_tags([tag for tag in profile.tags if tag not in remove] + add)
+                updated = await self.storage.db.set_profile_tags(
+                    profile_id, tags, target["row_version"]
+                )
+                result["updated"].append(updated)
+            except StaleWriteError:
+                result["skipped"].append(
+                    {"id": profile_id, "reason": "Profile changed; reload before editing tags"}
+                )
+            except ValueError as exc:
+                result["skipped"].append({"id": profile_id, "reason": str(exc)})
+        return result
 
     async def clone_profile(
         self, source_id: str, new_name: str, regenerate_fingerprint: bool = True
@@ -897,11 +933,29 @@ class ProfileManager:
                     logger.warning(f"Ignoring invalid window_size {window_size!r} (expected WxH)")
             options.update(kwargs)
 
+            if profile.extensions:
+                options["addons"] = await run_file_operation(
+                    resolve_profile_addons, profile, profile_data_path(self, profile)
+                )
+                excluded = list(options.get("exclude_addons") or [])
+                for addon in managed_default_exclusions(options["addons"]):
+                    if addon not in excluded:
+                        excluded.append(addon)
+                options["exclude_addons"] = excluded
+                options["firefox_user_prefs"] = {
+                    **options.get("firefox_user_prefs", {}),
+                    "extensions.update.enabled": False,
+                    "extensions.update.autoUpdateDefault": False,
+                }
+
             # Pin the machine on the first launch and replay it on every one after,
             # so the profile is the same computer each session instead of new
             # hardware every time. The profile's own overrides still win, and geo,
             # timezone and WebRTC stay dynamic so they follow the proxy.
             pinned = profile.fingerprint
+            if pinned:
+                pinned = fingerprint_store.normalize_screen_origin(pinned)
+                profile.fingerprint = pinned
             if not pinned:
                 # resolve() can do network I/O (it fetches the uBlock addon on a
                 # fresh install). It used to have to stay synchronous, because
