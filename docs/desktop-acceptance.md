@@ -66,7 +66,9 @@ protections.
 Create two synthetic profiles: one kept active and one moved to Trash. Use a
 local test site with a harmless persistent cookie and localStorage value. Record
 the site-visible user agent, screen, CPU count, timezone and stable canvas hash
-before and after reopening. Keep the same profile identity; do not regenerate it
+before and after reopening. Enable `stable_canvas` for the canvas persistence
+comparison; the default per-session canvas randomization is not a failed upgrade.
+Keep the same profile identity; do not regenerate it
 to make the comparison pass. Use a controlled test proxy to exercise encrypted
 credentials, and create a group, a paused schedule and a test manager account.
 These records distinguish preserved whole-installation data from a restored
@@ -130,7 +132,8 @@ a user-writable path and record needed system graphics libraries. Test the
 supported minimum Ubuntu version and any additional OS version claimed in the
 release. Test native input through an installed IME on an actual desktop;
 synthetic composition events do not exercise Fcitx. Apply normal package-manager
-upgrade/uninstall/reinstall and verify that user data survives removal of `/opt`.
+upgrade/uninstall/reinstall and verify that user data survives removal of the
+package's `/opt/camoufox-pm` installation directory.
 
 ## Stable release decision
 

@@ -34,8 +34,9 @@ an authenticity check.
    locations remain manual until a separately reviewed privileged helper exists.
    Linux application replacement remains with the package manager; a verified
    download can be offered without invoking unattended `sudo` or replacing `/opt`.
-5. Rollback before the first successful post-upgrade write restores both the
-   previous app and a complete data checkpoint. Once ordinary writes are enabled,
+5. Rollback before ordinary post-upgrade writes are enabled restores both the
+   previous app and a complete data checkpoint, including after a failed migration.
+   Once ordinary writes are enabled,
    restoring that checkpoint is explicit recovery and may lose newer changes.
 
 These decisions need maintainer acceptance and the platform trials in
