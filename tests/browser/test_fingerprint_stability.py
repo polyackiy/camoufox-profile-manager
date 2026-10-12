@@ -125,7 +125,7 @@ CANVAS = """() => {
 
 # Preserve the PNG read itself exactly; collect raw pixels and font metrics only
 # for the restart failure diagnostic. Never print the image or complete config.
-CANVAS_DIAGNOSTIC = CANVAS.replace("() => {", "async () => {", 1).replace(
+CANVAS_DIAGNOSTIC = CANVAS.replace(
     "return c.toDataURL();",
     """const value = c.toDataURL();
   const fontStatus = document.fonts.status;
@@ -135,8 +135,11 @@ CANVAS_DIAGNOSTIC = CANVAS.replace("() => {", "async () => {", 1).replace(
     right: m.actualBoundingBoxRight, ascent: m.actualBoundingBoxAscent,
     descent: m.actualBoundingBoxDescent};
   const pixelBytes = x.getImageData(0, 0, c.width, c.height).data;
-  const digest = await crypto.subtle.digest('SHA-256', pixelBytes);
-  const pixelHash = [...new Uint8Array(digest)].map(v => v.toString(16).padStart(2, '0')).join('').slice(0, 16);
+  // Keep hashing in JS: Gecko's isolated world wraps typed arrays as Xrays,
+  // which crypto.subtle.digest cannot consume as a native BufferSource.
+  let h = 2166136261;
+  for (let i = 0; i < pixelBytes.length; i++) h = Math.imul(h ^ pixelBytes[i], 16777619) >>> 0;
+  const pixelHash = h.toString(16).padStart(8, '0');
   return {value, pixelHash, fontStatus, fontAvailable, metrics,
     dpr: devicePixelRatio, font: x.font, colorSpace: x.getContextAttributes?.().colorSpace ?? null};""",
 )
