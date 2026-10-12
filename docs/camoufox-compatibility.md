@@ -51,3 +51,8 @@ The release acceptance record belongs in [stage two](stage-two.md). It includes
 real browser tests for fingerprint stability, desktop chrome, authenticated
 SOCKS5, cookie lifetime and extension assignment/removal, plus the combined
 template/archive workflow. Unit tests alone do not establish browser compatibility.
+
+The Windows canvas checks require an initialized native renderer. A cold-host
+one-pixel transition also reproduces in unmodified Firefox; it is tracked openly
+in [the rendering limitation](windows-canvas-rendering.md), not claimed fixed by
+this wrapper update.

@@ -24,6 +24,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   resolves GeoIP through the original proxy before launch without forking Camoufox.
 
 ### Changed
+- Clarified native canvas behavior: disabling randomization does not guarantee
+  identical pixels after host-renderer, font or browser changes. Cold Windows
+  variation is tracked separately with a native Firefox control.
 - Camoufox 0.5.8 with its paired Firefox 156 beta.36 browser and Playwright 1.62.
   Setup now prepares the verified fpgen model; desktop builds carry the model.
   Browser readiness checks reject unsupported protocol interfaces before launch.

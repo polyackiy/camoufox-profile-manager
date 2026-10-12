@@ -20,6 +20,35 @@ from tests.browser.test_fingerprint_stability import (
 )
 
 
+async def capture_native_canvas(profile_directory, url):
+    """One independent native browser/driver launch of the fixed synthetic draw."""
+    async with async_playwright() as playwright:
+        context = await playwright.firefox.launch_persistent_context(
+            user_data_dir=str(profile_directory),
+            headless=True,
+            locale="en-US",
+            firefox_user_prefs={
+                "privacy.baselineFingerprintingProtection": False,
+                "privacy.fingerprintingProtection": False,
+                "privacy.resistFingerprinting": False,
+            },
+        )
+        try:
+            page = await context.new_page()
+            await page.goto(url, wait_until="domcontentloaded", timeout=45000)
+            snapshot = await page.evaluate(CANVAS_DIAGNOSTIC)
+            record = {
+                **{key: value for key, value in snapshot.items() if key != "value"},
+                "pngHash": hashlib.sha256(snapshot["value"].encode()).hexdigest()[:16],
+                "engine": "Playwright packaged Firefox",
+                "engineVersion": context.browser.version if context.browser else "unavailable",
+            }
+        finally:
+            await context.close()
+    record.update(canvas_profile_diagnostic(profile_directory))
+    return record, snapshot["value"]
+
+
 @pytest.mark.browser
 @pytest.mark.asyncio
 @pytest.mark.skipif(
@@ -30,35 +59,11 @@ async def test_native_firefox_canvas_survives_a_relaunch(tmp_path, local_sites):
     records = []
     hashes = []
     for number in (1, 2):
-        async with async_playwright() as playwright:
-            context = await playwright.firefox.launch_persistent_context(
-                user_data_dir=str(tmp_path / "native"),
-                headless=True,
-                locale="en-US",
-                firefox_user_prefs={
-                    "privacy.baselineFingerprintingProtection": False,
-                    "privacy.fingerprintingProtection": False,
-                    "privacy.resistFingerprinting": False,
-                },
-            )
-            try:
-                page = await context.new_page()
-                await page.goto(local_sites.first, wait_until="domcontentloaded", timeout=45000)
-                snapshot = await page.evaluate(CANVAS_DIAGNOSTIC)
-                png_hash = hashlib.sha256(snapshot["value"].encode()).hexdigest()[:16]
-                record = {
-                    **{key: value for key, value in snapshot.items() if key != "value"},
-                    "pngHash": png_hash,
-                    "engine": "Playwright packaged Firefox",
-                    "engineVersion": context.browser.version if context.browser else "unavailable",
-                    "phase": "initial" if number == 1 else "restart",
-                }
-            finally:
-                await context.close()
-        record.update(canvas_profile_diagnostic(tmp_path / "native"))
+        record, value = await capture_native_canvas(tmp_path / "native", local_sites.first)
+        record["phase"] = "initial" if number == 1 else "restart"
         records.append(record)
-        hashes.append(png_hash)
+        hashes.append(record["pngHash"])
         directory = os.environ.get("CPM_CANVAS_DIAGNOSTIC_DIR")
         if directory:
-            save_canvas_diagnostic(directory, number, snapshot["value"], record)
+            save_canvas_diagnostic(directory, number, value, record)
     assert hashes[0] == hashes[1], f"native Firefox canvas drifted: {records}"

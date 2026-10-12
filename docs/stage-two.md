@@ -18,15 +18,29 @@ Proxy-library work shipped in [#70](https://github.com/polyackiy/camoufox-profil
 
 ## Completion evidence
 
-The final implementation must cover a combined workflow: create independent
-profiles from a template, assign an extension, import cookies, export/import a
-profile, then find it through tags and a saved view. Browser tests use synthetic
-local data; real account cookies and proxy credentials must never enter fixtures,
-screenshots, commits or public reports.
+The combined browser test creates independent profiles from a template, assigns
+an extension, imports cookies, exports/imports a profile, then finds it through
+tags and a saved view. Separate browser cases check cookie lifetime and flags,
+extension removal/upgrades, authenticated SOCKS5, desktop chrome and pinned
+identity. Fixtures and screenshots contain synthetic local data only.
 
-Running profiles and concurrent edits must be handled explicitly. A successful
-HTTP response alone does not establish that imported cookies are visible to the
-browser or that an extension actually loaded: these require Camoufox tests.
+Offline tests cover validation, concurrent edits, cancellation, backup recovery,
+archive paths and imported-extension integrity. UI acceptance covers cookie
+transfer, templates, extensions, tags and saved views in English and Chinese.
+Regular CI runs the backend on Python 3.10–3.13, frontend checks and builds;
+compatibility CI runs real browsers on Linux, Windows and macOS. Desktop builds
+cover Windows/Linux x86_64 and macOS Intel/Apple Silicon.
+
+Exact run links, revisions and final results are recorded in
+[PR #72](https://github.com/polyackiy/camoufox-profile-manager/pull/72) and
+[the acceptance issue](https://github.com/polyackiy/camoufox-profile-manager/issues/71).
+A successful API response is not a substitute for the real-browser checks.
+
+Windows canvas acceptance uses an explicitly initialized native renderer while
+retaining strict equality and repeated restart checks. The separate
+[cold-host rendering limitation](windows-canvas-rendering.md) remains tracked in
+[#73](https://github.com/polyackiy/camoufox-profile-manager/issues/73); this stage
+does not claim to fix native first-use pixel changes.
 
 ## Separate work
 

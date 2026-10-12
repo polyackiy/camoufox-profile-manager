@@ -776,11 +776,11 @@ export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) 
               onChange={(e) => set('stableCanvas', e.target.value === 'stable')}
             >
               <option value="randomised">{t('Randomised each session (default)')}</option>
-              <option value="stable">{t('Same canvas every launch')}</option>
+              <option value="stable">{t('Native canvas (no randomisation)')}</option>
             </select>
             <p className="mt-1.5 text-ink-faint">
               {form.stableCanvas
-                ? t('Reads the same to a site across launches, like real hardware — but also the same on every site, so sites can link this profile between them.')
+                ? t('Disables canvas noise across sessions and sites. Sites can link this profile; browser, font and system rendering changes may still change its canvas.')
                 : t('A site sees a different canvas each session, and a different one per site. Safer against tracking, but a long-lived account looks like new hardware every visit.')}
             </p>
           </div>
@@ -978,7 +978,7 @@ function PinnedMachine({
               {t('This profile still reports Firefox {current}; the installed browser is {installed}.', { current: fingerprint.browser_major, installed: fingerprint.installed_major })}
             </p>
             <p className="mt-0.5 text-ink-faint">
-              {t('Updating changes only the browser version. The screen, GPU, cores, fonts and canvas stay exactly as they are — the same computer, with its browser updated.')}
+              {t('Updating preserves this profile’s saved screen, GPU, core count and font settings. A newer browser may render canvas differently.')}
             </p>
           </div>
           <button

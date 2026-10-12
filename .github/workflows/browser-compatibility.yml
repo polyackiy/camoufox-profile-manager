@@ -69,9 +69,16 @@ jobs:
         run: uv run python scripts/install_ci_browser.py
       - name: Record the tested pair
         run: uv run camoufox version
-      - name: Install packaged native Firefox for the Windows control
-        if: runner.os == 'Windows' && inputs.raster_mode == 'native-firefox'
+      - name: Install packaged native Firefox for Windows renderer diagnostics
+        if: runner.os == 'Windows' && (inputs.raster_mode == 'native-firefox' || inputs.raster_mode == 'default' || inputs.raster_mode == '')
         run: uv run playwright install firefox
+      - name: Verify Windows native renderer convergence before manager acceptance
+        if: runner.os == 'Windows' && (inputs.raster_mode == 'default' || inputs.raster_mode == '')
+        # Plain Firefox reproduces the cold-host pixel transition too. Preserve
+        # every baseline, warn on change, fail after at most three launches.
+        # Manual cold diagnostics bypass this step; product launches never use it.
+        # https://github.com/polyackiy/camoufox-profile-manager/actions/runs/38319076724
+        run: uv run python -m scripts.prepare_ci_windows_renderer --output canvas-diagnostics/windows-renderer-preflight
       - name: Test real browsers against local synthetic sites (Linux)
         if: runner.os == 'Linux'
         env:

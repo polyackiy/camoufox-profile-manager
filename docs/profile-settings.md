@@ -5,11 +5,16 @@ manager sets **high-level constraints** and lets Camoufox generate a consistent
 fingerprint from them — it deliberately does not hand-pick the user agent or WebGL
 renderer, because inconsistent values are easy to detect.
 
+This document describes Camoufox **0.5.8 / 156.0.1-beta.36**. See
+[Camoufox compatibility](camoufox-compatibility.md) for the supported pair and
+upgrade procedure. Measurements from older builds are labelled separately.
+
 ## Fields
 
 | Field                  | Type        | Notes                                         |
 | ---------------------- | ----------- | --------------------------------------------- |
 | `os`                   | str         | `windows`, `macos`, or `linux`                |
+| `browser_ui`           | str         | `desktop` (ordinary controls) or `camoufox`   |
 | `screen`               | str         | e.g. `1920x1080`                              |
 | `languages`            | list[str]   | e.g. `["en-US", "en"]`                        |
 | `timezone`             | str \| null | e.g. `Europe/Berlin`; forwarded to Camoufox   |
@@ -69,12 +74,17 @@ Only the machine is frozen:
 | `navigator.*` (user agent, platform, CPU cores, oscpu) | `geolocation:*`, `timezone`, `locale:*` |
 | `screen.*`, `window.*` geometry | `webrtc:*` |
 | `webGl*` (vendor, renderer, parameters, extensions) | `navigator.language`, `navigator.languages` |
-| `canvas:seed`, `audio:seed`, `fonts`, `fonts:spacing_seed` | `headers.*` |
+| `audio:seed`, `fonts` | `headers.*` |
 | `mediaDevices:*`, `voices` | `window.history.length` |
 
 Location and locale are deliberately left out: freezing them would pin a Berlin
 timezone onto a profile that later moves to a Tokyo proxy, and a timezone that
 contradicts the exit IP is easier to spot than no spoofing at all.
+
+Legacy pins may contain `canvas:seed` or `fonts:spacing_seed` from older builds.
+Camoufox 0.5.8 no longer generates those fields. Preserving an old config value
+does not establish that the current engine consumes it, or that native canvas
+pixels are identical on every host.
 
 *Regenerate fingerprint* clears the pin, so the next launch assigns new hardware.
 The pinned values are shown read-only in the profile form.
@@ -86,9 +96,10 @@ year later, and a browser several releases behind is itself unusual — real
 machines update.
 
 *Update* in the Machine panel (or `POST /api/v1/profiles/{id}/refresh-browser`)
-moves the pin onto the installed browser and changes **only** the browser
-version. Screen, GPU, cores, fonts and the noise seeds stay exactly as they were,
-which is what a real computer looks like after a browser update. The button
+moves the pin onto the installed browser and changes **only** the stored browser
+version fields. Screen, GPU, cores, fonts and existing identity seeds remain
+unchanged. A newer engine or host renderer can still change rendered pixels;
+preserving the config is not a pixel-equivalence guarantee. The button
 appears only when the pin is behind the browser on disk.
 
 The user agent is resolved for the OS **the pin describes**, taken from its
@@ -182,8 +193,8 @@ mismatch fixed and re-tested — before anything is saved.
 
 ## Real device presets
 
-Camoufox bundles fingerprints captured from actual machines — 180 Windows, 67
-macOS and 65 Linux at the time of writing. A generated fingerprint is internally
+Camoufox bundles fingerprints captured from actual machines; the catalogue
+depends on the installed wrapper version. A generated fingerprint is internally
 consistent but still an assembly of parts; a preset is a combination that
 genuinely exists.
 
@@ -220,57 +231,53 @@ the costume without the memory.
 
 These are properties of Camoufox and Firefox, not of this manager:
 
-- **The canvas hash changes between sessions, by default.** Measured on
-  Camoufox 152:
+- **Canvas image export is randomised by default.** Current browser tests cover
+  repeated launches and cross-site behavior on the supported pair:
 
   | Scope | Canvas hash |
   | ----- | ----------- |
   | Two tabs, same site, one session | **the same** |
   | Different sites, one session | different — deliberate, and what stops sites correlating you across the web |
-  | Same site, same profile, next launch | **different every time** |
+  | Same site, same profile, next launch | different |
 
-  The first two are what a privacy browser should do. The third is the problem: a
-  real browser returns the same canvas to a site for years, so a site that records
-  it sees a new machine every session.
-
-  What is randomised is **image export** — `toDataURL()` and `toBlob()` — from a
-  2D *or* a WebGL canvas. Raw pixel readback (`getImageData`, `readPixels`) is
-  stable, and so is `measureText`.
-
-  `canvas:seed` is listed as a supported property but is **not honoured**: pinning
-  it changes nothing. It is declared in Camoufox's property manifest and emitted
-  by its Python layer, but its C++ config reader never reads it, and no patch in
-  the repository implements it. `window.setCanvasSeed()`, documented in Camoufox's
-  per-context notes, is `undefined` in the shipped build while its siblings
-  (`setNavigatorUserAgent`, `setWebGLVendor`) are defined. Both are worth fixing
-  upstream, and the seed is the better long-term mechanism because it would give
-  each profile its own canvas value rather than one shared true render.
-
-  **The `stable_canvas` setting turns this off, and it is a genuine trade.**
-  Enabling it launches with `privacy.baselineFingerprintingProtection = false`,
-  which stops the pixel randomisation; combined with the pinned
-  `fonts:spacing_seed` a profile already stores, the canvas becomes fully
-  reproducible. Both halves are needed — text rendering follows the font seed
-  rather than the canvas path, so the pref alone leaves a text-bearing canvas
-  drifting. Measured:
+  **The `stable_canvas` setting disables that randomisation.** Enabling it
+  launches with `privacy.baselineFingerprintingProtection = false`. The profile
+  retains its font list, while native browser/OS rendering supplies the pixels.
+  Camoufox 0.5.8 does not generate a canvas seed or glyph-spacing seed. Observed
+  behavior after host renderer initialization:
 
   | | Same site, relaunched | Different sites |
   | --- | --- | --- |
   | `stable_canvas` off (default) | different every launch | different |
-  | `stable_canvas` on | **identical** | **identical** |
+  | `stable_canvas` on | identical in the tested renderer environment | identical |
 
   The right-hand column is the cost: a stable canvas is the same everywhere, so
   two sites can tell they are looking at one machine. That is exactly what real
-  hardware does, and exactly what the randomisation existed to prevent.
-
-  Choose per profile. One long-lived account wants it on, because looking like
-  new hardware every visit is the bigger tell. Browsing the open web unlinkably
-  wants the default. Set it in the profile form under **Canvas**, or as
+  hardware does. Choose per profile depending on the importance of continuity
+  versus cross-site unlinkability. Use **Canvas** in the profile form or
   `browser_settings.stable_canvas` through the API.
-- **`max_touch_points` has no effect.** Camoufox 152 lists
-  `navigator.maxTouchPoints` as a supported property but does not apply it; the
-  page keeps reporting `0` on every OS, with or without the touch-events pref.
-  The field is stored so it starts working if upstream does.
+
+  **A pin does not guarantee byte-identical canvas output on a cold Windows
+  host or across different hosts, graphics drivers, fonts and browser engines.**
+  A fresh Windows CI worker changed one pixel between its first render and
+  restart; a native Firefox 153 control reproduced the same shift. CI records
+  that cold-host variation separately, then checks exact restart equality with
+  an initialized host renderer. This preparation exists only in CI: the app
+  applies no cold-host warmup or graphics/font preference workaround. See
+  [Windows canvas rendering](windows-canvas-rendering.md) and
+  [issue #73](https://github.com/polyackiy/camoufox-profile-manager/issues/73).
+
+  Historical reports on Camoufox 152 found `canvas:seed` inert and
+  `window.setCanvasSeed()` absent. Upstream closed
+  [issue #721](https://github.com/daijro/camoufox/issues/721) through its
+  [documentation/dead-code audit](https://github.com/daijro/camoufox/pull/787);
+  those reports do not describe a supported seed API in 0.5.8.
+- **Touch-point overrides need current browser verification.** On Camoufox
+  152, `navigator.maxTouchPoints` stayed `0` despite the override. That result
+  is historical; this release has no acceptance test establishing that the
+  override works on 0.5.8 / beta.36. The manager stores `max_touch_points` and
+  forwards nonzero values, but it should not be relied on as a verified touch
+  identity feature. Camoufox remains a desktop browser.
 - **`screen` is not sent to the browser.** It is generated, stored and shown, but
   Camoufox derives the real screen metrics itself.
 - **SOCKS4 credentials are unsupported.** Use SOCKS5 or HTTP/HTTPS for
