@@ -27,7 +27,7 @@ on:
       - '.github/workflows/browser-compatibility.yml'
 
 concurrency:
-  group: browser-compatibility-${{ github.ref }}
+  group: browser-compatibility-${{ github.ref }}-${{ inputs.platform || 'all' }}-${{ inputs.suite || 'full' }}-${{ inputs.raster_mode || 'default' }}
   cancel-in-progress: true
 
 permissions:
