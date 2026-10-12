@@ -87,6 +87,64 @@ def test_freeze_is_stable_and_lossless_for_hardware():
     assert once["fonts"] == ["Arial", "Calibri"]
 
 
+def test_zero_available_origin_remains_pinned_when_later_generated_screen_moves():
+    """Real upstream zero omission must not adopt a later monitor's origin."""
+    from camoufox.fingerprints import from_fpgen
+    from camoufox.utils import merge_into
+
+    source = {
+        "screen": {
+            "width": 1920,
+            "height": 1080,
+            "availWidth": 1920,
+            "availHeight": 1040,
+            "availLeft": 0,
+            "availTop": 0,
+        },
+    }
+    generated = from_fpgen(source)
+    assert "screen.availLeft" not in generated and "screen.availTop" not in generated
+    pinned = fingerprint_store.freeze(generated)
+    assert pinned["screen.availLeft"] == pinned["screen.availTop"] == 0
+    first, second = dict(pinned), dict(pinned)
+    merge_into(first, {"screen.availLeft": 2560, "screen.availTop": 30})
+    merge_into(second, {})
+    assert first == second == pinned
+    assert "navigator.maxTouchPoints" not in pinned
+
+
+def test_normalize_existing_pin_preserves_explicit_offsets_without_mutating_it():
+    pin = {"screen.availWidth": 1920, "screen.availHeight": 1040, "screen.availLeft": 2560}
+    normalized = fingerprint_store.normalize_screen_origin(pin)
+    assert normalized == {**pin, "screen.availTop": 0}
+    assert "screen.availTop" not in pin
+    assert fingerprint_store.normalize_screen_origin(normalized) == normalized
+    refreshed = fingerprint_store.refresh_browser_version(pin, {"navigator.userAgent": UA_NEW})
+    assert refreshed["screen.availLeft"] == 2560 and refreshed["screen.availTop"] == 0
+
+
+@pytest.mark.parametrize(
+    "width,height",
+    [
+        (1920, None),
+        (None, 1080),
+        (True, 1080),
+        (0, 1080),
+        (-1, 1080),
+        (1920, 1080.0),
+        (2**32, 1080),
+    ],
+)
+def test_normalize_never_invents_origin_for_incomplete_or_unsupported_geometry(width, height):
+    pin = {"screen.width": 1920, "screen.height": 1080}
+    if width is not None:
+        pin["screen.availWidth"] = width
+    if height is not None:
+        pin["screen.availHeight"] = height
+    assert fingerprint_store.normalize_screen_origin(pin) == pin
+    assert fingerprint_store.normalize_screen_origin({}) == {}
+
+
 def test_summarize_reports_the_values_a_user_recognises():
     summary = fingerprint_store.summarize(fingerprint_store.freeze(RESOLVED))
     assert summary is not None

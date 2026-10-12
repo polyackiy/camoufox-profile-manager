@@ -75,17 +75,37 @@ _BROWSER_VERSION_KEYS = frozenset(
 _UA_VERSION = re.compile(r"rv:(\d+)")
 
 
+def normalize_screen_origin(pin: dict[str, Any]) -> dict[str, Any]:
+    """Pin the browser's existing zero defaults for a complete available rect.
+
+    Camoufox's fpgen converter drops zero values, but each subsequent launch
+    fills absent config keys from another generated fingerprint. An omitted
+    availLeft can therefore become another monitor's nonzero origin. The native
+    MaskConfig::GetRect defaults only left/top to zero when both available
+    dimensions exist. Make those supported defaults explicit; do not infer any
+    other missing properties or incomplete screen geometry.
+    """
+    normalized = dict(pin)
+    dimensions = (pin.get("screen.availWidth"), pin.get("screen.availHeight"))
+    if all(type(value) is int and 0 < value <= 4_294_967_295 for value in dimensions):
+        normalized.setdefault("screen.availLeft", 0)
+        normalized.setdefault("screen.availTop", 0)
+    return normalized
+
+
 def freeze(resolved: dict[str, Any]) -> dict[str, Any]:
     """Return the subset of a resolved Camoufox config that identifies the machine.
 
     Everything else — geolocation, timezone, locale, WebRTC, request headers —
     is left out so it keeps tracking the profile's settings and its proxy.
     """
-    return {
-        key: value
-        for key, value in resolved.items()
-        if key not in _NEVER_FROZEN and key.startswith(_FROZEN_PREFIXES)
-    }
+    return normalize_screen_origin(
+        {
+            key: value
+            for key, value in resolved.items()
+            if key not in _NEVER_FROZEN and key.startswith(_FROZEN_PREFIXES)
+        }
+    )
 
 
 # Tokens that name the machine rather than the platform. Firefox leaves every
@@ -339,7 +359,7 @@ def refresh_browser_version(pinned: dict[str, Any], resolved: dict[str, Any]) ->
     from ``pinned``, which is what a real device looks like after an update: same
     GPU, screen, cores, fonts and noise seeds; newer user agent.
     """
-    updated = dict(pinned)
+    updated = normalize_screen_origin(pinned)
     for key in _BROWSER_VERSION_KEYS:
         if key in resolved:
             updated[key] = resolved[key]

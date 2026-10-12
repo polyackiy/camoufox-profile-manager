@@ -33,6 +33,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   checkpoints and safe rollback requirements in the update design.
 
 ### Fixed
+- Verify imported extension file contents before trusting a library identity or
+  reusing an existing snapshot, including its displayed permissions.
+- Preserve native zero screen origins in new and existing fingerprints instead
+  of allowing omitted coordinates to change between launches.
 - Preserve selected preset CPU identity and reconstruct all Windows fingerprint
   configuration chunks instead of silently losing the pin.
 - Close cookie-store handles before atomic replacement on Windows, and omit

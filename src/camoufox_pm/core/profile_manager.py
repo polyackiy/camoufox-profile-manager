@@ -953,6 +953,9 @@ class ProfileManager:
             # hardware every time. The profile's own overrides still win, and geo,
             # timezone and WebRTC stay dynamic so they follow the proxy.
             pinned = profile.fingerprint
+            if pinned:
+                pinned = fingerprint_store.normalize_screen_origin(pinned)
+                profile.fingerprint = pinned
             if not pinned:
                 # resolve() can do network I/O (it fetches the uBlock addon on a
                 # fresh install). It used to have to stay synchronous, because
