@@ -167,7 +167,12 @@ def canvas_launch_diagnostic(options, snapshot, png_hash):
         "rasterPrefs": {
             key: value
             for key, value in options.get("firefox_user_prefs", {}).items()
-            if key in {"gfx.canvas.azure.backends", "gfx.canvas.accelerated"}
+            if key
+            in {
+                "gfx.canvas.azure.backends",
+                "gfx.canvas.accelerated",
+                "gfx.font_rendering.cleartype_params.rendering_mode",
+            }
         },
     }
 
@@ -177,9 +182,14 @@ def canvas_profile_diagnostic(directory):
     directory = Path(directory)
     prefs = {}
     prefs_file = directory / "prefs.js"
+    pref_files = {
+        name: {"bytes": (directory / name).stat().st_size}
+        for name in ("prefs.js", "user.js", "prefs.js.playwright")
+        if (directory / name).is_file()
+    }
     if prefs_file.is_file() and prefs_file.stat().st_size <= 2_000_000:
         for line in prefs_file.read_text(encoding="utf-8", errors="replace").splitlines():
-            match = re.fullmatch(r'user_pref\("([^"\\]+)", (.+)\);', line)
+            match = re.fullmatch(r'user_pref\("([^"\\]+)", (.+)\);', line.strip())
             if not match:
                 continue
             key = match[1]
@@ -208,7 +218,11 @@ def canvas_profile_diagnostic(directory):
             caches[name] = {"present": True, "entries": min(sum(1 for _ in path.iterdir()), 1000)}
         elif path.is_file():
             caches[name] = {"present": True, "bytes": path.stat().st_size}
-    return {"persistedPrefs": dict(sorted(prefs.items())[:128]), "caches": caches}
+    return {
+        "persistedPrefs": dict(sorted(prefs.items())[:128]),
+        "prefFiles": pref_files,
+        "caches": caches,
+    }
 
 
 async def canvas_graphics_diagnostic(browser):
@@ -216,7 +230,11 @@ async def canvas_graphics_diagnostic(browser):
     page = await browser.new_page()
     try:
         await page.goto("about:support", wait_until="load", timeout=15000)
-        await page.locator("#graphics-features-tbody tr").nth(1).wait_for(timeout=15000)
+        await (
+            page.locator("#graphics-features-tbody tr")
+            .nth(1)
+            .wait_for(state="attached", timeout=5000)
+        )
         return await page.evaluate("""() => {
           const rows = document.querySelectorAll(
             '#graphics-features-tbody tr, #graphics-diagnostics-tbody tr');
@@ -326,8 +344,18 @@ def canvas_probe_options(profile, mode):
             "gfx.canvas.azure.backends": "skia",
             "gfx.canvas.accelerated": False,
         }
+    elif mode in {"gdi-classic", "natural-symmetric"}:
+        # Mozilla all.js documents 2=GDI Classic, 5=Natural Symmetric.
+        # gfxDWriteFont::UpdateClearTypeVars validates these and updates the
+        # native DirectWrite rendering parameters. Only CI probes use them.
+        options["firefox_user_prefs"] = {
+            **options.get("firefox_user_prefs", {}),
+            "gfx.font_rendering.cleartype_params.rendering_mode": (
+                2 if mode == "gdi-classic" else 5
+            ),
+        }
     elif mode != "default":
-        raise ValueError("Select default or software for CPM_CANVAS_RASTER_MODE")
+        raise ValueError("Select default, software, gdi-classic or natural-symmetric raster mode")
     return options
 
 

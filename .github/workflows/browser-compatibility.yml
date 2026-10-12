@@ -16,7 +16,7 @@ on:
       raster_mode:
         description: Diagnostic canvas backend override (default tests product behavior)
         type: choice
-        options: [default, software]
+        options: [default, software, text-probes]
         default: default
   pull_request:
     paths:
@@ -43,7 +43,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 35
     env:
-      CPM_CANVAS_RASTER_MODE: ${{ inputs.raster_mode || 'default' }}
+      CPM_CANVAS_RASTER_MODE: ${{ inputs.raster_mode == 'text-probes' && 'default' || inputs.raster_mode || 'default' }}
       CPM_CANVAS_DIAGNOSTIC_DIR: canvas-diagnostics
       CPM_BROWSER_TARGET: ${{ inputs.suite == 'canvas' && 'tests/browser/test_fingerprint_stability.py::test_stable_canvas_survives_a_relaunch' || 'tests' }}
     steps:
@@ -72,11 +72,11 @@ jobs:
         # the hardware identity assertions, as in upstream Camoufox CI.
         run: xvfb-run -a uv run pytest "$CPM_BROWSER_TARGET" -m browser --no-network --junitxml=browser-results.xml
       - name: Test real browsers against local synthetic sites
-        if: runner.os != 'Linux'
+        if: runner.os != 'Linux' && (runner.os != 'Windows' || inputs.raster_mode != 'text-probes')
         shell: bash
         run: uv run pytest "$CPM_BROWSER_TARGET" -m browser --no-network --junitxml=browser-results.xml
       - name: Verify repeated Windows canvas restarts
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && inputs.raster_mode != 'text-probes'
         shell: pwsh
         # A single clean run does not settle the previously observed drift.
         run: |
@@ -84,6 +84,18 @@ jobs:
             uv run pytest tests/browser/test_fingerprint_stability.py::test_stable_canvas_survives_a_relaunch --no-network --junitxml="browser-canvas-$attempt.xml"
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
+      - name: Compare independent Windows text rendering probes
+        if: runner.os == 'Windows' && inputs.raster_mode == 'text-probes'
+        shell: bash
+        # Each probe keeps its own fresh persistent profile and the unchanged
+        # restart equality assertion. Continue after failures to capture all.
+        run: |
+          result=0
+          for mode in default gdi-classic natural-symmetric; do
+            CPM_CANVAS_RASTER_MODE="$mode" CPM_CANVAS_DIAGNOSTIC_DIR="canvas-diagnostics/$mode" \
+              uv run pytest tests/browser/test_fingerprint_stability.py::test_stable_canvas_survives_a_relaunch --no-network --junitxml="browser-canvas-$mode.xml" || result=1
+          done
+          exit "$result"
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4
@@ -91,5 +103,5 @@ jobs:
           name: browser-results-${{ matrix.os }}
           path: |
             browser-*.xml
-            canvas-diagnostics/*
+            canvas-diagnostics/**
           if-no-files-found: ignore

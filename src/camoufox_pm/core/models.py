@@ -315,8 +315,8 @@ class Profile(BaseModel):
             # Firefox's baseline fingerprinting protection randomises canvas image
             # export (toDataURL/toBlob, 2D and WebGL) per site and per session.
             # Turning it off makes the canvas reproducible, which is what a
-            # long-lived profile needs — together with the pinned fonts:spacing_seed,
-            # since text rendering follows that seed rather than the canvas path.
+            # long-lived profile needs, together with the pinned font list.
+            # Camoufox 0.5.8 no longer emits canvas or glyph-spacing noise seeds.
             #
             # The cost is deliberate: the canvas is then identical across sites,
             # exactly as real hardware behaves, so it can be correlated between

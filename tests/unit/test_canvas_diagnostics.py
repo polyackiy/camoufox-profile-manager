@@ -3,9 +3,14 @@
 import base64
 import json
 
+import pytest
+
+from camoufox_pm.core.models import BrowserSettings, Profile
 from tests.browser.test_fingerprint_stability import (
     canvas_launch_diagnostic,
+    canvas_probe_options,
     canvas_profile_diagnostic,
+    pinned_options,
     save_canvas_diagnostic,
 )
 
@@ -69,13 +74,18 @@ def test_profile_diagnostics_whitelist_renderer_prefs_and_never_publish_paths(tm
 
 
 def test_profile_diagnostics_are_bounded_and_handle_missing_or_oversize_prefs(tmp_path):
-    assert canvas_profile_diagnostic(tmp_path) == {"persistedPrefs": {}, "caches": {}}
+    assert canvas_profile_diagnostic(tmp_path) == {
+        "persistedPrefs": {},
+        "prefFiles": {},
+        "caches": {},
+    }
     (tmp_path / "prefs.js").write_text(
         "\n".join(f'user_pref("gfx.test.{i:03}", {i});' for i in range(200))
     )
     assert len(canvas_profile_diagnostic(tmp_path)["persistedPrefs"]) == 128
     (tmp_path / "prefs.js").write_bytes(b" " * 2_000_001)
     assert canvas_profile_diagnostic(tmp_path)["persistedPrefs"] == {}
+    assert canvas_profile_diagnostic(tmp_path)["prefFiles"] == {"prefs.js": {"bytes": 2_000_001}}
 
 
 def test_canvas_artifact_saves_synthetic_png_and_sanitized_metadata(tmp_path):
@@ -89,3 +99,25 @@ def test_canvas_artifact_saves_synthetic_png_and_sanitized_metadata(tmp_path):
     assert (tmp_path / "launch-1.png").read_bytes() == png
     assert json.loads((tmp_path / "launch-1.json").read_text()) == record
     assert "data:image" not in (tmp_path / "launch-1.json").read_text()
+
+
+@pytest.mark.parametrize("mode,value", [("gdi-classic", 2), ("natural-symmetric", 5)])
+def test_native_text_probes_are_explicit_isolated_and_keep_default_acceptance(mode, value):
+    profile = Profile(name="synthetic", browser_settings=BrowserSettings(stable_canvas=True))
+    profile.fingerprint = {"fonts": ["Arial"], "screen.width": 1920}
+    default = pinned_options(profile)
+    assert canvas_probe_options(profile, "default") == default
+    probe = canvas_probe_options(profile, mode)
+    assert probe["config"] == default["config"]
+    assert probe["firefox_user_prefs"] == {
+        "privacy.baselineFingerprintingProtection": False,
+        "gfx.font_rendering.cleartype_params.rendering_mode": value,
+    }
+    assert default["firefox_user_prefs"] == {"privacy.baselineFingerprintingProtection": False}
+    assert canvas_probe_options(profile, "default") == default
+
+
+def test_unknown_probe_fails_explicitly():
+    profile = Profile(name="synthetic", fingerprint={"fonts": ["Arial"]})
+    with pytest.raises(ValueError):
+        canvas_probe_options(profile, "typo")
