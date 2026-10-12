@@ -172,6 +172,8 @@ def canvas_launch_diagnostic(options, snapshot, png_hash):
                 "gfx.canvas.azure.backends",
                 "gfx.canvas.accelerated",
                 "gfx.font_rendering.cleartype_params.rendering_mode",
+                "gfx.font_rendering.cleartype_params.force_gdi_classic_for_families",
+                "gfx.font_rendering.cleartype_params.force_gdi_classic_max_size",
             }
         },
     }
@@ -354,8 +356,20 @@ def canvas_probe_options(profile, mode):
                 2 if mode == "gdi-classic" else 5
             ),
         }
+    elif mode == "gdi-family":
+        # gfxDWriteFont::GetForceGDIClassic requires a listed family, size
+        # threshold and rendering_mode=-1. ScaledFontDWrite then disables
+        # subpixel positioning and Skia explicitly enters its ForceGDI path.
+        options["firefox_user_prefs"] = {
+            **options.get("firefox_user_prefs", {}),
+            "gfx.font_rendering.cleartype_params.rendering_mode": -1,
+            "gfx.font_rendering.cleartype_params.force_gdi_classic_for_families": "Arial",
+            "gfx.font_rendering.cleartype_params.force_gdi_classic_max_size": 32,
+        }
     elif mode != "default":
-        raise ValueError("Select default, software, gdi-classic or natural-symmetric raster mode")
+        raise ValueError(
+            "Select default, software, gdi-classic, natural-symmetric or gdi-family raster mode"
+        )
     return options
 
 

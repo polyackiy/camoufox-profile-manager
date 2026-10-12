@@ -16,7 +16,7 @@ on:
       raster_mode:
         description: Diagnostic canvas backend override (default tests product behavior)
         type: choice
-        options: [default, software, text-probes]
+        options: [default, software, text-probes, gdi-family]
         default: default
   pull_request:
     paths:

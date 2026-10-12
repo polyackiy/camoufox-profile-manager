@@ -121,3 +121,22 @@ def test_unknown_probe_fails_explicitly():
     profile = Profile(name="synthetic", fingerprint={"fonts": ["Arial"]})
     with pytest.raises(ValueError):
         canvas_probe_options(profile, "typo")
+
+
+def test_gdi_family_probe_uses_required_native_preconditions_without_changing_pin():
+    profile = Profile(
+        name="synthetic",
+        browser_settings=BrowserSettings(stable_canvas=True),
+        fingerprint={"fonts": ["Arial"]},
+    )
+    probe = canvas_probe_options(profile, "gdi-family")
+    assert probe["firefox_user_prefs"] == {
+        "privacy.baselineFingerprintingProtection": False,
+        "gfx.font_rendering.cleartype_params.rendering_mode": -1,
+        "gfx.font_rendering.cleartype_params.force_gdi_classic_for_families": "Arial",
+        "gfx.font_rendering.cleartype_params.force_gdi_classic_max_size": 32,
+    }
+    assert probe["config"] == pinned_options(profile)["config"]
+    assert pinned_options(profile)["firefox_user_prefs"] == {
+        "privacy.baselineFingerprintingProtection": False
+    }
