@@ -11,8 +11,14 @@ reliable window-close signal on its own.
 """
 
 import asyncio
-from collections.abc import Awaitable, Callable
+import json
+import os
+import sys
+import tempfile
+from collections.abc import Awaitable, Callable, Iterator
+from contextlib import contextmanager
 from datetime import datetime
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import psutil
@@ -38,6 +44,92 @@ ExitHandler = Callable[[str], Awaitable[None]]
 
 class BrowserLaunchError(RuntimeError):
     """Raised when a Camoufox browser fails to launch."""
+
+
+def _browser_launch_options(launch_options: dict[str, Any]) -> dict[str, Any]:
+    """Keep Linux desktop input methods usable without changing the manager.
+
+    Playwright's focus test mode prevents native IME composition from committing
+    in headed Firefox. PyInstaller also prepends its bundled libraries to
+    LD_LIBRARY_PATH; those GTK/GLib versions can be incompatible with the host's
+    input-method module. Restore the pre-bundle path for the browser child only.
+    Explicit preferences and environments remain under the caller's control.
+    """
+    options = launch_options.copy()
+    if sys.platform != "linux":
+        return options
+
+    if not options.get("headless", False):
+        prefs = dict(options.get("firefox_user_prefs") or {})
+        prefs.setdefault("focusmanager.testmode", False)
+        options["firefox_user_prefs"] = prefs
+
+    if getattr(sys, "frozen", False) and options.get("env") is None:
+        env = os.environ.copy()
+        original_path = env.get("LD_LIBRARY_PATH_ORIG")
+        if original_path:
+            env["LD_LIBRARY_PATH"] = original_path
+        else:
+            env.pop("LD_LIBRARY_PATH", None)
+        options["env"] = env
+    return options
+
+
+def _replace_preferences(path: Path, content: bytes) -> None:
+    """Replace a small preferences file without leaving a partial write."""
+    with tempfile.NamedTemporaryFile(dir=path.parent, delete=False) as handle:
+        temporary = Path(handle.name)
+        try:
+            handle.write(content)
+            handle.close()
+            if path.exists():
+                temporary.chmod(path.stat().st_mode)
+            temporary.replace(path)
+        finally:
+            temporary.unlink(missing_ok=True)
+
+
+@contextmanager
+def _linux_ime_startup_preferences(options: dict[str, Any]) -> Iterator[None]:
+    """Apply focus preferences before GTK creates its input context.
+
+    Playwright 1.60 sends firefox_user_prefs over Browser.enable after startup.
+    That is too late for native IME focus: candidates appear but do not commit.
+    Temporarily append the preference to this profile's user.js so Firefox
+    reads it at startup, then restore the original file after launch or failure.
+    """
+    directory = options.get("user_data_dir")
+    if (
+        sys.platform != "linux"
+        or options.get("headless")
+        or not options.get("persistent_context")
+        or not directory
+    ):
+        yield
+        return
+
+    path = Path(directory) / "user.js"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    original = path.read_bytes() if path.exists() else None
+    preference = options["firefox_user_prefs"]["focusmanager.testmode"]
+    content = (original or b"") + (
+        f'\nuser_pref("focusmanager.testmode", {json.dumps(preference)});\n'
+    ).encode()
+    _replace_preferences(path, content)
+    try:
+        yield
+    finally:
+        try:
+            # Preserve a concurrent edit, or a preferences file rewritten by an
+            # older Playwright release, instead of silently overwriting it.
+            if path.exists() and path.read_bytes() == content:
+                if original is None:
+                    path.unlink()
+                else:
+                    _replace_preferences(path, original)
+        except OSError as exc:
+            # Cleanup must not orphan a browser which has already started.
+            logger.warning(f"Could not restore browser startup preferences: {exc}")
 
 
 def _resolve_process_id(obj: Any) -> int | None:
@@ -243,8 +335,10 @@ class BrowserSessionManager:
         self._starting[profile_id] = self._starting.get(profile_id, 0) + 1
         try:
             try:
-                camoufox = AsyncCamoufox(**launch_options)
-                browser = await camoufox.start()
+                options = _browser_launch_options(launch_options)
+                with _linux_ime_startup_preferences(options):
+                    camoufox = AsyncCamoufox(**options)
+                    browser = await camoufox.start()
             except Exception as exc:  # noqa: BLE001
                 raise BrowserLaunchError(f"Failed to launch browser: {exc}") from exc
 
