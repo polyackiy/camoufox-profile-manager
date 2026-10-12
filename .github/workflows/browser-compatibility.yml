@@ -44,6 +44,7 @@ jobs:
     timeout-minutes: 35
     env:
       CPM_CANVAS_RASTER_MODE: ${{ inputs.raster_mode || 'default' }}
+      CPM_CANVAS_DIAGNOSTIC_DIR: canvas-diagnostics
       CPM_BROWSER_TARGET: ${{ inputs.suite == 'canvas' && 'tests/browser/test_fingerprint_stability.py::test_stable_canvas_survives_a_relaunch' || 'tests' }}
     steps:
       - uses: actions/checkout@v7
@@ -88,5 +89,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: browser-results-${{ matrix.os }}
-          path: browser-*.xml
+          path: |
+            browser-*.xml
+            canvas-diagnostics/*
           if-no-files-found: ignore

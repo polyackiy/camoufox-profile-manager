@@ -8,9 +8,12 @@ compare what a site would actually observe.
 Run with:  uv run pytest -m browser
 """
 
+import base64
 import hashlib
 import json
 import os
+import re
+from pathlib import Path
 
 import pytest
 from camoufox import AsyncCamoufox
@@ -169,6 +172,78 @@ def canvas_launch_diagnostic(options, snapshot, png_hash):
     }
 
 
+def canvas_profile_diagnostic(directory):
+    """Inspect only renderer preferences and named caches of this test profile."""
+    directory = Path(directory)
+    prefs = {}
+    prefs_file = directory / "prefs.js"
+    if prefs_file.is_file() and prefs_file.stat().st_size <= 2_000_000:
+        for line in prefs_file.read_text(encoding="utf-8", errors="replace").splitlines():
+            match = re.fullmatch(r'user_pref\("([^"\\]+)", (.+)\);', line)
+            if not match:
+                continue
+            key = match[1]
+            if not key.startswith(("gfx.", "font.")) and key not in {
+                "privacy.baselineFingerprintingProtection",
+                "privacy.resistFingerprinting",
+                "privacy.fingerprintingProtection",
+            }:
+                continue
+            try:
+                value = json.loads(match[2])
+            except ValueError:
+                continue
+            if isinstance(value, str):
+                # Font-family lists are useful; paths, URLs and unbounded text
+                # are not. Hash those rather than publishing their content.
+                if len(value) > 200 or "/" in value or "\\" in value or ":" in value:
+                    value = {"sha256": hashlib.sha256(value.encode()).hexdigest()[:16]}
+            elif not isinstance(value, (bool, int, float, type(None))):
+                continue
+            prefs[key] = value
+    caches = {}
+    for name in ("startupCache", "shader-cache", "cache2", "fontcache", "compatibility.ini"):
+        path = directory / name
+        if path.is_dir():
+            caches[name] = {"present": True, "entries": min(sum(1 for _ in path.iterdir()), 1000)}
+        elif path.is_file():
+            caches[name] = {"present": True, "bytes": path.stat().st_size}
+    return {"persistedPrefs": dict(sorted(prefs.items())[:128]), "caches": caches}
+
+
+async def canvas_graphics_diagnostic(browser):
+    """Read bounded public about:support DOM rows, not privileged browser APIs."""
+    page = await browser.new_page()
+    try:
+        await page.goto("about:support", wait_until="load", timeout=15000)
+        await page.locator("#graphics-features-tbody tr").nth(1).wait_for(timeout=15000)
+        return await page.evaluate("""() => {
+          const rows = document.querySelectorAll(
+            '#graphics-features-tbody tr, #graphics-diagnostics-tbody tr');
+          return Array.from(rows).map(row => {
+            const label = row.querySelector('th');
+            const value = row.querySelector('td');
+            const key = label?.getAttribute('data-l10n-id') || label?.textContent || '';
+            return {key: key.trim().slice(0, 100), value: value?.textContent?.trim() || ''};
+          }).filter(row => /azure|directwrite|cleartype|compositing|font|pixel.?ratio/i.test(row.key))
+            .slice(0, 24).map(row => ({...row, value: row.value.slice(0, 200)}));
+        }""")
+    except Exception as exc:  # Diagnostics must not replace the exact assertion.
+        return {"unavailable": type(exc).__name__}
+    finally:
+        await page.close()
+
+
+def save_canvas_diagnostic(directory, launch_number, png_value, record):
+    """Only the fixed synthetic drawing and sanitized metadata enter artifacts."""
+    directory = Path(directory)
+    directory.mkdir(parents=True, exist_ok=True)
+    prefix = directory / f"launch-{launch_number}"
+    if png_value.startswith("data:image/png;base64,") and len(png_value) < 200_000:
+        prefix.with_suffix(".png").write_bytes(base64.b64decode(png_value.split(",", 1)[1]))
+    prefix.with_suffix(".json").write_text(json.dumps(record, sort_keys=True, indent=2))
+
+
 async def read_canvases(options, user_data_dir, *urls, diagnostics=None):
     """Read the canvas at each URL within a single launch.
 
@@ -213,7 +288,15 @@ async def read_canvases(options, user_data_dir, *urls, diagnostics=None):
                     **{key: item for key, item in main_snapshot.items() if key != "value"},
                 }
                 diagnostics.append(record)
-        return seen
+        diagnostic_dir = os.environ.get("CPM_CANVAS_DIAGNOSTIC_DIR")
+        if diagnostics is not None and diagnostic_dir:
+            diagnostics[-1]["graphics"] = await canvas_graphics_diagnostic(browser)
+    if diagnostics is not None and diagnostic_dir:
+        # Firefox persists user prefs on shutdown: inspect only after the
+        # context is closed, so first/second snapshots describe disk state.
+        diagnostics[-1].update(canvas_profile_diagnostic(user_data_dir))
+        save_canvas_diagnostic(diagnostic_dir, len(diagnostics), value, diagnostics[-1])
+    return seen
 
 
 async def read_canvas(options, user_data_dir, url, *, diagnostics=None):
