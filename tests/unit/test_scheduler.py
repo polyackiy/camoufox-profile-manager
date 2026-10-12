@@ -47,6 +47,10 @@ def launches(profile_manager, monkeypatch):
 
     class FakeSession:
         process_id = 4242
+        terminated = False
+
+        async def terminate(self):
+            self.terminated = True
 
     async def fake_launch(profile_id, options, on_exit=None):
         recorded.append(profile_id)
@@ -198,6 +202,7 @@ async def test_a_timed_launch_closes_itself_when_its_minutes_are_up(
 
     await scheduler.tick()
     assert profile_manager.browser_sessions.is_running(profile.id)
+    session = profile_manager.browser_sessions.active_sessions[profile.id]
 
     clock.advance(minutes=14)
     await scheduler.tick()
@@ -206,6 +211,7 @@ async def test_a_timed_launch_closes_itself_when_its_minutes_are_up(
     clock.advance(minutes=2)
     await scheduler.tick()
     assert not profile_manager.browser_sessions.is_running(profile.id)
+    assert session.terminated
 
 
 async def test_a_schedule_whose_profile_is_gone_disables_itself(

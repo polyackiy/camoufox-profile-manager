@@ -173,7 +173,7 @@ a page could notice:
 
 | Reported as | When |
 | --- | --- |
-| Error | The profile cannot launch at all — SOCKS with credentials, which Firefox refuses |
+| Error | The profile cannot launch with the chosen settings — for example SOCKS4 credentials, unsupported by the launch integration |
 | Warning | A page can see the contradiction: a timezone on a different clock, or coordinates more than 500 km from the exit |
 | Note | Worth knowing, not detectable as a conflict: a different zone name on the same clock, or coordinates in a nearby city |
 
@@ -273,8 +273,8 @@ These are properties of Camoufox and Firefox, not of this manager:
   The field is stored so it starts working if upstream does.
 - **`screen` is not sent to the browser.** It is generated, stored and shown, but
   Camoufox derives the real screen metrics itself.
-- **SOCKS proxies cannot use credentials.** Firefox refuses to authenticate to a
-  SOCKS proxy, so a profile with a SOCKS proxy plus a username or password fails
-  to launch. Use HTTP/HTTPS for authenticated proxies.
+- **SOCKS4 credentials are unsupported.** Use SOCKS5 or HTTP/HTTPS for
+  authenticated proxies. The manager handles SOCKS5 authentication through a
+  session-scoped loopback relay; see [proxy-library.md](proxy-library.md).
 - **Changing `os` does not recompute the rest.** Screen size, locale and fonts
   keep their previous values; use *Regenerate fingerprint* for a consistent set.

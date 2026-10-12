@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { CalendarClock, Layers, LogOut, Settings, Trash2, Users } from 'lucide-react'
+import { CalendarClock, Layers, LogOut, Settings, Network, Trash2, Users } from 'lucide-react'
 
 import { useI18n } from '@/components/i18n-provider'
 import { LanguageSelector } from '@/components/language-selector'
@@ -12,6 +12,7 @@ import { systemAPI } from '@/lib/api'
 
 const NAV = [
   { href: '/', label: 'Profiles', icon: Users },
+  { href: '/proxies/', label: 'Proxy library', icon: Network },
   { href: '/groups/', label: 'Groups', icon: Layers },
   { href: '/schedules/', label: 'Schedules', icon: CalendarClock },
   { href: '/trash/', label: 'Trash', icon: Trash2 },

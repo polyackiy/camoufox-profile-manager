@@ -47,6 +47,10 @@ from it in January still looks like the same computer in June.
   contradiction a page can measure in two lines of JavaScript. The answer stays
   in the profiles list — exit address, country and latency under the proxy, green
   or amber or red — and a selection can be checked in one go.
+- **Reusable proxy library** — save named proxies, import a list and assign them
+  to closed profiles in bulk. Library passwords are write-only and require
+  encryption. Assigned profiles retain independent copies. See the
+  [proxy guide](docs/proxy-library.md).
 - **Multi-user, when you need it.** Nothing to configure for the usual case: the
   app binds to loopback and is open. Set `CPM_API_KEY` for machine clients, or
   create an account (`camoufox-pm user add`) and humans get a login screen —
@@ -149,8 +153,8 @@ the UI work as-is.
 1. Install the Camoufox browser when prompted, then click **New profile**.
 2. Give the profile a name. Leave advanced fingerprint fields at their defaults,
    or pick a real device if you need a particular machine.
-3. Add and check a proxy if you have one. Prefer HTTP/HTTPS for authenticated
-   proxies — Firefox cannot authenticate to a SOCKS proxy.
+3. Add and check a proxy if you have one, or assign one from **Proxies**.
+   HTTP/HTTPS and SOCKS5 support credentials; SOCKS4 credentials are unsupported.
 4. Press **Run**. The profile stays running until you click **Stop** or close its
    browser window.
 

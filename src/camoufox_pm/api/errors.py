@@ -105,9 +105,19 @@ def install_error_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(RequestValidationError)
     async def _validation_error(request: Request, exc: RequestValidationError) -> JSONResponse:
+        errors = exc.errors()
+        if any(
+            request.url.path == prefix or request.url.path.startswith(prefix + "/")
+            for prefix in ("/api/proxies", "/api/v1/proxies")
+        ):
+            # Proxy inputs can contain passwords or a whole credential-bearing list.
+            errors = [
+                {key: value for key, value in error.items() if key not in {"input", "ctx"}}
+                for error in errors
+            ]
         return JSONResponse(
             status_code=422,
-            content=_payload("validation_error", validation_message(exc.errors()), exc.errors()),
+            content=_payload("validation_error", validation_message(errors), errors),
         )
 
 

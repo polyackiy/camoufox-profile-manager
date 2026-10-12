@@ -40,6 +40,7 @@ from .models import (
     ProxyConfig,
     ProxyType,
 )
+from .socks_relay import validate_credentials
 
 # Three of the endpoints Camoufox asks for the exit address, so a check sees the
 # address the browser will. We make the request ourselves rather than calling
@@ -142,15 +143,20 @@ def proxy_url(proxy: ProxyConfig) -> str:
 def preflight(proxy: ProxyConfig) -> list[Finding]:
     """What can be said about a proxy without touching the network."""
     findings: list[Finding] = []
-    if proxy.type in (ProxyType.SOCKS4, ProxyType.SOCKS5) and (proxy.username or proxy.password):
+    if proxy.type == ProxyType.SOCKS4 and (proxy.username or proxy.password):
         findings.append(
             Finding(
                 "error",
                 "proxy",
-                "Firefox refuses to authenticate to a SOCKS proxy, so this profile will "
-                "fail to launch. Use an HTTP or HTTPS proxy for credentials.",
+                "SOCKS4 credentials are not supported, so this profile will fail to launch. "
+                "Use SOCKS5, HTTP or HTTPS for username/password authentication.",
             )
         )
+    if proxy.type == ProxyType.SOCKS5 and (proxy.username or proxy.password):
+        try:
+            validate_credentials(proxy.username, proxy.password)
+        except ValueError as exc:
+            findings.append(Finding("error", "proxy", str(exc)))
     return findings
 
 
@@ -288,12 +294,13 @@ async def resolve_exit_ip(
                 response.raise_for_status()
             except Exception as exc:
                 last_error = exc
-                logger.debug(f"Proxy check via {endpoint} failed: {exc}")
+                # Transport errors may contain a credential-bearing proxy URL.
+                logger.debug(f"Proxy check via {endpoint} failed: {type(exc).__name__}")
                 continue
             answer = response.text.strip()
             if not valid_ipv4(answer) and not valid_ipv6(answer):
                 last_error = ValueError(f"{endpoint} answered with something else")
-                logger.debug(f"Proxy check via {endpoint} returned {answer[:60]!r}")
+                logger.debug(f"Proxy check via {endpoint} returned a non-IP response")
                 continue
             return answer, int((time.monotonic() - started) * 1000)
 
@@ -325,6 +332,31 @@ def _readable(error: Exception | None) -> str:
     if isinstance(error, httpx.UnsupportedProtocol):
         return "This proxy protocol cannot be checked; SOCKS4 is not supported."
     return f"Could not reach the internet through the proxy: {error}"
+
+
+async def prepare_authenticated_socks_geoip(
+    proxy: ProxyConfig | None, options: dict[str, Any]
+) -> None:
+    """Resolve normal SOCKS5-auth launches via upstream DNS, without SDK caching.
+
+    Coordinates intentionally disable SDK geoip; their existing fill path stays
+    responsible for timezone and WebRTC. A normal launch needs a fresh exit IP
+    before replacing its browser proxy with the session's local relay.
+    """
+    if proxy is None or proxy.type != ProxyType.SOCKS5 or not (proxy.username or proxy.password):
+        return
+    validate_credentials(proxy.username, proxy.password)
+    if options.get("geoip") is not True:
+        return
+    try:
+        ip, _ = await asyncio.wait_for(
+            resolve_exit_ip(proxy, timeout=LAUNCH_TIMEOUT), timeout=LAUNCH_TIMEOUT
+        )
+    except (ConnectionError, asyncio.TimeoutError):
+        raise ConnectionError(
+            "Could not resolve the SOCKS5 exit address. Check the proxy before launching."
+        ) from None
+    options["geoip"] = ip
 
 
 async def fill_what_geoip_would_have(proxy: ProxyConfig | None, options: dict[str, Any]) -> None:

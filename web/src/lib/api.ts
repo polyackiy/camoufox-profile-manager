@@ -236,6 +236,61 @@ export interface ProxyCheckRecord {
   findings: ProxyFinding[]
 }
 
+/** Saved library credentials are write-only; profiles receive an explicit snapshot. */
+export interface LibraryProxy {
+  id: string
+  name: string
+  type: string
+  server: string
+  username: string | null
+  country: string | null
+  has_password: boolean
+  row_version: number
+  last_check: ProxyCheckRecord | null
+  created_at: string
+  updated_at: string
+}
+
+export interface ProxyAssignmentResult {
+  assigned: string[]
+  skipped: { id: string; reason: string }[]
+}
+
+export interface ProxyImportResult {
+  created: LibraryProxy[]
+  skipped: { line: number; reason: string }[]
+}
+
+export const proxiesAPI = {
+  async list(): Promise<LibraryProxy[]> {
+    const body = await request<{ data: { proxies: LibraryProxy[] } }>(`${API_PREFIX}/proxies`)
+    return body.data.proxies
+  },
+  async create(data: Record<string, unknown>): Promise<LibraryProxy> {
+    const body = await request<{ data: LibraryProxy }>(`${API_PREFIX}/proxies`, { method: 'POST', body: JSON.stringify(data) })
+    return body.data
+  },
+  async update(id: string, data: Record<string, unknown>): Promise<LibraryProxy> {
+    const body = await request<{ data: LibraryProxy }>(`${API_PREFIX}/proxies/${id}`, { method: 'PATCH', body: JSON.stringify(data) })
+    return body.data
+  },
+  remove(id: string, rowVersion: number): Promise<unknown> {
+    return request(`${API_PREFIX}/proxies/${id}?row_version=${rowVersion}`, { method: 'DELETE' })
+  },
+  async check(id: string): Promise<LibraryProxy> {
+    const body = await request<{ data: LibraryProxy }>(`${API_PREFIX}/proxies/${id}/check`, { method: 'POST' })
+    return body.data
+  },
+  async assign(proxy: LibraryProxy, profiles: Pick<Profile, 'id' | 'row_version'>[]): Promise<ProxyAssignmentResult> {
+    const body = await request<{ data: ProxyAssignmentResult }>(`${API_PREFIX}/proxies/${proxy.id}/assign`, { method: 'POST', body: JSON.stringify({ proxy_row_version: proxy.row_version, profiles: profiles.map(({ id, row_version }) => ({ id, row_version })) }) })
+    return body.data
+  },
+  async importText(text: string): Promise<ProxyImportResult> {
+    const body = await request<{ data: ProxyImportResult }>(`${API_PREFIX}/proxies/import`, { method: 'POST', body: JSON.stringify({ text }) })
+    return body.data
+  },
+}
+
 export const profilesAPI = {
   getProfiles(params: Record<string, unknown> = {}): Promise<ProfilesResponse> {
     return request<ProfilesResponse>(`${API_PREFIX}/profiles${toQuery(params)}`)
@@ -639,8 +694,9 @@ export function formatProxyString(proxy?: ProxyConfig | null): string {
  *
  * Derived rather than stored, so a row written by an older version cannot
  * disagree with the rules here. An error-level finding is red even when the
- * proxy answered — SOCKS credentials that Camoufox will drop means the launch
- * is wrong, which is not a milder problem than an unreachable proxy.
+ * proxy answered — unsupported SOCKS4 credentials mean the launch is wrong,
+ * which is not a milder problem than an unreachable proxy. SOCKS5 authentication
+ * is supported through the managed relay.
  */
 export function readProxyCheck(check: ProxyCheckRecord, locale: Locale = 'en'): {
   tone: 'ok' | 'warn' | 'danger'
