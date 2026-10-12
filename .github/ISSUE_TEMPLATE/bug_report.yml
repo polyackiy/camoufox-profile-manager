@@ -41,8 +41,14 @@ body:
     validations:
       required: true
   - type: textarea
+    id: desktop-package
+    attributes:
+      label: Desktop package (if applicable)
+      description: For installer or update failures, give the release tag, exact asset name, SHA-256, OS version/build and CPU architecture. Say whether this was a clean install, upgrade or reinstall, and whether WebView2 was already present on Windows.
+      placeholder: Desktop acceptance scenario D02; v0.6.0-rc.1; camoufox-pm-macos-arm64.dmg; macOS version; arm64; clean account
+  - type: textarea
     id: logs
     attributes:
       label: Relevant logs
-      description: Paste any relevant log output.
+      description: Paste relevant sanitized log output. Remove passwords, proxy credentials, cookie values and account identifiers. Do not attach private profile archives, databases or encryption keys.
       render: shell
