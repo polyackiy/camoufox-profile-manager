@@ -13,11 +13,27 @@ regardless.) `test_the_two_local_origins_are_different_sites` asserts the part
 this design rests on instead of trusting this comment.
 """
 
+import asyncio
 from collections.abc import Iterator
 
 import pytest
+import pytest_asyncio
 
 from tests.browser.support import LocalSites, serve_local_sites
+from tests.browser.watchdog import report_stall, watchdog_seconds
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def browser_async_watchdog():
+    """CI opts in; always remove the timer before its event loop is torn down."""
+    seconds = watchdog_seconds()
+    task = asyncio.create_task(report_stall(seconds)) if seconds is not None else None
+    try:
+        yield
+    finally:
+        if task is not None:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
 
 
 @pytest.fixture(scope="session")

@@ -11,6 +11,7 @@ from tests.browser.test_fingerprint_stability import (
     canvas_probe_options,
     canvas_profile_diagnostic,
     pinned_options,
+    remove_synthetic_canvas_caches,
     save_canvas_diagnostic,
 )
 
@@ -140,3 +141,35 @@ def test_gdi_family_probe_uses_required_native_preconditions_without_changing_pi
     assert pinned_options(profile)["firefox_user_prefs"] == {
         "privacy.baselineFingerprintingProtection": False
     }
+
+
+def test_cache_probe_removes_only_named_synthetic_caches_and_keeps_data(tmp_path):
+    profile = tmp_path / "a"
+    (profile / "startupCache").mkdir(parents=True)
+    (profile / "startupCache" / "startupCache.8.little").write_text("cache")
+    (profile / "fontcache").write_text("cache")
+    for name in ("cookies.sqlite", "prefs.js", "places.sqlite"):
+        (profile / name).write_text("synthetic-data")
+    assert remove_synthetic_canvas_caches(profile, tmp_path) == ["startupCache", "fontcache"]
+    assert sorted(p.name for p in profile.iterdir()) == [
+        "cookies.sqlite",
+        "places.sqlite",
+        "prefs.js",
+    ]
+    assert remove_synthetic_canvas_caches(profile, tmp_path) == []
+
+
+def test_cache_probe_rejects_outside_profile_and_cache_symlinks(tmp_path):
+    root = tmp_path / "test"
+    profile = root / "a"
+    profile.mkdir(parents=True)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    sentinel = outside / "keep"
+    sentinel.write_text("synthetic-data")
+    with pytest.raises(ValueError):
+        remove_synthetic_canvas_caches(outside, root)
+    (profile / "startupCache").symlink_to(outside, target_is_directory=True)
+    with pytest.raises(ValueError):
+        remove_synthetic_canvas_caches(profile, root)
+    assert sentinel.read_text() == "synthetic-data"

@@ -13,6 +13,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 from pathlib import Path
 
 import pytest
@@ -264,6 +265,26 @@ def save_canvas_diagnostic(directory, launch_number, png_value, record):
     prefix.with_suffix(".json").write_text(json.dumps(record, sort_keys=True, indent=2))
 
 
+def remove_synthetic_canvas_caches(profile_directory, test_directory):
+    """Remove only named caches in one direct child of pytest's temporary root."""
+    root = Path(test_directory).resolve()
+    profile = Path(profile_directory)
+    if profile.is_symlink() or profile.resolve().parent != root:
+        raise ValueError("The cache probe requires a direct synthetic test-profile directory")
+    removed = []
+    for name in ("startupCache", "fontcache"):
+        cache = profile / name
+        if cache.is_symlink():
+            raise ValueError("The cache probe must not follow cache symlinks")
+        if cache.is_dir():
+            shutil.rmtree(cache)
+            removed.append(name)
+        elif cache.is_file():
+            cache.unlink()
+            removed.append(name)
+    return removed
+
+
 async def read_canvases(options, user_data_dir, *urls, diagnostics=None):
     """Read the canvas at each URL within a single launch.
 
@@ -406,6 +427,34 @@ async def test_stable_canvas_survives_a_relaunch(tmp_path, local_sites):
         local_sites.first,
         diagnostics=diagnostics,
     )
+    if os.environ.get("CPM_CANVAS_CACHE_PROBE") == "1":
+        diagnostics[0]["phase"] = "initial"
+        diagnostics[1]["phase"] = "restart"
+        for phase, directory in (
+            ("third-launch", tmp_path / "a"),
+            ("fresh-directory", tmp_path / "fresh"),
+        ):
+            await read_canvas(
+                canvas_probe_options(profile, mode),
+                directory,
+                local_sites.first,
+                diagnostics=diagnostics,
+            )
+            diagnostics[-1]["phase"] = phase
+        removed = remove_synthetic_canvas_caches(tmp_path / "a", tmp_path)
+        await read_canvas(
+            canvas_probe_options(profile, mode),
+            tmp_path / "a",
+            local_sites.first,
+            diagnostics=diagnostics,
+        )
+        diagnostics[-1].update({"phase": "after-cache-removal", "removedCaches": removed})
+        diagnostic_dir = os.environ.get("CPM_CANVAS_DIAGNOSTIC_DIR")
+        if diagnostic_dir:
+            for number, record in enumerate(diagnostics, 1):
+                (Path(diagnostic_dir) / f"launch-{number}.json").write_text(
+                    json.dumps(record, sort_keys=True, indent=2)
+                )
     assert first == second, (
         f"canvas drifted between launches ({mode} raster): {first} vs {second}; "
         f"diagnostics={json.dumps(diagnostics, sort_keys=True)}"
