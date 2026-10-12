@@ -10,6 +10,7 @@ Run with:  uv run pytest -m browser
 
 import hashlib
 import json
+import os
 
 import pytest
 from camoufox import AsyncCamoufox
@@ -160,6 +161,11 @@ def canvas_launch_diagnostic(options, snapshot, png_hash):
         "baselineProtection": options.get("firefox_user_prefs", {}).get(
             "privacy.baselineFingerprintingProtection"
         ),
+        "rasterPrefs": {
+            key: value
+            for key, value in options.get("firefox_user_prefs", {}).items()
+            if key in {"gfx.canvas.azure.backends", "gfx.canvas.accelerated"}
+        },
     }
 
 
@@ -222,6 +228,26 @@ def pinned_options(profile):
     return fresh
 
 
+def canvas_probe_options(profile, mode):
+    """Controlled CI-only backend experiment; default acceptance stays unchanged.
+
+    The beta.36 browser defaults its Azure backend to Skia. Mozilla declares
+    gfx.canvas.accelerated as a Windows boolean, so disabling it tests whether
+    first-run acceleration selection changes raster output. This is not a
+    manager launch setting or a proposed product workaround.
+    """
+    options = pinned_options(profile)
+    if mode == "software":
+        options["firefox_user_prefs"] = {
+            **options.get("firefox_user_prefs", {}),
+            "gfx.canvas.azure.backends": "skia",
+            "gfx.canvas.accelerated": False,
+        }
+    elif mode != "default":
+        raise ValueError("Select default or software for CPM_CANVAS_RASTER_MODE")
+    return options
+
+
 @pytest.mark.browser
 @pytest.mark.asyncio
 async def test_stable_canvas_survives_a_relaunch(tmp_path, local_sites):
@@ -241,15 +267,22 @@ async def test_stable_canvas_survives_a_relaunch(tmp_path, local_sites):
     profile.fingerprint = fingerprint_store.resolve(options)
     assert profile.fingerprint, "the pin carries the font list this relies on"
 
+    mode = os.environ.get("CPM_CANVAS_RASTER_MODE", "default")
     diagnostics = []
     first = await read_canvas(
-        pinned_options(profile), tmp_path / "a", local_sites.first, diagnostics=diagnostics
+        canvas_probe_options(profile, mode),
+        tmp_path / "a",
+        local_sites.first,
+        diagnostics=diagnostics,
     )
     second = await read_canvas(
-        pinned_options(profile), tmp_path / "a", local_sites.first, diagnostics=diagnostics
+        canvas_probe_options(profile, mode),
+        tmp_path / "a",
+        local_sites.first,
+        diagnostics=diagnostics,
     )
     assert first == second, (
-        f"canvas drifted between launches: {first} vs {second}; "
+        f"canvas drifted between launches ({mode} raster): {first} vs {second}; "
         f"diagnostics={json.dumps(diagnostics, sort_keys=True)}"
     )
 

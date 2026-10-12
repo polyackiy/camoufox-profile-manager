@@ -13,6 +13,11 @@ on:
         type: choice
         options: [full, canvas]
         default: full
+      raster_mode:
+        description: Diagnostic canvas backend override (default tests product behavior)
+        type: choice
+        options: [default, software]
+        default: default
   pull_request:
     paths:
       - 'src/camoufox_pm/core/**'
@@ -38,6 +43,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 35
     env:
+      CPM_CANVAS_RASTER_MODE: ${{ inputs.raster_mode || 'default' }}
       CPM_BROWSER_TARGET: ${{ inputs.suite == 'canvas' && 'tests/browser/test_fingerprint_stability.py::test_stable_canvas_survives_a_relaunch' || 'tests' }}
     steps:
       - uses: actions/checkout@v7
