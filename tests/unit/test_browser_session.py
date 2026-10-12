@@ -408,3 +408,157 @@ def test_a_process_id_is_found_through_the_nested_transport():
     obj.browser._impl._connection._transport._proc.pid = 777
 
     assert _resolve_process_id(obj) == 777
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("ending", ["close", "natural", "failure", "cancel"])
+async def test_authenticated_socks5_relay_follows_session_lifetime(monkeypatch, ending):
+    from camoufox_pm.core.socks_relay import SocksRelay
+
+    relays = []
+    options_seen = []
+    started = asyncio.Event()
+    fake = FakeCamoufox()
+
+    class RecordingRelay(SocksRelay):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            relays.append(self)
+
+    async def start():
+        started.set()
+        if ending == "failure":
+            raise RuntimeError("launch failed")
+        if ending == "cancel":
+            await asyncio.Future()
+        return fake.browser
+
+    fake.start = start
+
+    def launch(**options):
+        options_seen.append(options)
+        return fake
+
+    monkeypatch.setattr(bs, "CAMOUFOX_AVAILABLE", True)
+    monkeypatch.setattr(bs, "AsyncCamoufox", launch)
+    monkeypatch.setattr(bs, "SocksRelay", RecordingRelay)
+    manager = BrowserSessionManager()
+    original = {
+        "proxy": {"server": "socks5://127.0.0.1:1", "username": "user", "password": "secret"}
+    }
+    task = asyncio.create_task(manager.launch("p", original))
+    await started.wait()
+    if ending == "failure":
+        with pytest.raises(BrowserLaunchError):
+            await task
+    elif ending == "cancel":
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+    else:
+        session = await task
+        assert session.socks_relay is relays[0]
+        if ending == "natural":
+            fake.browser.fire("close")
+            await settle(manager)
+        else:
+            assert await manager.close("p")
+    assert set(options_seen[0]["proxy"]) == {"server"}
+    assert options_seen[0]["firefox_user_prefs"]["network.proxy.socks_remote_dns"] is True
+    assert original["proxy"]["password"] == "secret"
+    assert not manager.is_live("p")
+    assert relays[0]._closed and not relays[0]._tasks
+    with pytest.raises(OSError):
+        await asyncio.open_connection("127.0.0.1", relays[0].port)
+
+
+@pytest.mark.asyncio
+async def test_cancelled_close_drains_browser_relay_and_lease_before_untracking():
+    from unittest.mock import AsyncMock
+
+    entered = asyncio.Event()
+    finish_relay = asyncio.Event()
+
+    class PendingRelay:
+        async def close(self):
+            entered.set()
+            await finish_relay.wait()
+
+    storage = type("Storage", (), {"release_lease": AsyncMock()})()
+    manager = BrowserSessionManager(storage=storage, holder="holder")
+    camoufox = FakeCamoufox()
+    session = BrowserSession("p", camoufox, socks_relay=PendingRelay())
+    manager.active_sessions["p"] = session
+    close = asyncio.create_task(manager.close_and_release("p"))
+    await entered.wait()
+    close.cancel()
+    await asyncio.sleep(0)
+    assert manager.is_live("p")
+    assert not close.done() and not session._terminated
+    assert camoufox.exits == 0
+    storage.release_lease.assert_not_called()
+    # A second cancellation must not cancel the owned teardown either.
+    close.cancel()
+    await asyncio.sleep(0)
+    assert manager.is_live("p")
+    finish_relay.set()
+    with pytest.raises(asyncio.CancelledError):
+        await close
+    assert camoufox.exits == 1 and session._terminated
+    assert not manager.is_live("p")
+    storage.release_lease.assert_awaited_once_with("p", "holder")
+    await session.terminate()
+    assert camoufox.exits == 1
+
+
+@pytest.mark.asyncio
+async def test_cancel_during_failed_launch_cleanup_keeps_starting_until_drained(monkeypatch):
+    entered = asyncio.Event()
+    finish_relay = asyncio.Event()
+
+    class PendingRelay:
+        def __init__(self, *args):
+            pass
+
+        async def start(self):
+            pass
+
+        @property
+        def browser_proxy(self):
+            return {"server": "socks5://127.0.0.1:1"}
+
+        async def close(self):
+            entered.set()
+            await finish_relay.wait()
+
+    camoufox = FakeCamoufox(fail=RuntimeError("failed"))
+    monkeypatch.setattr(bs, "CAMOUFOX_AVAILABLE", True)
+    monkeypatch.setattr(bs, "SocksRelay", PendingRelay)
+    monkeypatch.setattr(bs, "AsyncCamoufox", lambda **kwargs: camoufox)
+    manager = BrowserSessionManager()
+    launch = asyncio.create_task(
+        manager.launch(
+            "p", {"proxy": {"server": "socks5://provider:1080", "username": "u", "password": "p"}}
+        )
+    )
+    await entered.wait()
+    launch.cancel()
+    await asyncio.sleep(0)
+    assert manager.is_live("p") and not launch.done()
+    assert camoufox.exits == 0
+    finish_relay.set()
+    with pytest.raises(asyncio.CancelledError):
+        await launch
+    assert camoufox.exits == 1 and not manager.is_live("p")
+
+
+@pytest.mark.asyncio
+async def test_monitor_can_initiate_shared_cleanup_without_deadlock(monkeypatch):
+    monkeypatch.setattr(psutil, "pid_exists", lambda pid: False)
+    manager = BrowserSessionManager()
+    camoufox = FakeCamoufox()
+    session = BrowserSession("p", camoufox)
+    manager.active_sessions["p"] = session
+    session.monitor_task = asyncio.create_task(manager._monitor("p", 123))
+    await asyncio.wait_for(asyncio.gather(session.monitor_task, return_exceptions=True), 1)
+    assert camoufox.exits == 1 and not manager.is_live("p")

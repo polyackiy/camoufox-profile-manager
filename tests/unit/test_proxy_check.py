@@ -109,14 +109,15 @@ def test_an_unknown_timezone_name_is_treated_as_a_contradiction():
     assert levels(findings, "timezone") == ["warning"]
 
 
-@pytest.mark.parametrize("kind", [ProxyType.SOCKS4, ProxyType.SOCKS5])
-def test_socks_with_credentials_is_reported_before_any_request(kind):
-    """Firefox refuses to authenticate to a SOCKS proxy, so the launch fails.
+def test_socks4_with_credentials_is_reported_before_any_request():
+    """SOCKS4 credentials are unsupported, so the launch fails.
 
     Better to say so on the check button than to let the user find out when the
     browser will not start.
     """
-    findings = preflight(ProxyConfig(type=kind, server="h:1080", username="u", password="p"))
+    findings = preflight(
+        ProxyConfig(type=ProxyType.SOCKS4, server="h:1080", username="u", password="p")
+    )
 
     assert [f.level for f in findings] == ["error"]
     assert "fail to launch" in findings[0].message
@@ -322,3 +323,70 @@ async def test_an_unreachable_proxy_does_not_block_the_launch(monkeypatch):
     await proxy_check.fill_what_geoip_would_have(None, options)
 
     assert options["config"] == {}
+
+
+def test_socks5_credentials_are_supported_by_session_relay():
+    assert (
+        preflight(ProxyConfig(type=ProxyType.SOCKS5, server="h:1080", username="u", password="p"))
+        == []
+    )
+
+
+@pytest.mark.parametrize(
+    "username,password", [("user", None), (None, "secret"), ("x" * 256, "p"), ("u", "é" * 128)]
+)
+def test_unlaunchable_socks5_credentials_are_reported(username, password):
+    findings = preflight(
+        ProxyConfig(type=ProxyType.SOCKS5, server="h:1080", username=username, password=password)
+    )
+    assert [f.level for f in findings] == ["error"]
+    assert "1–255 UTF-8 bytes" in findings[0].message
+
+
+@pytest.mark.asyncio
+async def test_auth_socks_normal_geoip_uses_original_upstream_and_literal_ip(monkeypatch):
+    proxy = ProxyConfig(
+        type=ProxyType.SOCKS5, server="provider.invalid:1080", username="u", password="p"
+    )
+    seen = []
+
+    async def resolve(actual, timeout):
+        seen.append(actual)
+        return "203.0.113.7", 12
+
+    monkeypatch.setattr(proxy_check, "resolve_exit_ip", resolve)
+    options = {"geoip": True}
+    await proxy_check.prepare_authenticated_socks_geoip(proxy, options)
+    assert seen == [proxy]
+    assert options["geoip"] == "203.0.113.7"
+
+
+@pytest.mark.asyncio
+async def test_auth_socks_explicit_coordinates_keep_existing_geoip_fill_path(monkeypatch):
+    proxy = ProxyConfig(
+        type=ProxyType.SOCKS5, server="provider.invalid:1080", username="u", password="p"
+    )
+
+    async def unexpected(*args, **kwargs):
+        pytest.fail("Explicit coordinates should use the existing fill path")
+
+    monkeypatch.setattr(proxy_check, "resolve_exit_ip", unexpected)
+    options = {"geoip": False, "config": {"geolocation:latitude": 12}}
+    await proxy_check.prepare_authenticated_socks_geoip(proxy, options)
+    assert options == {"geoip": False, "config": {"geolocation:latitude": 12}}
+
+
+@pytest.mark.asyncio
+async def test_auth_socks_geoip_failure_blocks_without_sdk_local_lookup(monkeypatch):
+    proxy = ProxyConfig(
+        type=ProxyType.SOCKS5, server="provider.invalid:1080", username="u", password="secret"
+    )
+
+    async def refuse(*args, **kwargs):
+        raise ConnectionError("credentials secret internal detail")
+
+    monkeypatch.setattr(proxy_check, "resolve_exit_ip", refuse)
+    options = {"geoip": True}
+    with pytest.raises(ConnectionError, match="Check the proxy") as caught:
+        await proxy_check.prepare_authenticated_socks_geoip(proxy, options)
+    assert "secret" not in str(caught.value)

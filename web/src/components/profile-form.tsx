@@ -612,14 +612,16 @@ export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) 
             />
           </div>
 
-          {/* Firefox refuses SOCKS credentials outright, so the browser would
-              fail to start rather than fall back — say so before that happens. */}
-          {form.proxyType.startsWith('socks') &&
+          {/* SOCKS5 authentication uses the managed relay; only SOCKS4
+              credentials remain unsupported by this Playwright launch path. */}
+          {form.proxyType === 'socks4' &&
             (form.proxyUsername.trim() || form.proxyPassword.trim()) && (
               <p className="col-span-2 text-danger">
-                {t('Firefox cannot authenticate to a SOCKS proxy, so this profile will fail to launch. Use an HTTP or HTTPS proxy for credentials, or a SOCKS proxy that allows this IP without them.')}
+                {t('SOCKS4 credentials are not supported. Use SOCKS5, HTTP or HTTPS for authenticated connections.')}
               </p>
             )}
+
+          {form.proxyType === 'socks5' && <p className="col-span-2 text-ink-dim">{t('SOCKS5 authentication is handled automatically by a local relay. No extension or manual browser setup is needed.')}</p>}
 
           <div className="col-span-2">
             <button

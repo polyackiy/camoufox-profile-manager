@@ -933,6 +933,7 @@ class ProfileManager:
             # After the write on purpose: this only touches the launch options, so it
             # cannot clobber the row, and it is the first await that is allowed to run
             # between reading the profile and saving it.
+            await proxy_check.prepare_authenticated_socks_geoip(profile.proxy, options)
             await proxy_check.fill_what_geoip_would_have(profile.proxy, options)
 
             session = await self.browser_sessions.launch(

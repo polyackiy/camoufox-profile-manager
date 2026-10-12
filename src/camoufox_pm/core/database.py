@@ -126,6 +126,24 @@ class DatabaseManager:
         """)
         self._connection.execute("INSERT OR IGNORE INTO recovery_lock (id) VALUES (1)")
 
+        # Named proxies are templates. Assignment copies their configuration
+        # into a profile; no foreign key can retroactively change that identity.
+        self._connection.execute("""
+            CREATE TABLE IF NOT EXISTS proxy_inventory (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                type TEXT NOT NULL,
+                server TEXT NOT NULL,
+                username TEXT,
+                password TEXT,
+                country TEXT,
+                row_version BIGINT NOT NULL DEFAULT 0,
+                last_check TEXT,
+                created_at TIMESTAMP NOT NULL,
+                updated_at TIMESTAMP NOT NULL
+            )
+        """)
+
         # Profiles table
         self._connection.execute("""
             CREATE TABLE IF NOT EXISTS profiles (

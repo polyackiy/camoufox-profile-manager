@@ -25,6 +25,7 @@ import psutil
 from loguru import logger
 
 from ..config import get_settings
+from .socks_relay import SocksRelay
 
 if TYPE_CHECKING:
     # Type-only: importing StorageManager at runtime would be a cycle, since
@@ -155,10 +156,32 @@ def _resolve_process_id(obj: Any) -> int | None:
     return None
 
 
+async def _drain_cleanup(task: asyncio.Task) -> Any:
+    """Let owned teardown finish even when its request is cancelled repeatedly."""
+    cancelled = False
+    while not task.done():
+        try:
+            await asyncio.shield(task)
+        except asyncio.CancelledError:
+            if task.cancelled():
+                raise
+            cancelled = True
+    result = task.result()
+    if cancelled:
+        raise asyncio.CancelledError
+    return result
+
+
 class BrowserSession:
     """A single running Camoufox browser tied to a profile."""
 
-    def __init__(self, profile_id: str, camoufox: Any, process_id: int | None = None):
+    def __init__(
+        self,
+        profile_id: str,
+        camoufox: Any,
+        process_id: int | None = None,
+        socks_relay: SocksRelay | None = None,
+    ):
         self.profile_id = profile_id
         self.camoufox = camoufox  # AsyncCamoufox context manager instance
         self.process_id = process_id
@@ -166,24 +189,26 @@ class BrowserSession:
         self.monitor_task: asyncio.Task | None = None
         self.on_exit: ExitHandler | None = None
         self._terminated = False
+        self.socks_relay = socks_relay
+        self._termination_task: asyncio.Task[None] | None = None
 
     async def terminate(self) -> None:
-        """Close the browser and stop its monitor task. Safe to call twice."""
-        if self._terminated:
-            return
-        self._terminated = True
-        logger.info(f"Terminating browser session for profile {self.profile_id}")
+        """Drain one strongly owned teardown, including after caller cancellation."""
+        if self._termination_task is None:
+            self._termination_task = asyncio.create_task(self._terminate())
+        await _drain_cleanup(self._termination_task)
 
-        # The monitor can be the caller here (_monitor -> _handle_exit -> terminate),
-        # and a task cannot await itself; cancelling is enough in that case.
-        monitor = self.monitor_task
-        if monitor and not monitor.done():
-            monitor.cancel()
-            if asyncio.current_task() is not monitor:
-                try:
-                    await monitor
-                except asyncio.CancelledError:
-                    pass
+    async def _terminate(self) -> None:
+        logger.info(f"Terminating browser session for profile {self.profile_id}")
+        # Do not await the monitor: it may itself be waiting for this teardown.
+        if self.monitor_task and not self.monitor_task.done():
+            self.monitor_task.cancel()
+
+        if self.socks_relay is not None:
+            try:
+                await self.socks_relay.close()
+            except Exception as exc:
+                logger.warning(f"Error closing proxy relay for {self.profile_id}: {exc}")
 
         if self.camoufox is not None:
             try:
@@ -204,6 +229,8 @@ class BrowserSession:
                 pass
             except Exception as exc:  # noqa: BLE001
                 logger.warning(f"Error killing process {self.process_id}: {exc}")
+
+        self._terminated = True
 
     def info(self) -> dict[str, Any]:
         """Return a serializable summary of this session."""
@@ -228,6 +255,8 @@ class BrowserSessionManager:
         # suspended inside camoufox.__aexit__ could be garbage-collected and take
         # the primary cleanup path with it. Hold a strong reference until done.
         self._exit_tasks: set[asyncio.Task[None]] = set()
+        self._closing: dict[str, asyncio.Task[bool]] = {}
+        self._release_after_close: set[str] = set()
         # Lease bookkeeping. Without a storage and a holder id (unit tests, and
         # anything that only watches processes) every lease call below is a
         # no-op and this class behaves exactly as it did before leases existed.
@@ -333,9 +362,23 @@ class BrowserSessionManager:
         # registered, is_live() says this profile is coming up, and nothing
         # may hand its lease away.
         self._starting[profile_id] = self._starting.get(profile_id, 0) + 1
+        relay: SocksRelay | None = None
+        camoufox = None
         try:
             try:
                 options = _browser_launch_options(launch_options)
+                proxy = options.get("proxy") or {}
+                if proxy.get("server", "").startswith("socks5://") and (
+                    proxy.get("username") or proxy.get("password")
+                ):
+                    relay = SocksRelay(
+                        proxy["server"], proxy.get("username"), proxy.get("password")
+                    )
+                    await relay.start()
+                    options["proxy"] = relay.browser_proxy
+                    prefs = dict(options.get("firefox_user_prefs") or {})
+                    prefs["network.proxy.socks_remote_dns"] = True
+                    options["firefox_user_prefs"] = prefs
                 with _linux_ime_startup_preferences(options):
                     camoufox = AsyncCamoufox(**options)
                     browser = await camoufox.start()
@@ -343,9 +386,17 @@ class BrowserSessionManager:
                 raise BrowserLaunchError(f"Failed to launch browser: {exc}") from exc
 
             process_id = _resolve_process_id(browser) or _resolve_process_id(camoufox)
-            session = BrowserSession(profile_id, camoufox, process_id)
+            session = BrowserSession(profile_id, camoufox, process_id, socks_relay=relay)
             session.on_exit = on_exit
             self.active_sessions[profile_id] = session
+        except (Exception, asyncio.CancelledError):
+            # Keep the starting marker until both browser and relay teardown
+            # finish. Cancelling the request must not release a live profile.
+            failed_session = BrowserSession(
+                profile_id, camoufox, _resolve_process_id(camoufox), socks_relay=relay
+            )
+            await failed_session.terminate()
+            raise
         finally:
             remaining = self._starting.get(profile_id, 1) - 1
             if remaining > 0:
@@ -379,39 +430,48 @@ class BrowserSessionManager:
 
     async def _handle_exit(self, profile_id: str) -> None:
         """Tear down a session exactly once and notify the exit handler."""
-        session = self.active_sessions.pop(profile_id, None)
-        if session is None:
-            return
-        await session.terminate()
-        # The browser is gone, so the lease must not outlive it. release_lease
-        # is guarded on the holder id, so a lease already taken over by another
-        # instance is left exactly where it is.
-        await self._release_lease(profile_id)
-        if session.on_exit is not None:
-            try:
-                await session.on_exit(profile_id)
-            except Exception as exc:  # noqa: BLE001
-                logger.warning(f"on_exit handler failed for {profile_id}: {exc}")
+        await self._close_session(profile_id, release_lease=True, notify=True)
+
+    async def _close_session(
+        self, profile_id: str, *, release_lease: bool, notify: bool = False
+    ) -> bool:
+        task = self._closing.get(profile_id)
+        if release_lease:
+            self._release_after_close.add(profile_id)
+        if task is None:
+            session = self.active_sessions.get(profile_id)
+            if session is None:
+                self._release_after_close.discard(profile_id)
+                return False
+
+            async def finish() -> bool:
+                try:
+                    await session.terminate()
+                    if profile_id in self._release_after_close:
+                        await self._release_lease(profile_id)
+                    if self.active_sessions.get(profile_id) is session:
+                        self.active_sessions.pop(profile_id)
+                    if notify and session.on_exit is not None:
+                        try:
+                            await session.on_exit(profile_id)
+                        except Exception as exc:
+                            logger.warning(f"on_exit handler failed for {profile_id}: {exc}")
+                    return True
+                finally:
+                    self._closing.pop(profile_id, None)
+                    self._release_after_close.discard(profile_id)
+
+            task = asyncio.create_task(finish())
+            self._closing[profile_id] = task
+        return await _drain_cleanup(task)
 
     async def close(self, profile_id: str) -> bool:
-        """Close a single browser. Returns ``False`` if it was not running."""
-        session = self.active_sessions.pop(profile_id, None)
-        if session is None:
-            return False
-        await session.terminate()
-        return True
+        """Close one browser, keeping it tracked until teardown completes."""
+        return await self._close_session(profile_id, release_lease=False)
 
     async def close_and_release(self, profile_id: str) -> bool:
-        """Close a browser and hand its lease back, if we still hold it.
-
-        Separate from :meth:`close` because one caller must not release: when
-        the heartbeat finds a lease gone, the browser still has to be closed,
-        and clearing the lease then would clear the *new* holder's.
-        """
-        closed = await self.close(profile_id)
-        if closed:
-            await self._release_lease(profile_id)
-        return closed
+        """Drain browser teardown, then release its lease in the same owned task."""
+        return await self._close_session(profile_id, release_lease=True)
 
     async def _release_lease(self, profile_id: str) -> None:
         """Best-effort lease release. Teardown must not fail on bookkeeping."""

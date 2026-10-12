@@ -6,6 +6,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- A reusable proxy library with named entries, encrypted write-only passwords,
+  on-demand health checks and bulk URL-list import with safe line diagnostics.
+- Bulk proxy assignment to closed profiles with concurrency checks and explicit
+  partial results. Profiles receive independent copies, so library edits and
+  deletion do not silently change existing browser identities.
+- Authenticated SOCKS5 browsing through a session-owned loopback relay, with
+  upstream DNS, memory-only credentials and cleanup on browser exit. The manager
+  resolves GeoIP through the original proxy before launch without forking Camoufox.
+
 ## [0.6.0-rc.1] - 2026-10-07
 
 Desktop preview. Installers are unsigned; clean Windows/Linux installation and

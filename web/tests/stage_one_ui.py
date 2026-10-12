@@ -18,6 +18,12 @@ class QuietHandler(SimpleHTTPRequestHandler):
     def log_message(self, *_args):
         pass
 
+    def copyfile(self, source, outputfile):
+        try:
+            super().copyfile(source, outputfile)
+        except (BrokenPipeError, ConnectionResetError):
+            pass  # Browser navigation may cancel a still-streaming font or script.
+
 
 class DesktopUI(unittest.TestCase):
     @classmethod
@@ -45,6 +51,12 @@ class DesktopUI(unittest.TestCase):
         self.page.set_default_timeout(8000)
         self.calls = []
         self.auth_required = False
+        self.running_profile_ids = []
+        self.library = [{"id": "library-one", "name": "Office", "type": "http", "server": "proxy.example:3128", "username": "proxy-user", "country": "DE", "has_password": True, "row_version": 4, "last_check": None, "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z"}]
+        self.proxy_stale_once = False
+        self.proxy_failure_once = False
+        self.import_failure = False
+        self.assignment_skips = []
         self.browser_state = {"installed": False, "version": None, "state": "idle", "progress": None, "message": "Browser not installed", "error": None}
         self.profiles = []
         self.backups = []
@@ -76,7 +88,7 @@ class DesktopUI(unittest.TestCase):
         elif path == "/schedules":
             data = {"schedules": [], "total": 0}
         elif path == "/browsers/active":
-            data = {"active_browsers": [], "count": 0}
+            data = {"active_browsers": [{"profile_id": item} for item in self.running_profile_ids], "count": len(self.running_profile_ids)}
         elif path == "/fingerprints/presets":
             data, envelope = {"presets": []}, True
         elif path == "/system/browser":
@@ -92,6 +104,46 @@ class DesktopUI(unittest.TestCase):
             data, envelope = {"backups": self.backups}, True
         elif path.startswith("/system/backups/") and path.endswith("/restore"):
             data, envelope = {"id": "restored-copy", "name": "Recovered profile"}, True
+        elif path == "/proxies" and request.method == "GET":
+            data, envelope = {"proxies": self.library}, True
+        elif path == "/proxies" and request.method == "POST":
+            body = request.post_data_json
+            proxy = {**self.library[0], **{key: value for key, value in body.items() if key != "password"}, "id": "library-new", "has_password": bool(body.get("password")), "row_version": 0}
+            self.library.append(proxy)
+            data, envelope = proxy, True
+        elif path.startswith("/proxies/") and request.method in {"PATCH", "DELETE"}:
+            if self.proxy_stale_once:
+                self.proxy_stale_once = False
+                self.library[0] = {**self.library[0], "row_version": 5, "server": "changed.example:3128"}
+                route.fulfill(status=409, content_type="application/json", body=json.dumps({"error": {"code": "stale_write", "message": "Proxy changed"}}))
+                return
+            if self.proxy_failure_once:
+                self.proxy_failure_once = False
+                route.fulfill(status=503, content_type="application/json", body=json.dumps({"error": {"code": "unavailable", "message": "Service unavailable"}}))
+                return
+            if request.method == "DELETE":
+                self.library = []
+                data, envelope = None, True
+            else:
+                body = request.post_data_json
+                password = body.get("password", "preserve")
+                self.library[0] = {**self.library[0], **{key: value for key, value in body.items() if key not in {"password", "row_version"}}, "row_version": self.library[0]["row_version"] + 1}
+                if password != "preserve": self.library[0]["has_password"] = bool(password)
+                data, envelope = self.library[0], True
+        elif path == "/proxies/library-one/check":
+            self.library[0] = {**self.library[0], "last_check": {"reachable": True, "error": None, "latency_ms": 18, "ip": "203.0.113.4", "country": "DE", "timezone": "Europe/Berlin", "findings": [], "checked_at": "2026-10-12T10:00:00Z"}}
+            data, envelope = self.library[0], True
+        elif path == "/proxies/library-one/assign":
+            body = request.post_data_json
+            skipped_ids = {item["id"] for item in self.assignment_skips}
+            data, envelope = {"assigned": [item["id"] for item in body["profiles"] if item["id"] not in skipped_ids], "skipped": self.assignment_skips}, True
+        elif path == "/proxies/import":
+            if self.import_failure:
+                route.fulfill(status=422, content_type="application/json", body=json.dumps({"error": {"code": "validation_error", "message": "Line 2: input includes import-secret-value"}}))
+                return
+            proxy = {**self.library[0], "id": "imported", "name": "Imported proxy", "server": "imported.example:8080"}
+            self.library.append(proxy)
+            data, envelope = {"created": [proxy], "skipped": [{"line": 2, "reason": "Proxy already exists"}]}, True
         elif path == "/trash/profiles":
             data, envelope = {"profiles": self.trash}, True
         elif path.endswith("?confirm=true"):
@@ -220,6 +272,144 @@ class DesktopUI(unittest.TestCase):
         expect(self.page.get_by_role("heading", name="浏览器配置", exact=True)).to_be_visible()
         self.page.get_by_role("link", name="分组", exact=True).click()
         expect(self.page.get_by_role("heading", name="分组", exact=True)).to_be_visible()
+
+    def open_proxy_library(self):
+        self.page.goto(f"{self.origin}/proxies/")
+        expect(self.page.get_by_text("Office", exact=True)).to_be_visible()
+
+    def test_proxy_library_passwords_are_write_only_and_checks_are_explicit(self):
+        self.open_proxy_library()
+        expect(self.page.get_by_text("Password stored", exact=True)).to_be_visible()
+        self.assertFalse(any(path.endswith("/check") for _, path, _ in self.calls))
+        self.page.get_by_role("button", name="Edit Office", exact=True).click()
+        expect(self.page.get_by_label("Replace password", exact=True)).to_have_value("")
+        self.page.get_by_role("button", name="Save changes", exact=True).click()
+        expect(self.page.get_by_role("dialog")).not_to_be_visible()
+        saved = next(json.loads(body) for method, _, body in self.calls if method == "PATCH")
+        self.assertNotIn("password", saved)
+        self.assertEqual(saved["row_version"], 4)
+        self.page.get_by_role("button", name="Check Office", exact=True).click()
+        expect(self.page.get_by_text("Healthy", exact=True)).to_be_visible()
+        self.assertEqual(sum(path.endswith("/check") for _, path, _ in self.calls), 1)
+
+    def test_proxy_create_keeps_credentials_out_of_the_saved_record(self):
+        self.open_proxy_library()
+        self.page.get_by_role("button", name="New proxy", exact=True).click()
+        self.page.get_by_label("Name", exact=True).fill("Authenticated SOCKS5")
+        self.page.get_by_label("Type", exact=True).select_option("socks5")
+        self.page.get_by_label("Server", exact=True).fill("socks.example:1080")
+        self.page.get_by_label("Username", exact=True).fill("account")
+        self.page.get_by_label("Password (optional)", exact=True).fill("new-secret-value")
+        self.page.get_by_role("button", name="Create proxy", exact=True).click()
+        expect(self.page.get_by_role("dialog")).not_to_be_visible()
+        expect(self.page.get_by_role("table").get_by_text("Authenticated SOCKS5", exact=True)).to_be_visible()
+        self.assertNotIn("new-secret-value", self.page.locator("body").inner_text())
+        created = next(json.loads(body) for method, path, body in self.calls if method == "POST" and path == "/proxies")
+        self.assertEqual(created["type"], "socks5")
+        self.assertEqual(created["password"], "new-secret-value")
+        self.assertFalse(any(path.endswith("/check") for _, path, _ in self.calls))
+
+    def test_proxy_edit_stale_preserves_draft_and_requires_explicit_reload(self):
+        self.open_proxy_library()
+        self.page.get_by_role("button", name="Edit Office", exact=True).click()
+        self.page.get_by_label("Name", exact=True).fill("Draft name")
+        self.page.get_by_label("Replace password", exact=True).fill("draft-secret-value")
+        self.proxy_stale_once = True
+        self.page.get_by_role("button", name="Save changes", exact=True).click()
+        expect(self.page.get_by_text("This proxy changed elsewhere. Your draft is preserved. Reload the saved proxy before editing again.", exact=True)).to_be_visible()
+        expect(self.page.get_by_label("Name", exact=True)).to_have_value("Draft name")
+        expect(self.page.get_by_label("Replace password", exact=True)).to_have_value("draft-secret-value")
+        expect(self.page.get_by_role("button", name="Save changes", exact=True)).to_be_disabled()
+        self.assertNotIn("draft-secret-value", self.page.locator("body").inner_text())
+        self.page.get_by_role("button", name="Reload saved proxy", exact=True).click()
+        expect(self.page.get_by_label("Server", exact=True)).to_have_value("changed.example:3128")
+        expect(self.page.get_by_label("Replace password", exact=True)).to_have_value("")
+        self.page.get_by_label("Remove stored password", exact=True).check()
+        self.page.get_by_role("button", name="Save changes", exact=True).click()
+        expect(self.page.get_by_role("dialog")).not_to_be_visible()
+        updates = [json.loads(body) for method, _, body in self.calls if method == "PATCH"]
+        self.assertIsNone(updates[-1]["password"])
+        self.assertEqual(updates[-1]["row_version"], 5)
+
+    def test_proxy_save_and_delete_failure_do_not_discard_records(self):
+        self.open_proxy_library()
+        self.page.get_by_role("button", name="Edit Office", exact=True).click()
+        self.page.get_by_label("Name", exact=True).fill("Still my draft")
+        self.proxy_failure_once = True
+        self.page.get_by_role("button", name="Save changes", exact=True).click()
+        expect(self.page.get_by_role("dialog").get_by_role("alert")).to_contain_text("Service unavailable")
+        expect(self.page.get_by_label("Name", exact=True)).to_have_value("Still my draft")
+        self.page.get_by_role("button", name="Cancel", exact=True).click()
+        self.page.get_by_role("button", name="Delete Office", exact=True).click()
+        self.proxy_stale_once = True
+        self.page.get_by_role("button", name="Delete", exact=True).click()
+        expect(self.page.get_by_role("dialog").get_by_role("alert")).to_contain_text("Reload and review")
+        expect(self.page.get_by_role("button", name="Delete", exact=True)).to_be_disabled()
+        self.page.get_by_role("button", name="Reload saved proxy", exact=True).click()
+        expect(self.page.get_by_role("dialog")).to_contain_text("changed.example:3128")
+        self.page.get_by_role("button", name="Delete", exact=True).click()
+        expect(self.page.get_by_role("heading", name="No library proxies yet", exact=True)).to_be_visible()
+        deletes = [path for method, path, _ in self.calls if method == "DELETE"]
+        self.assertEqual(deletes, ["/proxies/library-one?row_version=4", "/proxies/library-one?row_version=5"])
+
+    def test_proxy_assignment_confirms_replacement_and_reports_skipped_profiles(self):
+        self.profiles = [{"id": "closed", "name": "Closed profile", "row_version": 7, "proxy_config": {"type": "http", "server": "http://legacy-user:legacy-secret@old.example:3128"}}, {"id": "changed", "name": "Changed profile", "row_version": 3, "proxy_config": None}, {"id": "running", "name": "Running profile", "row_version": 4, "proxy_config": None}]
+        self.running_profile_ids = ["running"]
+        self.assignment_skips = [{"id": "changed", "reason": "Profile changed; reload before assigning"}]
+        self.open_proxy_library()
+        self.page.get_by_role("button", name="Assign Office", exact=True).click()
+        expect(self.page.get_by_role("checkbox", name="Select Running profile", exact=True)).to_be_disabled()
+        self.page.get_by_role("checkbox", name="Select Closed profile", exact=True).check()
+        self.page.get_by_role("checkbox", name="Select Changed profile", exact=True).check()
+        self.assertNotIn("legacy-secret", self.page.locator("body").inner_text())
+        confirm = self.page.get_by_role("button", name="Assign to 2 profiles", exact=True)
+        expect(confirm).to_be_disabled()
+        self.page.get_by_role("checkbox", name="Replace existing proxy settings for the selected profile.", exact=True).check()
+        confirm.click()
+        expect(self.page.get_by_text("Assigned to 1 profile.", exact=True)).to_be_visible()
+        expect(self.page.get_by_text("1 profile skipped", exact=True)).to_be_visible()
+        expect(self.page.get_by_role("dialog")).to_contain_text("Changed profile: Profile changed; reload before assigning")
+        body = next(json.loads(body) for _, path, body in self.calls if path.endswith("/assign"))
+        self.assertEqual(body, {"proxy_row_version": 4, "profiles": [{"id": "closed", "row_version": 7}, {"id": "changed", "row_version": 3}]})
+        self.assertFalse(any(path.startswith("/profiles/") for _, path, _ in self.calls))
+
+    def test_proxy_import_credentials_clear_on_result_and_close(self):
+        self.open_proxy_library()
+        self.page.get_by_role("button", name="Import", exact=True).click()
+        field = self.page.get_by_label("One proxy per line (up to 100)", exact=True)
+        expect(field).to_have_attribute("maxlength", "64000")
+        field.fill("http://user:import-secret-value@imported.example:8080\nimported.example:8080")
+        self.page.get_by_role("button", name="Import proxies", exact=True).click()
+        expect(self.page.get_by_text("1 proxy imported.", exact=True)).to_be_visible()
+        expect(self.page.get_by_role("dialog")).to_contain_text("Line 2: Proxy already exists")
+        self.assertNotIn("import-secret-value", self.page.locator("body").inner_text())
+        self.page.get_by_role("button", name="Done", exact=True).click()
+        self.page.get_by_role("button", name="Import", exact=True).click()
+        expect(field).to_have_value("")
+        field.fill("http://user:close-secret@proxy.example:8080")
+        self.page.get_by_role("button", name="Cancel", exact=True).click()
+        self.page.get_by_role("button", name="Import", exact=True).click()
+        expect(field).to_have_value("")
+
+    def test_proxy_import_error_exposes_only_safe_line_number(self):
+        self.open_proxy_library()
+        self.page.get_by_role("button", name="Import", exact=True).click()
+        self.page.get_by_label("One proxy per line (up to 100)", exact=True).fill("proxy.example:8080\nbad-secret-url")
+        self.import_failure = True
+        self.page.get_by_role("button", name="Import proxies", exact=True).click()
+        expect(self.page.get_by_role("dialog").get_by_role("alert")).to_have_text("Import failed on line 2. Check its proxy format and try again.")
+        self.assertNotIn("import-secret-value", self.page.locator("body").inner_text())
+
+    def test_proxy_library_simplified_chinese_and_socks_support_copy(self):
+        self.open_proxy_library()
+        self.page.get_by_label("Language", exact=True).select_option("zh-CN")
+        expect(self.page.get_by_role("heading", name="代理库", exact=True)).to_be_visible()
+        self.page.get_by_role("button", name="新建代理", exact=True).click()
+        self.page.get_by_label("类型", exact=True).select_option("socks5")
+        expect(self.page.get_by_text("SOCKS5 认证由本地中继自动处理，无需安装扩展或手动设置浏览器。", exact=True)).to_be_visible()
+        self.page.get_by_label("类型", exact=True).select_option("socks4")
+        self.page.get_by_label("用户名", exact=True).fill("user")
+        expect(self.page.get_by_text("不支持 SOCKS4 凭据。需要认证时请使用 SOCKS5、HTTP 或 HTTPS 代理。", exact=True)).to_be_visible()
 
 
 if __name__ == "__main__":

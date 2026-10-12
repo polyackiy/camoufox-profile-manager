@@ -52,7 +52,7 @@ creating the profile through the UI instead.
 | Touch points | Stored, but Camoufox 152 ignores it — see the limitations in [profile-settings.md](profile-settings.md#known-limitations). |
 | Proxy type | `http`, `https`, `socks4`, `socks5`. |
 | Proxy server | `host:port`. |
-| Proxy username / Proxy password | Firefox cannot authenticate to a SOCKS proxy — use HTTP/HTTPS when credentials are needed. |
+| Proxy username / Proxy password | Supported with HTTP/HTTPS and SOCKS5; SOCKS4 credentials are unsupported. |
 | Geolocation mode | `auto` follows the proxy IP; `manual` uses the coordinates below. |
 | Latitude / Longitude / Geolocation accuracy | Used when the mode is `manual`. |
 | Notes | Free text. |

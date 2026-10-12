@@ -306,6 +306,37 @@ call reports itself; `422` for an empty list.
 
 ## Checking a proxy
 
+### Reusable proxy library
+
+The protected `/api/v1/proxies` resource stores named proxy configurations.
+The legacy `/api/proxies` paths are aliases. See the
+[user guide](proxy-library.md) for assignment and recovery semantics.
+
+| Method and path | Request / result |
+| --- | --- |
+| `GET /proxies` | `data.proxies`: public entries |
+| `POST /proxies` | `name`, `type`, `server`, optional `username`, `password`, `country`; returns entry (201) |
+| `PATCH /proxies/{id}` | `row_version` plus changed fields; returns entry |
+| `DELETE /proxies/{id}?row_version=N` | Deletes the entry; assigned profiles retain their copy |
+| `POST /proxies/{id}/check` | Runs a check; returns entry with `last_check` |
+| `POST /proxies/import` | `{ "text": "host:port\\n..." }`; returns `created` entries and `skipped` line/reason pairs |
+| `POST /proxies/{id}/assign` | `{ "proxy_row_version": N, "profiles": [{"id": "...", "row_version": N}] }`; returns `assigned` IDs and `skipped` ID/reason pairs |
+
+All results use the standard `ApiResponse` envelope. Public entries include
+`id`, `name`, `type`, `server`, `username`, `country`, `has_password`,
+`row_version`, `last_check`, `created_at` and `updated_at`. Passwords never appear
+in library responses. Omitting a password during PATCH preserves it; `null`
+clears it. Password writes and credential-dependent operations fail safely when
+the encryption key is unavailable. Stale edits return 409.
+
+Import accepts up to 100 nonempty lines / 64,000 characters, validates the whole
+batch before writes, and skips exact duplicates. Assignment accepts up to 100
+distinct profiles and reports per-profile conflicts instead of overwriting a
+running or concurrently changed profile. It copies credentials into the profile
+under its operation lease; it does not create a reference to the library entry.
+
+### Profile and unsaved checks
+
 ```http
 POST /api/v1/profiles/{id}/check-proxy
 POST /api/v1/proxy/check      {"proxy_config": {...}, "browser_settings": {...}}

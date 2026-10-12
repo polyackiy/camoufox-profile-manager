@@ -42,14 +42,16 @@ async def run_file_operation(function, *args, **kwargs):
 
 
 @asynccontextmanager
-async def profile_operation(manager, profile_id: str, include_deleted: bool = False):
+async def profile_operation(
+    manager, profile_id: str, include_deleted: bool = False, *, holder: str | None = None
+):
     """Reserve one closed profile across processes, with renewal during long I/O."""
     profile = await manager.storage.get_profile(profile_id, include_deleted=include_deleted)
     if profile is None:
         raise ValueError(f"Profile with ID {profile_id} not found")
     if manager.browser_sessions.is_live(profile_id):
         raise ProfileLocked(profile_id, manager.lease_holder)
-    holder = make_lease_holder()
+    holder = holder or make_lease_holder()
     ttl = 300
     if not await manager.storage.acquire_lease(profile_id, holder, ttl, include_deleted):
         lease = await manager.storage.get_lease(profile_id)
