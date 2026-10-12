@@ -65,6 +65,18 @@ def _wait_until_serving(
     return False
 
 
+def _stop_server(server: uvicorn.Server, thread: threading.Thread) -> bool:
+    """Finish lifespan cleanup before permitting a native application quit."""
+    server.should_exit = True
+    thread.join(timeout=15)
+    if thread.is_alive():
+        server.force_exit = True
+        thread.join(timeout=3)
+    # Uvicorn's force-exit path can skip lifespan cleanup. A stopped thread
+    # alone is not enough to authorize the successful packaged-process exit.
+    return not thread.is_alive() and not server.force_exit
+
+
 def run_desktop(
     host: str = "127.0.0.1", port: int = 0, title: str = "Camoufox Profile Manager"
 ) -> None:
@@ -116,17 +128,48 @@ def run_desktop(
                         "The local server could not start. See desktop.log in your data folder."
                     )
                 ui_host = "127.0.0.1" if host in ("0.0.0.0", "127.0.0.1") else host
-                webview.create_window(
+                window = webview.create_window(
                     title, f"http://{ui_host}:{actual_port}/", width=1280, height=800
                 )
-                webview.start()
+                if window is None:
+                    raise RuntimeError("The native window could not be created.")
+                if sys.platform == "darwin":
+                    # Cocoa Cmd+Q may terminate NSApplication without returning
+                    # from webview.start(). Its synchronous closing event must
+                    # finish API/browser cleanup first (False cancels the quit).
+                    window.events.closing += lambda: _stop_server(server, thread)
+                if sys.platform.startswith("linux"):
+                    icon_root = Path(
+                        getattr(sys, "_MEIPASS", Path(__file__).resolve().parents[2] / "packaging")
+                    )
+                    webview.start(icon=str(icon_root / "camoufox-pm.svg"))
+                else:
+                    webview.start()
             finally:
-                server.should_exit = True
                 # Lifespan closes running browser sessions and the database.
-                thread.join(timeout=15)
-                if thread.is_alive():
-                    server.force_exit = True
-                    thread.join(timeout=3)
+                if not _stop_server(server, thread):
+                    raise RuntimeError("The local server did not finish shutting down.")
+
+
+def finish_packaged_desktop() -> None:
+    """End a cleaned-up macOS bundle without re-entering native module finalizers.
+
+    The frozen Cocoa process can hang in CPython's final module GC after the
+    window, browser driver and API have all stopped (#67). Only the standalone
+    macOS entry point uses this boundary, after main() returns successfully.
+    Database/browser cleanup and the instance-lock release happen in run_desktop,
+    not in atexit handlers. Closing the process also closes the tracker's pipe.
+    """
+    if sys.platform != "darwin" or not getattr(sys, "frozen", False):
+        return
+    import logging
+
+    logging.shutdown()
+    for stream in (sys.stdout, sys.stderr):
+        if stream is not None:
+            with contextlib.suppress(OSError, ValueError):
+                stream.flush()
+    os._exit(0)
 
 
 def _show_error(message: str) -> None:

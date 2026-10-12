@@ -15,6 +15,7 @@ from PyInstaller.utils.hooks import collect_all, collect_submodules, copy_metada
 ROOT = os.path.abspath(os.path.join(SPECPATH, ".."))
 
 datas = [(os.path.join(ROOT, "src", "camoufox_pm", "webui"), "camoufox_pm/webui")]
+datas += [(os.path.join(SPECPATH, "camoufox-pm.svg"), ".")]
 datas += copy_metadata("camoufox-profile-manager")
 binaries = []
 hiddenimports = collect_submodules("uvicorn")
@@ -50,6 +51,7 @@ exe = EXE(
     [],
     exclude_binaries=True,
     name="camoufox-pm",
+    icon=os.path.join(SPECPATH, "camoufox-pm.ico") if sys.platform == "win32" else None,
     # Desktop entry point redirects absent streams to the writable data folder.
     console=False,
 )
@@ -62,6 +64,7 @@ coll = COLLECT(
 app = BUNDLE(
     coll,
     name="Camoufox Profile Manager.app",
+    icon=os.path.join(SPECPATH, "camoufox-pm.icns"),
     bundle_identifier="com.github.polyackiy.camoufox-pm",
     info_plist={
         "NSHighResolutionCapable": True,

@@ -79,6 +79,14 @@ uv run python scripts/build_desktop.py --checksums-only
 checks. The browser binary is intentionally absent; first-run installation uses
 the in-process Camoufox installer so it works in frozen applications too.
 
+Native app icons are checked in under `packaging/`: the shared SVG, a 1024-pixel
+PNG, a multi-resolution ICNS for macOS and ICO for Windows. To regenerate the
+raster formats after editing the SVG, run `npm ci --prefix web` followed by
+`node scripts/build_icons.mjs` (using Next's installed sharp renderer). PyInstaller
+embeds the ICNS/ICO, NSIS uses the ICO for both installer and uninstaller, and
+Linux uses the SVG for its desktop launcher and GTK/Qt window. Regenerate these
+assets before signing; changing an installed app's icon invalidates its signature.
+
 ## Update boundaries
 
 Settings checks only the configured project's GitHub releases. Update preparation

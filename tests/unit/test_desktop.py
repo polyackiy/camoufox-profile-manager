@@ -19,7 +19,17 @@ def desktop_runtime(monkeypatch, tmp_path):
     monkeypatch.delenv("CPM_SECRET_KEY", raising=False)
     monkeypatch.delenv("CPM_PORT", raising=False)
     monkeypatch.delenv("CPM_HOST", raising=False)
-    webview = SimpleNamespace(create_window=Mock(), start=Mock())
+
+    class ClosingEvent:
+        def __init__(self):
+            self.handlers = []
+
+        def __iadd__(self, handler):
+            self.handlers.append(handler)
+            return self
+
+    window = SimpleNamespace(events=SimpleNamespace(closing=ClosingEvent()))
+    webview = SimpleNamespace(create_window=Mock(return_value=window), start=Mock())
     monkeypatch.setitem(sys.modules, "webview", webview)
     servers = []
 
@@ -78,6 +88,14 @@ def test_window_failure_still_stops_server_and_releases_lock(desktop_runtime):
         pass
 
 
+def test_missing_native_window_still_finishes_server_cleanup(desktop_runtime):
+    desktop_runtime.webview.create_window.return_value = None
+    with pytest.raises(RuntimeError, match="native window could not be created"):
+        desktop.run_desktop()
+    desktop_runtime.webview.start.assert_not_called()
+    assert desktop_runtime.servers[0].stopped
+
+
 def test_startup_failure_never_opens_window_and_stops_server(desktop_runtime, monkeypatch):
     monkeypatch.setattr(desktop, "_wait_until_serving", lambda server, thread: False)
     with pytest.raises(RuntimeError, match="could not start"):
@@ -110,3 +128,77 @@ def test_packaged_entrypoint_bootstraps_before_window(monkeypatch, tmp_path):
     assert observed == [str(tmp_path / "desktop-data" / "profiles.db")]
     assert (tmp_path / "desktop-data" / "secret.key").exists()
     get_settings.cache_clear()
+
+
+@pytest.mark.parametrize("platform,frozen", [("darwin", False), ("linux", True), ("win32", True)])
+def test_process_exit_is_only_for_frozen_macos(monkeypatch, platform, frozen):
+    monkeypatch.setattr(sys, "platform", platform)
+    monkeypatch.setattr(sys, "frozen", frozen, raising=False)
+    exit_process = Mock()
+    monkeypatch.setattr(desktop.os, "_exit", exit_process)
+    desktop.finish_packaged_desktop()
+    exit_process.assert_not_called()
+
+
+def test_frozen_macos_flushes_logs_before_process_exit(monkeypatch):
+    import logging
+
+    monkeypatch.setattr(sys, "platform", "darwin")
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    events = []
+    stream = SimpleNamespace(flush=lambda: events.append("flush"))
+    monkeypatch.setattr(sys, "stdout", stream)
+    monkeypatch.setattr(sys, "stderr", stream)
+    monkeypatch.setattr(logging, "shutdown", lambda: events.append("logging"))
+    monkeypatch.setattr(desktop.os, "_exit", lambda code: events.append(("exit", code)))
+    desktop.finish_packaged_desktop()
+    assert events == ["logging", "flush", "flush", ("exit", 0)]
+
+
+def test_incomplete_server_shutdown_is_not_reported_as_success(desktop_runtime, monkeypatch):
+    class StuckThread:
+        def __init__(self, target, kwargs, daemon):
+            self.server = target.__self__
+
+        def start(self):
+            self.server.started = True
+
+        def join(self, timeout):
+            pass
+
+        def is_alive(self):
+            return True
+
+    monkeypatch.setattr(desktop.threading, "Thread", StuckThread)
+    with pytest.raises(RuntimeError, match="did not finish shutting down"):
+        desktop.run_desktop()
+    assert desktop_runtime.servers[0].should_exit
+    assert desktop_runtime.servers[0].force_exit
+
+
+def test_macos_native_quit_cleans_server_before_permitting_close(desktop_runtime, monkeypatch):
+    monkeypatch.setattr(sys, "platform", "darwin")
+
+    def native_quit():
+        window = desktop_runtime.webview.create_window.return_value
+        assert len(window.events.closing.handlers) == 1
+        assert window.events.closing.handlers[0]() is True
+        assert desktop_runtime.servers[0].stopped
+
+    desktop_runtime.webview.start.side_effect = native_quit
+    desktop.run_desktop()
+
+
+def test_native_quit_is_cancelled_while_server_is_still_running():
+    server = SimpleNamespace(should_exit=False, force_exit=False)
+    thread = SimpleNamespace(join=Mock(), is_alive=lambda: True)
+    assert desktop._stop_server(server, thread) is False
+    assert server.should_exit
+    assert server.force_exit
+
+
+def test_forced_server_exit_cannot_authorize_successful_native_quit():
+    server = SimpleNamespace(should_exit=False, force_exit=False)
+    thread = SimpleNamespace(join=Mock(), is_alive=Mock(side_effect=[True, False]))
+    assert desktop._stop_server(server, thread) is False
+    assert server.force_exit

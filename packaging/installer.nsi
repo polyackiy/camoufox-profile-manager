@@ -5,6 +5,8 @@ OutFile "${OUTPUT}"
 InstallDir "$LOCALAPPDATA\Programs\Camoufox Profile Manager"
 RequestExecutionLevel user
 !define MUI_ABORTWARNING
+!define MUI_ICON "${ICON}"
+!define MUI_UNICON "${ICON}"
 !insertmacro MUI_PAGE_WELCOME
 !insertmacro MUI_PAGE_DIRECTORY
 !insertmacro MUI_PAGE_INSTFILES
@@ -45,6 +47,7 @@ Section "Install"
     WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\CamoufoxPM" "DisplayName" "Camoufox Profile Manager"
     WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\CamoufoxPM" "UninstallString" '$"$INSTDIR\Uninstall.exe$"'
     WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\CamoufoxPM" "InstallLocation" "$INSTDIR"
+    WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\CamoufoxPM" "DisplayIcon" "$INSTDIR\camoufox-pm.exe,0"
     WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\CamoufoxPM" "NoModify" 1
     WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\CamoufoxPM" "NoRepair" 1
 SectionEnd

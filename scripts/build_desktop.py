@@ -66,7 +66,7 @@ def package_desktop() -> list[Path]:
             check=True,
         )
         output = DIST / f"camoufox-pm-windows-{arch}-setup.exe"
-        subprocess.run([makensis, f"/DBUNDLE={DIST / 'camoufox-pm'}", f"/DOUTPUT={output}", f"/DWEBVIEW2={bootstrapper}", str(ROOT / "packaging" / "installer.nsi")], check=True)
+        subprocess.run([makensis, f"/DBUNDLE={DIST / 'camoufox-pm'}", f"/DOUTPUT={output}", f"/DWEBVIEW2={bootstrapper}", f"/DICON={ROOT / 'packaging' / 'camoufox-pm.ico'}", str(ROOT / "packaging" / "installer.nsi")], check=True)
         return [output]
     if not sys.platform.startswith("linux"):
         raise SystemExit(f"Packaging not supported on {sys.platform}")
