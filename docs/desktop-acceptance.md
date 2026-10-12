@@ -26,14 +26,18 @@ The downloaded `camoufox-pm-macos-arm64.dmg` was mounted read-only and inspected
   Developer ID publisher signature.
 - `xcrun stapler validate` returned 65: no stapled ticket.
 
-The app was not installed or launched during this inspection. Quarantine,
-Gatekeeper first launch, upgrade/reinstall and clean-system behavior remain
-unverified. The preview also predates the merged Linux-input/Chinese-UI PR #65;
-testing this installer does not validate that newer code.
+The initial inspection did not launch the app. A subsequent
+[Apple Silicon workstation trial](desktop-acceptance-macos-arm64-2026-10-12.md)
+tested installation, profile reopening, archive restore, 0.5 data migration and
+app-only removal/reinstallation. Closing the published app failed to terminate
+the manager process ([#67](https://github.com/polyackiy/camoufox-profile-manager/issues/67)).
+Normal quarantined Gatekeeper first launch, a distinct later DMG upgrade and
+clean-system behavior remain unverified. The preview also predates the merged
+Linux-input/Chinese-UI PR #65; testing this installer does not validate that newer code.
 
 | Platform | Package builds | Publisher verification | Clean install/update/reinstall |
 | --- | --- | --- | --- |
-| macOS Apple Silicon | Passed | Ad-hoc only; no stapled ticket | Not recorded |
+| macOS Apple Silicon | Passed | Ad-hoc only; no stapled ticket | [Workstation trial](desktop-acceptance-macos-arm64-2026-10-12.md); D08 failed; clean-system trial pending |
 | macOS Intel | Passed | Signing/notarization skipped | Not recorded |
 | Windows 10/11 x64 | Passed | App/installer signing skipped | Not recorded |
 | Ubuntu 22.04+ x64 | Passed | Unsigned release downloads | Not recorded |
