@@ -127,13 +127,13 @@ and mypy passed for 43 source files.
 ## Completed shutdown fix and native icons
 
 The final local build's runtime source corresponds to commit
-`6c15112a59bfabcc422e8a3a4541b97876d1f241` in PR #68. It still reports version
+`3567501aa5b3928bddfde3d9a6b2faad6aef3b4f` in PR #68. It still reports version
 `0.6.0rc1`, is unpublished and ad-hoc signed. The public preview asset above was
 not replaced. The installation used the same isolated data, system-only PATH,
 cached browser and non-quarantined CLI workflow as the initial trial.
 
 - Asset: `camoufox-pm-macos-arm64.dmg`.
-- SHA-256: `e27f20382f287e7e1fe1be74d1e84f44ced8c507c02c5d43f39c13153bc5bd3a`.
+- SHA-256: `58d4ab21fbe075e8ff00e197d0bdb88470e671ba9f6d70f47aa51b0023cfb6a2`.
 - Native bundle signature verification passed. `CFBundleIconFile` names
   `camoufox-pm.icns`; the installed resource matches the checked-in icon exactly.
   Finder displayed the project's fox icon in both list and icon views.
@@ -144,7 +144,8 @@ The fix keeps helper dispatch before GUI imports and waits for the server thread
 lifespan cleanup. A synchronous macOS closing handler also completes that cleanup
 before Cocoa's Cmd+Q can terminate the app. If the server does not stop within the
 existing 15+3 second bounds, closing is cancelled and normal return cannot report
-successful shutdown.
+successful shutdown. A forced server exit is also rejected, because Uvicorn can
+skip lifespan cleanup on that path even if its thread stops.
 
 After successful standalone macOS cleanup, the packaged entry point flushes logs
 and uses an explicit process exit to avoid the observed `Py_FinalizeEx` module-GC
@@ -158,9 +159,9 @@ does not take the successful-exit path.
 
 | Retest | Observed complete exit after request | Result |
 | --- | --- | --- |
-| Native window close with running profile | 1.14 s | Pass |
-| Normal reopen, then Cmd+Q with running profile | 1.02 s | Pass |
-| Normal reopen, then repeated native window close | 1.15 s | Pass |
+| Native window close with running profile | 1.25 s | Pass |
+| Normal reopen, then Cmd+Q with running profile | 1.26 s | Pass |
+| Normal reopen, then repeated native window close | 1.39 s | Pass |
 
 Each cycle inspected the manager's process tree immediately before close, confirmed
 all captured browser/driver/tracker processes and every executable from the test
@@ -172,7 +173,7 @@ group and paused schedule; all nine fixture fields matched without reseeding.
 The existing production-data manifest matched after testing. No forced process
 cleanup was needed for these three final cycles; the fixture server was stopped.
 
-Local final verification: **556 passed, 2 skipped, 24 browser tests deselected**;
+Local final verification: **557 passed, 2 skipped, 24 browser tests deselected**;
 Ruff check/format and mypy passed. Regression cases cover helper routing, exit
 ordering/platform scope, failed startup, missing native window, incomplete server
 cleanup and cleanup before permitting macOS native quit. The native artifact
