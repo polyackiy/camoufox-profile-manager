@@ -16,7 +16,7 @@ on:
       raster_mode:
         description: Diagnostic canvas backend override (default tests product behavior)
         type: choice
-        options: [default, software, text-probes, gdi-family, cache-lifecycle, process-lifecycle]
+        options: [default, software, text-probes, gdi-family, cache-lifecycle, process-lifecycle, native-firefox]
         default: default
   pull_request:
     paths:
@@ -46,7 +46,7 @@ jobs:
       # Bound a stuck SDK launch/close while allowing multi-launch workflows.
       # Pytest 9.1 emits the current test and thread stacks before exiting.
       PYTEST_ADDOPTS: -vv -o faulthandler_timeout=600 -o faulthandler_exit_on_timeout=true
-      CPM_CANVAS_RASTER_MODE: ${{ (inputs.raster_mode == 'text-probes' || inputs.raster_mode == 'cache-lifecycle' || inputs.raster_mode == 'process-lifecycle') && 'default' || inputs.raster_mode || 'default' }}
+      CPM_CANVAS_RASTER_MODE: ${{ (inputs.raster_mode == 'text-probes' || inputs.raster_mode == 'cache-lifecycle' || inputs.raster_mode == 'process-lifecycle' || inputs.raster_mode == 'native-firefox') && 'default' || inputs.raster_mode || 'default' }}
       CPM_CANVAS_CACHE_PROBE: ${{ inputs.raster_mode == 'cache-lifecycle' && '1' || '0' }}
       CPM_BROWSER_WATCHDOG_SECONDS: '180'
       CPM_CANVAS_DIAGNOSTIC_DIR: canvas-diagnostics
@@ -69,6 +69,9 @@ jobs:
         run: uv run python scripts/install_ci_browser.py
       - name: Record the tested pair
         run: uv run camoufox version
+      - name: Install packaged native Firefox for the Windows control
+        if: runner.os == 'Windows' && inputs.raster_mode == 'native-firefox'
+        run: uv run playwright install firefox
       - name: Test real browsers against local synthetic sites (Linux)
         if: runner.os == 'Linux'
         env:
@@ -77,11 +80,11 @@ jobs:
         # the hardware identity assertions, as in upstream Camoufox CI.
         run: xvfb-run -a uv run pytest "$CPM_BROWSER_TARGET" -m browser --no-network --junitxml=browser-results.xml
       - name: Test real browsers against local synthetic sites
-        if: runner.os != 'Linux' && (runner.os != 'Windows' || (inputs.raster_mode != 'text-probes' && inputs.raster_mode != 'process-lifecycle'))
+        if: runner.os != 'Linux' && (runner.os != 'Windows' || (inputs.raster_mode != 'text-probes' && inputs.raster_mode != 'process-lifecycle' && inputs.raster_mode != 'native-firefox'))
         shell: bash
         run: uv run pytest "$CPM_BROWSER_TARGET" -m browser --no-network --junitxml=browser-results.xml
       - name: Verify repeated Windows canvas restarts
-        if: runner.os == 'Windows' && inputs.raster_mode != 'text-probes' && inputs.raster_mode != 'process-lifecycle'
+        if: runner.os == 'Windows' && inputs.raster_mode != 'text-probes' && inputs.raster_mode != 'process-lifecycle' && inputs.raster_mode != 'native-firefox'
         shell: pwsh
         # A single clean run does not settle the previously observed drift.
         run: |
@@ -100,6 +103,18 @@ jobs:
             CPM_CANVAS_RASTER_MODE="$mode" CPM_CANVAS_DIAGNOSTIC_DIR="canvas-diagnostics/$mode" \
               uv run pytest tests/browser/test_fingerprint_stability.py::test_stable_canvas_survives_a_relaunch --no-network --junitxml="browser-canvas-$mode.xml" || result=1
           done
+          exit "$result"
+      - name: Compare native Firefox first, then the unchanged manager test
+        if: runner.os == 'Windows' && inputs.raster_mode == 'native-firefox'
+        shell: bash
+        # Record both strict results even when native startup drifts. This is
+        # diagnostic evidence, never a product or acceptance warmup step.
+        run: |
+          result=0
+          CPM_NATIVE_CANVAS_CONTROL=1 CPM_CANVAS_DIAGNOSTIC_DIR=canvas-diagnostics/native-firefox \
+            uv run pytest tests/browser/test_native_canvas_control.py --no-network --junitxml=browser-native-firefox.xml || result=1
+          CPM_CANVAS_RASTER_MODE=default CPM_CANVAS_CACHE_PROBE=0 CPM_CANVAS_DIAGNOSTIC_DIR=canvas-diagnostics/manager-after-native \
+            uv run pytest tests/browser/test_fingerprint_stability.py::test_stable_canvas_survives_a_relaunch --no-network --junitxml=browser-manager-after-native.xml || result=1
           exit "$result"
       - name: Compare new Python processes on the same Windows runner
         if: runner.os == 'Windows' && inputs.raster_mode == 'process-lifecycle'
