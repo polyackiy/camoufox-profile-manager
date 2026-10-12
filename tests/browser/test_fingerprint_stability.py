@@ -9,6 +9,7 @@ Run with:  uv run pytest -m browser
 """
 
 import hashlib
+import json
 
 import pytest
 from camoufox import AsyncCamoufox
@@ -122,7 +123,44 @@ CANVAS = """() => {
 }"""
 
 
-async def read_canvases(options, user_data_dir, *urls):
+# Preserve the PNG read itself exactly; collect raw pixels and font metrics only
+# for the restart failure diagnostic. Never print the image or complete config.
+CANVAS_DIAGNOSTIC = CANVAS.replace("() => {", "async () => {", 1).replace(
+    "return c.toDataURL();",
+    """const value = c.toDataURL();
+  const fontStatus = document.fonts.status;
+  const fontAvailable = document.fonts.check('16px Arial');
+  const m = x.measureText('canvas probe');
+  const metrics = {width: m.width, left: m.actualBoundingBoxLeft,
+    right: m.actualBoundingBoxRight, ascent: m.actualBoundingBoxAscent,
+    descent: m.actualBoundingBoxDescent};
+  const pixelBytes = x.getImageData(0, 0, c.width, c.height).data;
+  const digest = await crypto.subtle.digest('SHA-256', pixelBytes);
+  const pixelHash = [...new Uint8Array(digest)].map(v => v.toString(16).padStart(2, '0')).join('').slice(0, 16);
+  return {value, pixelHash, fontStatus, fontAvailable, metrics,
+    dpr: devicePixelRatio, font: x.font, colorSpace: x.getContextAttributes?.().colorSpace ?? null};""",
+)
+
+
+def canvas_launch_diagnostic(options, snapshot, png_hash):
+    """Bounded synthetic diagnostics: hashes instead of fonts/config/images."""
+    config = options.get("config", {})
+
+    def digest(value):
+        return hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()[:16]
+
+    return {
+        "pngHash": png_hash,
+        **{key: value for key, value in snapshot.items() if key != "value"},
+        "configHash": digest(config),
+        "configKeyHashes": {key[:80]: digest(config[key]) for key in sorted(config)[:64]},
+        "baselineProtection": options.get("firefox_user_prefs", {}).get(
+            "privacy.baselineFingerprintingProtection"
+        ),
+    }
+
+
+async def read_canvases(options, user_data_dir, *urls, diagnostics=None):
     """Read the canvas at each URL within a single launch.
 
     One session, several origins: that is the only way to observe the per-site
@@ -136,14 +174,21 @@ async def read_canvases(options, user_data_dir, *urls):
         seen = []
         for url in urls:
             await page.goto(url, wait_until="domcontentloaded", timeout=45000)
-            value = await page.evaluate(CANVAS)
-            seen.append(hashlib.sha256(value.encode()).hexdigest()[:16])
+            if diagnostics is None:
+                value = await page.evaluate(CANVAS)
+            else:
+                snapshot = await page.evaluate(CANVAS_DIAGNOSTIC)
+                value = snapshot["value"]
+            png_hash = hashlib.sha256(value.encode()).hexdigest()[:16]
+            seen.append(png_hash)
+            if diagnostics is not None:
+                diagnostics.append(canvas_launch_diagnostic(options, snapshot, png_hash))
         return seen
 
 
-async def read_canvas(options, user_data_dir, url):
+async def read_canvas(options, user_data_dir, url, *, diagnostics=None):
     """One canvas from one launch, which is what the cross-launch tests compare."""
-    return (await read_canvases(options, user_data_dir, url))[0]
+    return (await read_canvases(options, user_data_dir, url, diagnostics=diagnostics))[0]
 
 
 def pinned_options(profile):
@@ -158,10 +203,9 @@ def pinned_options(profile):
 async def test_stable_canvas_survives_a_relaunch(tmp_path, local_sites):
     """The whole point of the setting: the canvas reads the same next session.
 
-    Needs both halves — the pref stops the pixel randomisation, and the pinned
-    fonts:spacing_seed keeps text rendering identical. Text is deliberately drawn
-    here because it follows the font seed rather than the canvas path, and that
-    is what made this look broken while only the pref was in place.
+    The protection preference and pinned font list must keep text and pixels
+    stable. Camoufox 0.5.8 no longer emits canvas or glyph-spacing noise seeds;
+    retaining the complete equality check still verifies the page-visible result.
     """
     profile = Profile(
         name="stable-canvas",
@@ -171,11 +215,19 @@ async def test_stable_canvas_survives_a_relaunch(tmp_path, local_sites):
     assert options["firefox_user_prefs"] == {"privacy.baselineFingerprintingProtection": False}
 
     profile.fingerprint = fingerprint_store.resolve(options)
-    assert profile.fingerprint, "the pin carries the font seed this relies on"
+    assert profile.fingerprint, "the pin carries the font list this relies on"
 
-    first = await read_canvas(pinned_options(profile), tmp_path / "a", local_sites.first)
-    second = await read_canvas(pinned_options(profile), tmp_path / "a", local_sites.first)
-    assert first == second, f"canvas drifted between launches: {first} vs {second}"
+    diagnostics = []
+    first = await read_canvas(
+        pinned_options(profile), tmp_path / "a", local_sites.first, diagnostics=diagnostics
+    )
+    second = await read_canvas(
+        pinned_options(profile), tmp_path / "a", local_sites.first, diagnostics=diagnostics
+    )
+    assert first == second, (
+        f"canvas drifted between launches: {first} vs {second}; "
+        f"diagnostics={json.dumps(diagnostics, sort_keys=True)}"
+    )
 
 
 @pytest.mark.browser

@@ -2,6 +2,17 @@ name: Browser compatibility
 
 on:
   workflow_dispatch:
+    inputs:
+      platform:
+        description: Platform to verify
+        type: choice
+        options: [all, ubuntu-latest, windows-latest, macos-latest]
+        default: all
+      suite:
+        description: Full acceptance or focused canvas restart diagnosis
+        type: choice
+        options: [full, canvas]
+        default: full
   pull_request:
     paths:
       - 'src/camoufox_pm/core/**'
@@ -23,9 +34,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: ${{ fromJSON(inputs.platform == 'ubuntu-latest' && '["ubuntu-latest"]' || inputs.platform == 'windows-latest' && '["windows-latest"]' || inputs.platform == 'macos-latest' && '["macos-latest"]' || '["ubuntu-latest", "windows-latest", "macos-latest"]') }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 35
+    env:
+      CPM_BROWSER_TARGET: ${{ inputs.suite == 'canvas' && 'tests/browser/test_fingerprint_stability.py::test_stable_canvas_survives_a_relaunch' || 'tests' }}
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v7
@@ -50,14 +63,24 @@ jobs:
           LIBGL_ALWAYS_SOFTWARE: '1'
         # Even headless Firefox needs a display-backed software GL context for
         # the hardware identity assertions, as in upstream Camoufox CI.
-        run: xvfb-run -a uv run pytest -m browser --no-network --junitxml=browser-results.xml
+        run: xvfb-run -a uv run pytest "$CPM_BROWSER_TARGET" -m browser --no-network --junitxml=browser-results.xml
       - name: Test real browsers against local synthetic sites
         if: runner.os != 'Linux'
-        run: uv run pytest -m browser --no-network --junitxml=browser-results.xml
+        shell: bash
+        run: uv run pytest "$CPM_BROWSER_TARGET" -m browser --no-network --junitxml=browser-results.xml
+      - name: Verify repeated Windows canvas restarts
+        if: runner.os == 'Windows'
+        shell: pwsh
+        # A single clean run does not settle the previously observed drift.
+        run: |
+          foreach ($attempt in 1..3) {
+            uv run pytest tests/browser/test_fingerprint_stability.py::test_stable_canvas_survives_a_relaunch --no-network --junitxml="browser-canvas-$attempt.xml"
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: browser-results-${{ matrix.os }}
-          path: browser-results.xml
+          path: browser-*.xml
           if-no-files-found: ignore
