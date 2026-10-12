@@ -5,6 +5,8 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { CalendarClock, Layers, LogOut, Settings, Trash2, Users } from 'lucide-react'
 
+import { useI18n } from '@/components/i18n-provider'
+import { LanguageSelector } from '@/components/language-selector'
 import { useAuth } from '@/components/login-gate'
 import { systemAPI } from '@/lib/api'
 
@@ -18,6 +20,7 @@ const NAV = [
 
 /** Fixed rail + scrollable work area. The rail never scrolls. */
 export function AppShell({ children }: { children: React.ReactNode }) {
+  const { t } = useI18n()
   const pathname = usePathname()
   // trailingSlash is on for the static export, so normalise before comparing.
   const current = pathname.replace(/\/+$/, '') || '/'
@@ -55,13 +58,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 }`}
               >
                 <Icon size={15} strokeWidth={1.75} className={active ? 'text-signal' : ''} />
-                {label}
+                {t(label)}
               </Link>
             )
           })}
         </nav>
 
         <div className="mt-auto">
+          <div className="px-4 py-3"><LanguageSelector /></div>
           {username && (
             <div className="flex items-center justify-between gap-2 border-t border-line px-4 py-2">
               <span className="truncate text-ink-dim" title={username}>
@@ -70,8 +74,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <button
                 type="button"
                 onClick={logout}
-                aria-label="Log out"
-                title="Log out"
+                aria-label={t('Log out')}
+                title={t('Log out')}
                 className="rounded p-1 text-ink-faint transition-colors hover:bg-raised hover:text-ink"
               >
                 <LogOut size={14} strokeWidth={1.75} />

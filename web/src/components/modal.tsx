@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from 'react'
 import { X } from 'lucide-react'
+import { useI18n } from '@/components/i18n-provider'
 
 interface ModalProps {
   open: boolean
@@ -18,6 +19,7 @@ interface ModalProps {
  * open, and locks background scroll — the old modal did none of these.
  */
 export function Modal({ open, title, subtitle, onClose, children, footer, width = 620 }: ModalProps) {
+  const { t } = useI18n()
   const panelRef = useRef<HTMLDivElement>(null)
   const onCloseRef = useRef(onClose)
 
@@ -104,7 +106,7 @@ export function Modal({ open, title, subtitle, onClose, children, footer, width 
             <h2 className="text-[14px] font-semibold">{title}</h2>
             {subtitle && <p className="mt-0.5 text-ink-dim">{subtitle}</p>}
           </div>
-          <button onClick={onClose} aria-label="Close" className="btn btn-ghost -mr-2 h-7 w-7 p-0">
+          <button onClick={onClose} aria-label={t('Close')} className="btn btn-ghost -mr-2 h-7 w-7 p-0">
             <X size={15} strokeWidth={2} />
           </button>
         </header>
@@ -136,11 +138,12 @@ export function ConfirmDialog({
   open,
   title,
   body,
-  confirmLabel = 'Confirm',
+  confirmLabel,
   destructive = false,
   onConfirm,
   onCancel,
 }: ConfirmProps) {
+  const { t } = useI18n()
   return (
     <Modal
       open={open}
@@ -150,14 +153,14 @@ export function ConfirmDialog({
       footer={
         <>
           <button className="btn btn-default" onClick={onCancel}>
-            Cancel
+            {t('Cancel')}
           </button>
           <button
             className={destructive ? 'btn btn-danger' : 'btn btn-primary'}
             onClick={onConfirm}
             autoFocus
           >
-            {confirmLabel}
+            {confirmLabel ?? t('Confirm')}
           </button>
         </>
       }

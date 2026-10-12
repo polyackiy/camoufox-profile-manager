@@ -55,6 +55,9 @@ from it in January still looks like the same computer in June.
   browser data into one archive, and import it on another machine.
 - **Bulk editing via Excel** — [docs/excel.md](docs/excel.md).
 - **REST API and web UI**, served on one port from one process.
+- **English and Simplified Chinese UI.** Switch languages in the sidebar or on
+  the sign-in screen. Your choice is saved in this browser; the first visit
+  follows its language preferences. Profile fingerprint languages stay separate.
 - **Optional Chrome migration** — import cookies and history from your own Chrome
   profiles ([`extras/chrome_migration`](extras/chrome_migration/README.md)).
 
@@ -155,6 +158,9 @@ Settings includes browser download retry, profile backups, and an update check. 
 profiles go to **Trash** for recovery. Updates prepare a backup before offering
 an installer; replacing the app remains a manual installation step.
 [Getting started](docs/getting-started.md) explains these controls.
+
+For Simplified Chinese UI and Linux input-method setup, see
+[简体中文与 Linux 输入法](docs/chinese-input.md).
 
 ## Configuration
 

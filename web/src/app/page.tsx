@@ -21,6 +21,7 @@ import {
   Users,
 } from 'lucide-react'
 
+import { useI18n } from '@/components/i18n-provider'
 import { BrowserSetup } from '@/components/browser-setup'
 import { EmptyState } from '@/components/empty-state'
 import { ConfirmDialog, Modal } from '@/components/modal'
@@ -52,6 +53,7 @@ const COLUMNS: { key: SortKey; label: string; className?: string }[] = [
 ]
 
 export default function ProfilesPage() {
+  const { t, locale } = useI18n()
   const [profiles, setProfiles] = useState<Profile[]>([])
   const [groups, setGroups] = useState<Group[]>([])
   const [running, setRunning] = useState<Set<string>>(new Set())
@@ -249,7 +251,7 @@ export default function ProfilesPage() {
         await profilesAPI.startProfile(profile.id)
         await Promise.all([loadRunning(), loadProfiles()])
       } catch (err) {
-        toast('error', 'Could not launch browser', String(err))
+        toast('error', t('Could not launch browser'), String(err))
       }
     })
   }
@@ -260,7 +262,7 @@ export default function ProfilesPage() {
         await profilesAPI.closeProfile(profile.id)
         await loadRunning()
       } catch (err) {
-        toast('error', 'Could not close browser', String(err))
+        toast('error', t('Could not close browser'), String(err))
       }
     })
   }
@@ -277,18 +279,18 @@ export default function ProfilesPage() {
   }
 
   async function exportArchive(profile: Profile) {
-    toast('info', 'Packing the profile…', 'Cookies and history make this take a moment.')
+    toast('info', t('Packing the profile…'), t('Cookies and history make this take a moment.'))
     try {
       const blob = await profilesAPI.exportArchive(profile.id)
       const safe = profile.name.replace(/[^A-Za-z0-9_.-]+/g, '-').replace(/^-|-$/g, '')
       download(blob, `${safe || profile.id}.camoufox.zip`)
       toast(
         'ok',
-        'Profile exported',
-        'The archive holds session cookies and the proxy password — keep it like a password.',
+        t('Profile exported'),
+        t('The archive holds session cookies and the proxy password — keep it like a password.'),
       )
     } catch (err) {
-      toast('error', 'Could not export the profile', String(err))
+      toast('error', t('Could not export the profile'), String(err))
     }
   }
 
@@ -298,20 +300,20 @@ export default function ProfilesPage() {
     if (!file) return
     try {
       const profile = await profilesAPI.importArchive(file)
-      toast('ok', 'Profile imported', profile.name)
+      toast('ok', t('Profile imported'), profile.name)
       loadProfiles()
     } catch (err) {
-      toast('error', 'Could not import the profile', String(err))
+      toast('error', t('Could not import the profile'), String(err))
     }
   }
 
   async function clone(profile: Profile) {
     try {
-      await profilesAPI.cloneProfile(profile.id, `${profile.name} copy`)
-      toast('ok', 'Profile cloned', `${profile.name} copy`)
+      await profilesAPI.cloneProfile(profile.id, t('{name} copy', { name: profile.name }))
+      toast('ok', t('Profile cloned'), t('{name} copy', { name: profile.name }))
       loadProfiles()
     } catch (err) {
-      toast('error', 'Could not clone profile', String(err))
+      toast('error', t('Could not clone profile'), String(err))
     }
   }
 
@@ -342,7 +344,7 @@ export default function ProfilesPage() {
       )
       return record
     } catch (err) {
-      toast('error', 'Could not check the proxy', String(err))
+      toast('error', t('Could not check the proxy'), String(err))
       return null
     } finally {
       setCheckingProxies((current) => {
@@ -385,23 +387,23 @@ export default function ProfilesPage() {
     // Worded from the same rule the dots use, so a red row is never counted as
     // an answer just because the proxy replied.
     const parts = [
-      flagged ? `${flagged} need attention` : null,
-      unchecked ? `${unchecked} could not be checked` : null,
+      flagged ? t('{count} need attention', { count: flagged }) : null,
+      unchecked ? t('{count} could not be checked', { count: unchecked }) : null,
     ].filter(Boolean)
 
     if (parts.length)
-      toast('error', parts.join(', '), `of ${total} selected. The rows carry the detail.`)
-    else toast('ok', `${clean} ${clean === 1 ? 'proxy is' : 'proxies are'} healthy`)
+      toast('error', parts.join(', '), t('of {count} selected. The rows carry the detail.', { count: total }))
+    else toast('ok', clean === 1 ? t('1 proxy is healthy') : t('{count} proxies are healthy', { count: clean }))
   }
 
   function askDelete(profile: Profile) {
     setConfirm({
-      title: 'Move profile to Trash',
-      body: `"${profile.name}" and its browser data will move to Trash. You can restore them from the sidebar.`,
-      label: 'Move to Trash',
+      title: t('Move profile to Trash'),
+      body: t('"{name}" and its browser data will move to Trash. You can restore them from the sidebar.', { name: profile.name }),
+      label: t('Move to Trash'),
       run: async () => {
         await profilesAPI.deleteProfile(profile.id)
-        toast('ok', 'Profile moved to Trash', profile.name)
+        toast('ok', t('Profile moved to Trash'), profile.name)
         setSelected((current) => {
           const next = new Set(current)
           next.delete(profile.id)
@@ -415,12 +417,12 @@ export default function ProfilesPage() {
   function askBulkDelete() {
     const count = selected.size
     setConfirm({
-      title: `Move ${count} profile${count === 1 ? '' : 's'} to Trash`,
-      body: 'The selected profiles and their browser data will move to Trash. You can restore them from the sidebar.',
-      label: 'Move to Trash',
+      title: count === 1 ? t('Move 1 profile to Trash') : t('Move {count} profiles to Trash', { count }),
+      body: t('The selected profiles and their browser data will move to Trash. You can restore them from the sidebar.'),
+      label: t('Move to Trash'),
       run: async () => {
         for (const id of selected) await profilesAPI.deleteProfile(id)
-        toast('ok', `Moved ${count} profile${count === 1 ? '' : 's'} to Trash`)
+        toast('ok', count === 1 ? t('Moved 1 profile to Trash') : t('Moved {count} profiles to Trash', { count }))
         setSelected(new Set())
         loadProfiles()
       },
@@ -436,15 +438,13 @@ export default function ProfilesPage() {
   function askClearGeography() {
     const ids = profiles.filter((p) => selected.has(p.id) && hasGeography(p)).map((p) => p.id)
     setConfirm({
-      title: `Clear geography of ${ids.length} profile${ids.length === 1 ? '' : 's'}`,
+      title: ids.length === 1 ? t('Clear geography of 1 profile') : t('Clear geography of {count} profiles', { count: ids.length }),
       body:
-        'The stored timezone and coordinates are unset, so Camoufox derives both — and the ' +
-        'WebRTC address — from where each profile\'s proxy comes out, as a profile created ' +
-        'today does. Languages and the pinned machine are untouched.',
-      label: 'Clear',
+        t("The stored timezone and coordinates are unset, so Camoufox derives both — and the WebRTC address — from where each profile's proxy comes out, as a profile created today does. Languages and the pinned machine are untouched."),
+      label: t('Clear'),
       run: async () => {
         const result = await profilesAPI.clearGeography(ids)
-        toast('ok', `Cleared ${result.cleared.length} profile${result.cleared.length === 1 ? '' : 's'}`)
+        toast('ok', result.cleared.length === 1 ? t('Cleared 1 profile') : t('Cleared {count} profiles', { count: result.cleared.length }))
         setSelected(new Set())
         loadProfiles()
       },
@@ -453,9 +453,9 @@ export default function ProfilesPage() {
 
   function askCloseAll() {
     setConfirm({
-      title: 'Close all browsers',
-      body: `${running.size} running browser${running.size === 1 ? '' : 's'} will be closed.`,
-      label: 'Close all',
+      title: t('Close all browsers'),
+      body: running.size === 1 ? t('1 running browser will be closed.') : t('{count} running browsers will be closed.', { count: running.size }),
+      label: t('Close all'),
       run: async () => {
         const result = await browsersAPI.closeAll()
         toast('ok', result.message)
@@ -471,7 +471,7 @@ export default function ProfilesPage() {
     try {
       await action.run()
     } catch (err) {
-      toast('error', 'Action failed', String(err))
+      toast('error', t('Action failed'), String(err))
     }
   }
 
@@ -487,9 +487,9 @@ export default function ProfilesPage() {
       link.click()
       link.remove()
       URL.revokeObjectURL(url)
-      toast('ok', 'Exported to camoufox-profiles.xlsx', 'The file contains proxy passwords in clear text.')
+      toast('ok', t('Exported to camoufox-profiles.xlsx'), t('The file contains proxy passwords in clear text.'))
     } catch (err) {
-      toast('error', 'Export failed', String(err))
+      toast('error', t('Export failed'), String(err))
     }
   }
 
@@ -500,24 +500,24 @@ export default function ProfilesPage() {
     try {
       const result = await profilesAPI.importExcel(file)
       if (result.success) {
-        toast('ok', `Imported ${result.data?.created_count ?? 0} profiles`)
+        toast('ok', t('Imported {count} profiles', { count: result.data?.created_count ?? 0 }))
         loadProfiles()
       } else {
         toast(
           'error',
-          'Import finished with errors',
+          t('Import finished with errors'),
           (result.data?.errors ?? []).slice(0, 3).join('\n') || result.message,
         )
       }
     } catch (err) {
-      toast('error', 'Import failed', String(err))
+      toast('error', t('Import failed'), String(err))
     }
   }
 
   return (
     <>
       <header className="sticky top-0 z-20 flex h-[52px] items-center gap-3 border-b border-line bg-canvas/85 px-5 backdrop-blur">
-        <h1 className="text-[14px] font-semibold">Profiles</h1>
+        <h1 className="text-[14px] font-semibold">{t('Profiles')}</h1>
         <span className="font-mono text-ink-faint">{visible.length}</span>
 
         <div className="relative ml-3 w-[240px]">
@@ -527,10 +527,10 @@ export default function ProfilesPage() {
           />
           <input
             className="field h-[30px] pl-7"
-            placeholder="Search name or ID"
+            placeholder={t('Search name or ID')}
             value={search}
             onChange={(event) => setSearch(event.target.value)}
-            aria-label="Search profiles"
+            aria-label={t('Search profiles')}
           />
         </div>
 
@@ -538,29 +538,29 @@ export default function ProfilesPage() {
           className="field h-[30px] w-[132px]"
           value={statusFilter}
           onChange={(event) => setStatusFilter(event.target.value)}
-          aria-label="Filter by status"
+          aria-label={t('Filter by status')}
         >
-          <option value="all">All statuses</option>
-          <option value="active">Active</option>
-          <option value="inactive">Inactive</option>
-          <option value="blocked">Blocked</option>
-          <option value="maintenance">Maintenance</option>
+          <option value="all">{t('All statuses')}</option>
+          <option value="active">{t('Active')}</option>
+          <option value="inactive">{t('Inactive')}</option>
+          <option value="blocked">{t('Blocked')}</option>
+          <option value="maintenance">{t('Maintenance')}</option>
         </select>
 
         <div className="ml-auto flex items-center gap-2">
           {running.size > 0 && (
             <button className="btn btn-default" onClick={askCloseAll}>
               <Square size={12} fill="currentColor" />
-              Close {running.size} running
+              {t('Close {count} running', { count: running.size })}
             </button>
           )}
-          <button className="btn btn-ghost" onClick={() => setExportOpen(true)} title="Export to Excel">
+          <button className="btn btn-ghost" onClick={() => setExportOpen(true)} title={t('Export to Excel')}>
             <Download size={14} />
           </button>
           <button
             className="btn btn-ghost"
             onClick={() => importRef.current?.click()}
-            title="Import from Excel"
+            title={t('Import from Excel')}
           >
             <Upload size={14} />
           </button>
@@ -574,7 +574,7 @@ export default function ProfilesPage() {
           <button
             className="btn btn-ghost"
             onClick={() => archiveRef.current?.click()}
-            title="Import a profile archive"
+            title={t('Import a profile archive')}
           >
             <PackageOpen size={14} />
           </button>
@@ -593,14 +593,14 @@ export default function ProfilesPage() {
             }}
           >
             <Plus size={14} strokeWidth={2.5} />
-            New profile
+            {t('New profile')}
           </button>
         </div>
       </header>
 
       {selected.size > 0 && (
         <div className="flex items-center gap-3 border-b border-line bg-raised px-5 py-2">
-          <span>{selected.size} selected</span>
+          <span>{t('{count} selected', { count: selected.size })}</span>
           {selectedWithProxy > 0 && (
             <button
               className="btn btn-default h-7"
@@ -609,22 +609,22 @@ export default function ProfilesPage() {
             >
               <Globe size={13} />
               {checkingProxies.size > 0
-                ? `Checking… (${checkingProxies.size})`
-                : `Check proxies (${selectedWithProxy})`}
+                ? t('Checking… ({count})', { count: checkingProxies.size })
+                : t('Check proxies ({count})', { count: selectedWithProxy })}
             </button>
           )}
           {selectedWithGeography > 0 && (
             <button className="btn btn-default h-7" onClick={askClearGeography}>
               <Globe size={13} />
-              Clear geography ({selectedWithGeography})
+              {t('Clear geography ({count})', { count: selectedWithGeography })}
             </button>
           )}
           <button className="btn btn-danger h-7" onClick={askBulkDelete}>
             <Trash2 size={13} />
-            Move to Trash
+            {t('Move to Trash')}
           </button>
           <button className="btn btn-ghost h-7" onClick={() => setSelected(new Set())}>
-            Clear
+            {t('Clear')}
           </button>
         </div>
       )}
@@ -634,21 +634,21 @@ export default function ProfilesPage() {
       {error ? (
         <EmptyState
           icon={<Users size={18} />}
-          title="Cannot reach the API"
+          title={t('Cannot reach the API')}
           body={error}
           action={
             <button className="btn btn-default" onClick={loadProfiles}>
-              Retry
+              {t('Retry')}
             </button>
           }
         />
       ) : loading ? (
-        <p className="px-5 py-8 text-ink-faint">Loading…</p>
+        <p className="px-5 py-8 text-ink-faint">{t('Loading…')}</p>
       ) : profiles.length === 0 ? (
         <EmptyState
           icon={<Users size={18} />}
-          title="No profiles yet"
-          body="A profile is one isolated browser identity — its own fingerprint, proxy, cookies and storage. Create one to get started."
+          title={t('No profiles yet')}
+          body={t('A profile is one isolated browser identity — its own fingerprint, proxy, cookies and storage. Create one to get started.')}
           action={
             <button
               className="btn btn-primary"
@@ -658,15 +658,15 @@ export default function ProfilesPage() {
               }}
             >
               <Plus size={14} strokeWidth={2.5} />
-              Create your first profile
+              {t('Create your first profile')}
             </button>
           }
         />
       ) : visible.length === 0 ? (
         <EmptyState
           icon={<Search size={18} />}
-          title="No matches"
-          body="No profile matches the current search and filter."
+          title={t('No matches')}
+          body={t('No profile matches the current search and filter.')}
           action={
             <button
               className="btn btn-default"
@@ -675,7 +675,7 @@ export default function ProfilesPage() {
                 setStatusFilter('all')
               }}
             >
-              Clear filters
+              {t('Clear filters')}
             </button>
           }
         />
@@ -688,7 +688,7 @@ export default function ProfilesPage() {
                   type="checkbox"
                   className="accent-signal"
                   checked={allOnPageSelected}
-                  aria-label="Select all on this page"
+                  aria-label={t('Select all on this page')}
                   onChange={() =>
                     setSelected((current) => {
                       const next = new Set(current)
@@ -706,13 +706,13 @@ export default function ProfilesPage() {
                     className="inline-flex items-center gap-1 hover:text-ink"
                     onClick={() => toggleSort(column.key)}
                   >
-                    {column.label}
+                    {t(column.label)}
                     {sortKey === column.key &&
                       (sortDir === 'asc' ? <ArrowUp size={11} /> : <ArrowDown size={11} />)}
                   </button>
                 </th>
               ))}
-              <th className="py-2 pr-4 font-medium">Proxy</th>
+              <th className="py-2 pr-4 font-medium">{t('Proxy')}</th>
               <th className="w-[104px] py-2 pr-5" />
             </tr>
           </thead>
@@ -735,7 +735,7 @@ export default function ProfilesPage() {
                       type="checkbox"
                       className="accent-signal"
                       checked={selected.has(profile.id)}
-                      aria-label={`Select ${profile.name}`}
+                      aria-label={t('Select {name}', { name: profile.name })}
                       onChange={() =>
                         setSelected((current) => {
                           const next = new Set(current)
@@ -758,7 +758,7 @@ export default function ProfilesPage() {
                   <td className="py-2.5 pr-4">
                     <StatusCell status={profile.status} running={isRunning} />
                   </td>
-                  <td className="py-2.5 pr-4 text-ink-dim">{formatLastUsed(profile.last_used)}</td>
+                  <td className="py-2.5 pr-4 text-ink-dim">{formatLastUsed(profile.last_used, locale)}</td>
                   <td className="py-2.5 pr-4">
                     <ProxyCell
                       profile={profile}
@@ -776,12 +776,12 @@ export default function ProfilesPage() {
                         {isRunning ? (
                           <>
                             <Square size={11} fill="currentColor" />
-                            Stop
+                            {t('Stop')}
                           </>
                         ) : (
                           <>
                             <Play size={11} fill="currentColor" />
-                            Run
+                            {t('Run')}
                           </>
                         )}
                       </button>
@@ -789,7 +789,7 @@ export default function ProfilesPage() {
                       <div className="relative">
                         <button
                           className="btn btn-ghost h-7 w-7 p-0"
-                          aria-label={`Actions for ${profile.name}`}
+                          aria-label={t('Actions for {name}', { name: profile.name })}
                           aria-haspopup="menu"
                           aria-expanded={menuFor === profile.id}
                           data-menu-trigger={profile.id}
@@ -827,7 +827,7 @@ export default function ProfilesPage() {
                           >
                             <MenuItem
                               icon={<Pencil size={13} />}
-                              label="Edit"
+                              label={t('Edit')}
                               autoFocus
                               onClick={() => {
                                 setEditing(profile)
@@ -837,7 +837,7 @@ export default function ProfilesPage() {
                             />
                             <MenuItem
                               icon={<Copy size={13} />}
-                              label="Duplicate"
+                              label={t('Duplicate')}
                               onClick={() => {
                                 clone(profile)
                                 closeMenu(profile.id)
@@ -845,7 +845,7 @@ export default function ProfilesPage() {
                             />
                             <MenuItem
                               icon={<Globe size={13} />}
-                              label="Check proxy"
+                              label={t('Check proxy')}
                               onClick={() => {
                                 // The set holds ids, not a count, so a second
                                 // check of the same row would clear the first
@@ -856,7 +856,7 @@ export default function ProfilesPage() {
                             />
                             <MenuItem
                               icon={<PackageOpen size={13} />}
-                              label="Export…"
+                              label={t('Export…')}
                               onClick={() => {
                                 exportArchive(profile)
                                 closeMenu(profile.id)
@@ -864,7 +864,7 @@ export default function ProfilesPage() {
                             />
                             <MenuItem
                               icon={<Trash2 size={13} />}
-                              label="Move to Trash"
+                              label={t('Move to Trash')}
                               danger
                               onClick={() => {
                                 askDelete(profile)
@@ -886,15 +886,14 @@ export default function ProfilesPage() {
       {totalPages > 1 && (
         <div className="flex items-center justify-between px-5 py-3 text-ink-dim">
           <span>
-            {(currentPage - 1) * perPage + 1}–{Math.min(currentPage * perPage, visible.length)} of{' '}
-            {visible.length}
+            {t('{start}–{end} of {count}', { start: (currentPage - 1) * perPage + 1, end: Math.min(currentPage * perPage, visible.length), count: visible.length })}
           </span>
           <div className="flex items-center gap-1">
             <button
               className="btn btn-ghost h-7 w-7 p-0"
               disabled={currentPage === 1}
               onClick={() => setPage(currentPage - 1)}
-              aria-label="Previous page"
+              aria-label={t('Previous page')}
             >
               <ChevronLeft size={15} />
             </button>
@@ -905,7 +904,7 @@ export default function ProfilesPage() {
               className="btn btn-ghost h-7 w-7 p-0"
               disabled={currentPage === totalPages}
               onClick={() => setPage(currentPage + 1)}
-              aria-label="Next page"
+              aria-label={t('Next page')}
             >
               <ChevronRight size={15} />
             </button>
@@ -933,24 +932,22 @@ export default function ProfilesPage() {
 
       <Modal
         open={exportOpen}
-        title="Export to Excel"
+        title={t('Export to Excel')}
         onClose={() => setExportOpen(false)}
         width={440}
         footer={
           <>
             <button className="btn btn-default" onClick={() => setExportOpen(false)}>
-              Cancel
+              {t('Cancel')}
             </button>
             <button className="btn btn-primary" onClick={exportExcel}>
-              Export
+              {t('Export')}
             </button>
           </>
         }
       >
         <p className="text-ink-dim">
-          The spreadsheet includes every profile setting so it can be imported back — including
-          <span className="text-ink"> proxy passwords in clear text</span>. Store the file somewhere
-          you would keep the passwords themselves.
+          {t('The spreadsheet includes every profile setting so it can be imported back — including proxy passwords in clear text. Store the file somewhere you would keep the passwords themselves.')}
         </p>
       </Modal>
     </>
@@ -964,6 +961,7 @@ export default function ProfilesPage() {
  * checked looks exactly as it did before.
  */
 function ProxyCell({ profile, checking }: { profile: Profile; checking: boolean }) {
+  const { t } = useI18n()
   const configured = formatProxyString(profile.proxy_config) || '—'
   const check = profile.proxy_check
 
@@ -976,7 +974,7 @@ function ProxyCell({ profile, checking }: { profile: Profile; checking: boolean 
       {checking ? (
         <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-ink-faint">
           <span className="signal-pulse h-1.5 w-1.5 rounded-full bg-signal" />
-          Checking…
+          {t('Checking…')}
         </div>
       ) : check ? (
         <ProxyResult check={check} />
@@ -986,7 +984,8 @@ function ProxyCell({ profile, checking }: { profile: Profile; checking: boolean 
 }
 
 function ProxyResult({ check }: { check: ProxyCheckRecord }) {
-  const { tone, label, detail } = readProxyCheck(check)
+  const { locale } = useI18n()
+  const { tone, label, detail } = readProxyCheck(check, locale)
   const dot = tone === 'ok' ? 'bg-ok' : tone === 'warn' ? 'bg-warn' : 'bg-danger'
   // Latency and country only mean something when the proxy answered; when it did
   // not, the reason is the only thing worth the space.
@@ -1001,17 +1000,18 @@ function ProxyResult({ check }: { check: ProxyCheckRecord }) {
       {/* min-w-0 so this is the part that gives way: a flex item will not shrink
           below its content without it, and the truncation never happens. */}
       <span className="min-w-0 truncate font-mono">{parts.filter(Boolean).join(' · ')}</span>
-      <span className="shrink-0 text-ink-dim/70">· {formatLastUsed(check.checked_at)}</span>
+      <span className="shrink-0 text-ink-dim/70">· {formatLastUsed(check.checked_at, locale)}</span>
     </div>
   )
 }
 
 function StatusCell({ status, running }: { status: string; running: boolean }) {
+  const { t } = useI18n()
   if (running) {
     return (
       <span className="inline-flex items-center gap-1.5 text-signal">
         <span className="signal-pulse h-1.5 w-1.5 rounded-full bg-signal" />
-        Running
+        {t('Running')}
       </span>
     )
   }
@@ -1020,7 +1020,7 @@ function StatusCell({ status, running }: { status: string; running: boolean }) {
   return (
     <span className="inline-flex items-center gap-1.5 capitalize text-ink-dim">
       <span className={`h-1.5 w-1.5 rounded-full ${tone}`} />
-      {status}
+      {t(status)}
     </span>
   )
 }
