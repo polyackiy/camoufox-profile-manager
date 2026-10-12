@@ -42,7 +42,9 @@ class DesktopUI(unittest.TestCase):
     def setUp(self):
         self.context = self.browser.new_context(viewport={"width": 1280, "height": 900})
         self.page = self.context.new_page()
+        self.page.set_default_timeout(8000)
         self.calls = []
+        self.auth_required = False
         self.browser_state = {"installed": False, "version": None, "state": "idle", "progress": None, "message": "Browser not installed", "error": None}
         self.profiles = []
         self.backups = []
@@ -60,7 +62,7 @@ class DesktopUI(unittest.TestCase):
         data = {}
         envelope = False
         if path == "/auth/session":
-            data = {"user_auth_enabled": False, "authenticated": True, "username": None}
+            data = {"user_auth_enabled": self.auth_required, "authenticated": not self.auth_required, "username": None}
         elif path == "/system/config":
             data, envelope = self.config, True
         elif path == "/system/status":
@@ -71,6 +73,8 @@ class DesktopUI(unittest.TestCase):
             data = {"id": "new-profile", **request.post_data_json}
         elif path == "/groups":
             data = {"groups": [], "total": 0}
+        elif path == "/schedules":
+            data = {"schedules": [], "total": 0}
         elif path == "/browsers/active":
             data = {"active_browsers": [], "count": 0}
         elif path == "/fingerprints/presets":
@@ -153,6 +157,69 @@ class DesktopUI(unittest.TestCase):
         confirm.click()
         expect(self.page.get_by_role("heading", name="Trash is empty")).to_be_visible()
         self.assertEqual(sum(method == "DELETE" and path == "/trash/profiles/trashed?confirm=true" for method, path, _ in self.calls), 1)
+
+    def test_chinese_ui_preserves_profile_settings_and_survives_reload(self):
+        self.context.close()
+        self.context = self.browser.new_context(locale="zh-CN", viewport={"width": 1280, "height": 900})
+        self.page = self.context.new_page()
+        self.page.set_default_timeout(8000)
+        self.page.route("**/api/v1/**", self.route)
+        errors = []
+        self.page.on("pageerror", lambda error: errors.append(str(error)))
+        self.page.goto(self.origin)
+        expect(self.page.locator("html")).to_have_attribute("lang", "zh-CN")
+        self.page.get_by_role("button", name="新建配置", exact=True).click()
+        self.page.get_by_label("名称", exact=True).fill("中文配置")
+        self.page.get_by_text("高级浏览器与指纹设置", exact=True).click()
+        self.page.get_by_label("指纹语言", exact=True).fill("en-US, en")
+        self.page.get_by_label("时区", exact=True).fill("Europe/Berlin")
+        self.page.get_by_role("button", name="创建配置", exact=True).click()
+        expect(self.page.get_by_role("dialog")).not_to_be_visible()
+        saved = next(json.loads(body) for method, path, body in self.calls if method == "POST" and path == "/profiles")
+        self.assertEqual(saved["name"], "中文配置")
+        self.assertEqual(saved["browser_settings"]["languages"], ["en-US", "en"])
+        self.assertEqual(saved["browser_settings"]["timezone"], "Europe/Berlin")
+        self.assertEqual(saved["browser_settings"]["os"], "windows")
+
+        for title in ["分组", "定时任务", "回收站", "设置", "浏览器配置"]:
+            self.page.get_by_role("link", name=title, exact=True).click()
+            expect(self.page.get_by_role("heading", name=title, exact=True)).to_be_visible()
+        self.page.get_by_label("界面语言", exact=True).select_option("en")
+        self.page.reload()
+        expect(self.page.get_by_role("heading", name="Profiles", exact=True)).to_be_visible()
+        expect(self.page.locator("html")).to_have_attribute("lang", "en")
+        self.page.get_by_label("Language", exact=True).select_option("zh-CN")
+        self.page.reload()
+        expect(self.page.get_by_role("heading", name="浏览器配置", exact=True)).to_be_visible()
+        self.assertEqual(errors, [])
+
+    def test_language_changes_reach_another_open_tab(self):
+        self.page.goto(self.origin)
+        other = self.context.new_page()
+        other.route("**/api/v1/**", self.route)
+        other.goto(self.origin)
+        self.page.get_by_label("Language", exact=True).select_option("zh-CN")
+        expect(other.get_by_role("heading", name="浏览器配置", exact=True)).to_be_visible()
+        other.get_by_label("界面语言", exact=True).select_option("en")
+        expect(self.page.get_by_role("heading", name="Profiles", exact=True)).to_be_visible()
+
+    def test_language_selector_is_available_before_login(self):
+        self.auth_required = True
+        self.page.goto(self.origin)
+        self.page.get_by_label("Language", exact=True).select_option("zh-CN")
+        expect(self.page.get_by_role("heading", name="登录", exact=True)).to_be_visible()
+        expect(self.page.get_by_label("用户名", exact=True)).to_be_visible()
+        expect(self.page.get_by_label("密码", exact=True)).to_be_visible()
+        self.page.reload()
+        expect(self.page.get_by_role("heading", name="登录", exact=True)).to_be_visible()
+
+    def test_language_switch_works_when_local_storage_is_unavailable(self):
+        self.page.add_init_script("Object.defineProperty(window, 'localStorage', {get() { throw new Error('Storage disabled') }})")
+        self.page.goto(self.origin)
+        self.page.get_by_label("Language", exact=True).select_option("zh-CN")
+        expect(self.page.get_by_role("heading", name="浏览器配置", exact=True)).to_be_visible()
+        self.page.get_by_role("link", name="分组", exact=True).click()
+        expect(self.page.get_by_role("heading", name="分组", exact=True)).to_be_visible()
 
 
 if __name__ == "__main__":

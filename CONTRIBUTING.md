@@ -37,7 +37,7 @@ uv run pytest -m "not browser"     # fast tests (no browser)
 uv run pytest -m browser           # opt-in: real Camoufox launch
 
 # Frontend
-cd web && npm run lint && npm run build
+cd web && npm test && npm run lint && npm run build
 ```
 
 CI runs the same checks on Python 3.10–3.13.
@@ -126,7 +126,12 @@ browser binary and is covered by the `browser`-marked tests.
 
 - **Style:** [ruff](https://docs.astral.sh/ruff/) handles linting and formatting.
 - **Types:** new code should type-check under mypy.
-- **Language:** all code, comments, docstrings, and UI text are in English.
+- **Language:** code, comments, and docstrings are in English. UI text uses
+  English source messages with translations in `web/src/lib/locales/zh-CN.json`.
+  Use `useI18n().t` for visible text and named placeholders for dynamic values;
+  do not concatenate translated sentence fragments. `npm test` checks catalog
+  coverage and placeholder parity. Keep profile data and fingerprint language
+  settings independent of the UI language.
 - **Commits:** follow [Conventional Commits](https://www.conventionalcommits.org/)
   (`feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `chore:`, …).
 

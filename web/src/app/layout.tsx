@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 
 import { AppShell } from '@/components/app-shell'
+import { I18nProvider } from '@/components/i18n-provider'
 import { LoginGate } from '@/components/login-gate'
 import { ToastProvider } from '@/components/toast'
 import './fonts.css'
@@ -15,11 +16,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en">
       <body>
-        <ToastProvider>
-          <LoginGate>
-            <AppShell>{children}</AppShell>
-          </LoginGate>
-        </ToastProvider>
+        <I18nProvider>
+          <ToastProvider>
+            <LoginGate>
+              <AppShell>{children}</AppShell>
+            </LoginGate>
+          </ToastProvider>
+        </I18nProvider>
       </body>
     </html>
   )

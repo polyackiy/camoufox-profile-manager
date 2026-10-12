@@ -121,7 +121,7 @@ order of how much they would hurt if left alone:
 
 - PyPI package once the browser-binary bootstrap is smoothed out.
 - Published Docker images.
-- Internationalised (i18n) web UI.
+- Additional UI languages beyond English and Simplified Chinese.
 - PostgreSQL storage for larger deployments.
 - Encrypted profile archives, so an export is not as sensitive as the account.
 

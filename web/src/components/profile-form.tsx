@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Check, Info, LoaderCircle, RefreshCw, TriangleAlert, X } from 'lucide-react'
 
+import { useI18n } from '@/components/i18n-provider'
+import type { Translator } from '@/lib/i18n'
 import { Modal } from '@/components/modal'
 import { useToast } from '@/components/toast'
 import {
@@ -99,22 +101,22 @@ function fromProfile(profile: Profile): FormState {
  * now stored — the answer to "changed how?", which is the only part of a
  * conflict a user can act on.
  */
-function describeChanges(before: Profile | null, after: Profile): string {
+function describeChanges(before: Profile | null, after: Profile, t: Translator): string {
   if (!before) return ''
   const fields: string[] = []
-  if (before.name !== after.name) fields.push(`name is now "${after.name}"`)
+  if (before.name !== after.name) fields.push(t('name is now "{name}"', { name: after.name }))
   if ((before.group ?? null) !== (after.group ?? null))
-    fields.push(after.group ? `group is now "${after.group}"` : 'group was cleared')
-  if (before.status !== after.status) fields.push(`status is now ${after.status}`)
-  if ((before.notes ?? '') !== (after.notes ?? '')) fields.push('notes changed')
+    fields.push(after.group ? t('group is now "{group}"', { group: after.group }) : t('group was cleared'))
+  if (before.status !== after.status) fields.push(t('status is now {status}', { status: t(after.status) }))
+  if ((before.notes ?? '') !== (after.notes ?? '')) fields.push(t('notes changed'))
   if (JSON.stringify(before.proxy_config ?? null) !== JSON.stringify(after.proxy_config ?? null))
-    fields.push('the proxy changed')
+    fields.push(t('the proxy changed'))
   if (JSON.stringify(before.browser_settings) !== JSON.stringify(after.browser_settings))
-    fields.push('browser settings changed')
+    fields.push(t('browser settings changed'))
   if (!fields.length) return ''
   // Two is enough to recognise what happened; a full list would not fit a toast.
   const shown = fields.slice(0, 2).join(', ')
-  return fields.length > 2 ? `${shown}, and ${fields.length - 2} more` : shown
+  return fields.length > 2 ? t('{changes}, and {count} more', { changes: shown, count: fields.length - 2 }) : shown
 }
 
 interface Props {
@@ -127,6 +129,7 @@ interface Props {
 }
 
 export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) {
+  const { t, locale } = useI18n()
   const isEdit = profile !== null
   const [form, setForm] = useState<FormState>(EMPTY)
   const [saving, setSaving] = useState(false)
@@ -249,7 +252,7 @@ export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) 
         }),
       )
     } catch (error) {
-      toast('error', 'Could not check the proxy', (error as Error).message)
+      toast('error', t('Could not check the proxy'), (error as Error).message)
     } finally {
       setCheckingProxy(false)
     }
@@ -258,11 +261,11 @@ export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault()
     if (!form.name.trim()) {
-      toast('error', 'Name is required')
+      toast('error', t('Name is required'))
       return
     }
     if (form.geoMode === 'manual' && (!form.latitude || !form.longitude)) {
-      toast('error', 'Manual geolocation needs both latitude and longitude')
+      toast('error', t('Manual geolocation needs both latitude and longitude'))
       return
     }
 
@@ -280,7 +283,7 @@ export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) 
         payload.status = form.status
         payload.row_version = baseVersion
         await profilesAPI.updateProfile(profile.id, payload)
-        toast('ok', 'Profile updated', form.name.trim())
+        toast('ok', t('Profile updated'), form.name.trim())
       } else {
         // The backend generates a consistent fingerprint, then applies these.
         payload.generate_fingerprint = true
@@ -288,8 +291,8 @@ export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) 
         await profilesAPI.createProfile(payload)
         toast(
           'ok',
-          'Profile created',
-          presetId ? `${form.name.trim()} · pinned to a real device` : form.name.trim(),
+          t('Profile created'),
+          presetId ? t('{name} · pinned to a real device', { name: form.name.trim() }) : form.name.trim(),
         )
       }
       onSaved()
@@ -299,7 +302,7 @@ export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) 
         await handleStaleWrite(profile.id)
         return
       }
-      toast('error', isEdit ? 'Could not update profile' : 'Could not create profile', String(err))
+      toast('error', isEdit ? t('Could not update profile') : t('Could not create profile'), String(err))
     } finally {
       setSaving(false)
     }
@@ -320,21 +323,21 @@ export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) 
       setBaseVersion(current.row_version)
       setStoredGeography(hasGeography(current))
       setMachine(current.fingerprint)
-      const changed = describeChanges(profile, current)
+      const changed = describeChanges(profile, current, t)
       toast(
         'error',
-        'Someone else changed this profile',
+        t('Someone else changed this profile'),
         changed
-          ? `${changed}. Nothing you typed was lost — press Save again to apply your version.`
-          : 'Your edit was not saved. Press Save again to apply your version.',
+          ? t('{changes}. Nothing you typed was lost — press Save again to apply your version.', { changes: changed })
+          : t('Your edit was not saved. Press Save again to apply your version.'),
       )
     } catch {
       // The reload is a courtesy; without it the user still needs to know the
       // save did not land, and that is the part that must never be swallowed.
       toast(
         'error',
-        'Someone else changed this profile',
-        'Your edit was not saved. Reopen the profile to see the current values.',
+        t('Someone else changed this profile'),
+        t('Your edit was not saved. Reopen the profile to see the current values.'),
       )
     }
   }
@@ -347,12 +350,12 @@ export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) 
       setMachine(updated.fingerprint)
       toast(
         'ok',
-        `Browser updated to Firefox ${updated.fingerprint?.browser_major}`,
-        'The machine is unchanged.',
+        t('Browser updated to Firefox {version}', { version: updated.fingerprint?.browser_major }),
+        t('The machine is unchanged.'),
       )
       onSaved()
     } catch (err) {
-      toast('error', 'Could not update the browser version', String(err))
+      toast('error', t('Could not update the browser version'), String(err))
     } finally {
       setRefreshingBrowser(false)
     }
@@ -374,15 +377,15 @@ export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) 
       toast(
         'ok',
         keepMachine
-          ? `Set back to ${OS_LABELS[updated.browser_settings.os] ?? updated.browser_settings.os}`
-          : 'New machine pinned',
+          ? t('Set back to {os}', { os: OS_LABELS[updated.browser_settings.os] ?? updated.browser_settings.os })
+          : t('New machine pinned'),
         keepMachine
-          ? 'The machine is untouched.'
-          : `${updated.fingerprint?.screen} · ${updated.fingerprint?.hardware_concurrency} cores. The old hardware is gone.`,
+          ? t('The machine is untouched.')
+          : t('{screen} · {cores} cores. The old hardware is gone.', { screen: updated.fingerprint?.screen, cores: updated.fingerprint?.hardware_concurrency }),
       )
       onSaved()
     } catch (err) {
-      toast('error', 'Could not reconcile the operating system', String(err))
+      toast('error', t('Could not reconcile the operating system'), String(err))
     } finally {
       setReconciling(false)
     }
@@ -395,10 +398,10 @@ export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) 
       await profilesAPI.clearGeography([profile.id])
       setForm((current) => ({ ...current, timezone: '', geoMode: 'auto', latitude: '', longitude: '' }))
       setStoredGeography(false)
-      toast('ok', 'Timezone and coordinates cleared', 'Both now follow the proxy.')
+      toast('ok', t('Timezone and coordinates cleared'), t('Both now follow the proxy.'))
       onSaved()
     } catch (err) {
-      toast('error', 'Could not clear the geography', String(err))
+      toast('error', t('Could not clear the geography'), String(err))
     } finally {
       setClearingGeography(false)
     }
@@ -411,10 +414,10 @@ export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) 
       const updated = await profilesAPI.resetFingerprint(profile.id)
       setForm(fromProfile(updated))
       setMachine(updated.fingerprint)
-      toast('ok', 'Fingerprint regenerated')
+      toast('ok', t('Fingerprint regenerated'))
       onSaved()
     } catch (err) {
-      toast('error', 'Could not regenerate fingerprint', String(err))
+      toast('error', t('Could not regenerate fingerprint'), String(err))
     } finally {
       setRegenerating(false)
     }
@@ -423,11 +426,11 @@ export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) 
   return (
     <Modal
       open={open}
-      title={isEdit ? 'Edit profile' : 'New profile'}
+      title={isEdit ? t('Edit profile') : t('New profile')}
       subtitle={
         isEdit
-          ? `${profile.id} · created ${new Date(profile.created_at).toLocaleDateString()}`
-          : 'Choose a name and an optional proxy. A consistent fingerprint is generated for you.'
+          ? t('{id} · created {date}', { id: profile.id, date: new Date(profile.created_at).toLocaleDateString(locale) })
+          : t('Choose a name and an optional proxy. A consistent fingerprint is generated for you.')
       }
       onClose={onClose}
       width={640}
@@ -441,31 +444,31 @@ export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) 
               disabled={regenerating}
             >
               <RefreshCw size={13} className={regenerating ? 'animate-spin' : ''} />
-              Regenerate fingerprint
+              {t('Regenerate fingerprint')}
             </button>
           )}
           <button type="button" className="btn btn-default" onClick={onClose}>
-            Cancel
+            {t('Cancel')}
           </button>
           <button type="submit" form="profile-form" className="btn btn-primary" disabled={saving}>
             {saving && <LoaderCircle size={13} className="animate-spin" />}
-            {isEdit ? 'Save changes' : 'Create profile'}
+            {isEdit ? t('Save changes') : t('Create profile')}
           </button>
         </>
       }
     >
       <form id="profile-form" onSubmit={handleSubmit} className="flex flex-col gap-5">
-        <Section title="Identity">
+        <Section title={t('Identity')}>
           <div className="col-span-2">
             <label className="field-label" htmlFor="pf-name">
-              Name
+              {t('Name')}
             </label>
             <input
               id="pf-name"
               className="field"
               value={form.name}
               onChange={(e) => set('name', e.target.value)}
-              placeholder="account-1"
+              placeholder={t('account-1')}
               autoFocus
               required
             />
@@ -473,7 +476,7 @@ export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) 
 
           <div>
             <label className="field-label" htmlFor="pf-group">
-              Group
+              {t('Group')}
             </label>
             <select
               id="pf-group"
@@ -481,7 +484,7 @@ export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) 
               value={form.group}
               onChange={(e) => set('group', e.target.value)}
             >
-              <option value="">No group</option>
+              <option value="">{t('No group')}</option>
               {groups.map((group) => (
                 <option key={group.id} value={group.id}>
                   {group.name}
@@ -492,7 +495,7 @@ export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) 
 
           <div>
             <label className="field-label" htmlFor="pf-os">
-              Operating system
+              {t('Operating system')}
             </label>
             <select
               id="pf-os"
@@ -509,10 +512,8 @@ export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) 
             {isEdit && form.os !== (profile.browser_settings?.os ?? 'windows') && (
               <p className="mt-1.5 text-ink-faint">
                 {machine?.pinned_os
-                  ? `Saving this changes nothing a page can see: the pinned machine reports ${
-                      OS_LABELS[machine.pinned_os] ?? machine.pinned_os
-                    } and keeps doing so. The Machine panel then offers both ways out.`
-                  : 'Screen size, locale and fonts stay as they were. Use Regenerate fingerprint for a set that matches the new OS.'}
+                  ? t('Saving this changes nothing a page can see: the pinned machine reports {os} and keeps doing so. The Machine panel then offers both ways out.', { os: OS_LABELS[machine.pinned_os] ?? machine.pinned_os })
+                  : t('Screen size, locale and fonts stay as they were. Use Regenerate fingerprint for a set that matches the new OS.')}
               </p>
             )}
           </div>
@@ -520,7 +521,7 @@ export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) 
           {isEdit && (
             <div>
               <label className="field-label" htmlFor="pf-status">
-                Status
+                {t('Status')}
               </label>
               <select
                 id="pf-status"
@@ -528,17 +529,17 @@ export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) 
                 value={form.status}
                 onChange={(e) => set('status', e.target.value)}
               >
-                <option value="active">Active</option>
-                <option value="inactive">Inactive</option>
-                <option value="blocked">Blocked</option>
-                <option value="maintenance">Maintenance</option>
+                <option value="active">{t('Active')}</option>
+                <option value="inactive">{t('Inactive')}</option>
+                <option value="blocked">{t('Blocked')}</option>
+                <option value="maintenance">{t('Maintenance')}</option>
               </select>
             </div>
           )}
 
           <div className="col-span-2">
             <label className="field-label" htmlFor="pf-notes">
-              Notes
+              {t('Notes')}
             </label>
             <textarea
               id="pf-notes"
@@ -551,12 +552,12 @@ export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) 
         </Section>
 
         <Section
-          title="Proxy"
-          hint="Leave the server empty for a direct connection."
+          title={t('Proxy')}
+          hint={t('Leave the server empty for a direct connection.')}
         >
           <div>
             <label className="field-label" htmlFor="pf-proxy-type">
-              Type
+              {t('Type')}
             </label>
             <select
               id="pf-proxy-type"
@@ -573,20 +574,20 @@ export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) 
 
           <div>
             <label className="field-label" htmlFor="pf-proxy-server">
-              Server
+              {t('Server')}
             </label>
             <input
               id="pf-proxy-server"
               className="field font-mono"
               value={form.proxyServer}
               onChange={(e) => set('proxyServer', e.target.value)}
-              placeholder="host:port"
+              placeholder={t('host:port')}
             />
           </div>
 
           <div>
             <label className="field-label" htmlFor="pf-proxy-user">
-              Username
+              {t('Username')}
             </label>
             <input
               id="pf-proxy-user"
@@ -599,7 +600,7 @@ export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) 
 
           <div>
             <label className="field-label" htmlFor="pf-proxy-pass">
-              Password
+              {t('Password')}
             </label>
             <input
               id="pf-proxy-pass"
@@ -616,9 +617,7 @@ export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) 
           {form.proxyType.startsWith('socks') &&
             (form.proxyUsername.trim() || form.proxyPassword.trim()) && (
               <p className="col-span-2 text-danger">
-                Firefox cannot authenticate to a SOCKS proxy, so this profile will fail to launch.
-                Use an HTTP or HTTPS proxy for credentials, or a SOCKS proxy that allows this IP
-                without them.
+                {t('Firefox cannot authenticate to a SOCKS proxy, so this profile will fail to launch. Use an HTTP or HTTPS proxy for credentials, or a SOCKS proxy that allows this IP without them.')}
               </p>
             )}
 
@@ -634,23 +633,23 @@ export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) 
               ) : (
                 <RefreshCw size={13} />
               )}
-              {checkingProxy ? 'Checking…' : 'Check proxy'}
+              {checkingProxy ? t('Checking…') : t('Check proxy')}
             </button>
             <ProxyCheckResult result={proxyCheck} />
           </div>
         </Section>
 
         <details className="rounded-md border border-line p-3" open={isEdit || undefined}>
-          <summary className="cursor-pointer font-medium">Advanced browser and fingerprint settings</summary>
-          <p className="mb-4 mt-1 text-ink-dim">Defaults are ready to use. Change these only when a profile needs a specific setup.</p>
+          <summary className="cursor-pointer font-medium">{t('Advanced browser and fingerprint settings')}</summary>
+          <p className="mb-4 mt-1 text-ink-dim">{t('Defaults are ready to use. Change these only when a profile needs a specific setup.')}</p>
           <div className="flex flex-col gap-5">
           <div>
-            <label className="field-label" htmlFor="pf-browser-ui">Browser interface</label>
+            <label className="field-label" htmlFor="pf-browser-ui">{t('Browser interface')}</label>
             <select id="pf-browser-ui" className="field" value={form.browserUi} onChange={(event) => set('browserUi', event.target.value as FormState['browserUi'])}>
-              <option value="desktop">Desktop (standard tabs and controls)</option>
-              <option value="camoufox">Camoufox (minimal)</option>
+              <option value="desktop">{t('Desktop (standard tabs and controls)')}</option>
+              <option value="camoufox">{t('Camoufox (minimal)')}</option>
             </select>
-            <p className="mt-1.5 text-ink-dim">Controls the browser window interface. It does not change the operating system websites see in your fingerprint.</p>
+            <p className="mt-1.5 text-ink-dim">{t('Controls the browser window interface. It does not change the operating system websites see in your fingerprint.')}</p>
           </div>
         {isEdit ? (
           <PinnedMachine
@@ -663,22 +662,21 @@ export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) 
         ) : (
           <fieldset>
             <legend className="mb-0.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-faint">
-              Machine
-            </legend>
+              {t('Machine')}
+      </legend>
             <p className="mb-2.5 text-ink-faint">
-              A generated fingerprint is internally consistent; a preset is a combination that
-              genuinely exists. Either way the profile keeps it for good.
+              {t('A generated fingerprint is internally consistent; a preset is a combination that genuinely exists. Either way the profile keeps it for good.')}
             </p>
             <select
               className="field"
               value={presetId}
               onChange={(event) => setPresetId(event.target.value)}
-              aria-label="Device preset"
+              aria-label={t('Device preset')}
             >
-              <option value="">Generate one automatically</option>
+              <option value="">{t('Generate one automatically')}</option>
               {presetsForOs.map((preset) => (
                 <option key={preset.id} value={preset.id}>
-                  {[preset.screen, `${preset.hardware_concurrency} cores`, shortGpu(preset.gpu)]
+                  {[preset.screen, t('{count} cores', { count: preset.hardware_concurrency }), shortGpu(preset.gpu)]
                     .filter(Boolean)
                     .join(' · ')}
                 </option>
@@ -686,19 +684,19 @@ export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) 
             </select>
             {presetsForOs.length > 0 && (
               <p className="mt-1.5 text-ink-faint">
-                {presetsForOs.length} real {form.os} devices available.
+                {t('{count} real {os} devices available.', { count: presetsForOs.length, os: OS_LABELS[form.os] ?? form.os })}
               </p>
             )}
           </fieldset>
         )}
 
         <Section
-          title="Fingerprint"
-          hint="Camoufox keeps the fingerprint internally consistent; only override what you need."
+          title={t('Fingerprint')}
+          hint={t('Camoufox keeps the fingerprint internally consistent; only override what you need.')}
         >
           <div>
             <label className="field-label" htmlFor="pf-tz">
-              Timezone
+              {t('Timezone')}
             </label>
             <input
               id="pf-tz"
@@ -711,7 +709,7 @@ export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) 
 
           <div>
             <label className="field-label" htmlFor="pf-langs">
-              Languages
+              {t('Languages')}
             </label>
             <input
               id="pf-langs"
@@ -724,7 +722,7 @@ export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) 
 
           <div>
             <label className="field-label" htmlFor="pf-cores">
-              CPU cores
+              {t('CPU cores')}
             </label>
             <input
               id="pf-cores"
@@ -734,7 +732,7 @@ export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) 
               className="field"
               value={form.hardwareConcurrency}
               onChange={(e) => set('hardwareConcurrency', e.target.value)}
-              placeholder="auto"
+              placeholder={t('Auto')}
             />
           </div>
 
@@ -748,10 +746,10 @@ export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) 
               value={form.webrtcMode}
               onChange={(e) => set('webrtcMode', e.target.value)}
             >
-              <option value="replace">Replace with proxy IP</option>
-              <option value="real">Use the real IP</option>
-              <option value="forward">Forward</option>
-              <option value="none">Disable WebRTC</option>
+              <option value="replace">{t('Replace with proxy IP')}</option>
+              <option value="real">{t('Use the real IP')}</option>
+              <option value="forward">{t('Forward')}</option>
+              <option value="none">{t('Disable WebRTC')}</option>
             </select>
           </div>
 
@@ -765,19 +763,19 @@ export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) 
               value={form.stableCanvas ? 'stable' : 'randomised'}
               onChange={(e) => set('stableCanvas', e.target.value === 'stable')}
             >
-              <option value="randomised">Randomised each session (default)</option>
-              <option value="stable">Same canvas every launch</option>
+              <option value="randomised">{t('Randomised each session (default)')}</option>
+              <option value="stable">{t('Same canvas every launch')}</option>
             </select>
             <p className="mt-1.5 text-ink-faint">
               {form.stableCanvas
-                ? 'Reads the same to a site across launches, like real hardware — but also the same on every site, so sites can link this profile between them.'
-                : "A site sees a different canvas each session, and a different one per site. Safer against tracking, but a long-lived account looks like new hardware every visit."}
+                ? t('Reads the same to a site across launches, like real hardware — but also the same on every site, so sites can link this profile between them.')
+                : t('A site sees a different canvas each session, and a different one per site. Safer against tracking, but a long-lived account looks like new hardware every visit.')}
             </p>
           </div>
 
           <div>
             <label className="field-label" htmlFor="pf-win-w">
-              Window width
+              {t('Window width')}
             </label>
             <input
               id="pf-win-w"
@@ -790,7 +788,7 @@ export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) 
 
           <div>
             <label className="field-label" htmlFor="pf-win-h">
-              Window height
+              {t('Window height')}
             </label>
             <input
               id="pf-win-h"
@@ -803,7 +801,7 @@ export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) 
 
           <div>
             <label className="field-label" htmlFor="pf-geo">
-              Geolocation
+              {t('Geolocation')}
             </label>
             <select
               id="pf-geo"
@@ -811,8 +809,8 @@ export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) 
               value={form.geoMode}
               onChange={(e) => set('geoMode', e.target.value as 'auto' | 'manual')}
             >
-              <option value="auto">From the proxy IP</option>
-              <option value="manual">Set coordinates</option>
+              <option value="auto">{t('From the proxy IP')}</option>
+              <option value="manual">{t('Set coordinates')}</option>
             </select>
           </div>
 
@@ -820,7 +818,7 @@ export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) 
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="field-label" htmlFor="pf-lat">
-                  Latitude
+                  {t('Latitude')}
                 </label>
                 <input
                   id="pf-lat"
@@ -832,7 +830,7 @@ export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) 
               </div>
               <div>
                 <label className="field-label" htmlFor="pf-lon">
-                  Longitude
+                  {t('Longitude')}
                 </label>
                 <input
                   id="pf-lon"
@@ -853,13 +851,10 @@ export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) 
           {isEdit && storedGeography && (
             <div className="col-span-2 rounded-md border border-line bg-raised p-2.5">
               <p className="text-ink">
-                This profile states where it is instead of taking it from its proxy.
+                {t('This profile states where it is instead of taking it from its proxy.')}
               </p>
               <p className="mt-0.5 text-ink-faint">
-                A profile created today leaves both unset, so Camoufox derives the timezone, the
-                coordinates and the WebRTC address from the exit address. Profiles created earlier
-                were given a randomly chosen region, and nothing records which values were a
-                choice — so clear them if this one was not.
+                {t('A profile created today leaves both unset, so Camoufox derives the timezone, the coordinates and the WebRTC address from the exit address. Profiles created earlier were given a randomly chosen region, and nothing records which values were a choice — so clear them if this one was not.')}
               </p>
               <div className="mt-2 flex justify-end">
                 <button
@@ -869,7 +864,7 @@ export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) 
                   disabled={clearingGeography}
                 >
                   {clearingGeography && <LoaderCircle size={13} className="animate-spin" />}
-                  Clear both, follow the proxy
+                  {t('Clear both, follow the proxy')}
                 </button>
               </div>
             </div>
@@ -918,37 +913,36 @@ function PinnedMachine({
   onReconcileOs: (keepMachine: boolean) => void
   reconciling: boolean
 }) {
+  const { t } = useI18n()
   if (!fingerprint) {
     return (
       <fieldset>
         <legend className="mb-0.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-faint">
-          Machine
-        </legend>
+          {t('Machine')}
+      </legend>
         <p className="text-ink-faint">
-          Assigned on the first launch, then reused every time so this profile stays the same
-          computer.
+          {t('Assigned on the first launch, then reused every time so this profile stays the same computer.')}
         </p>
       </fieldset>
     )
   }
 
   const rows: [string, string | number | null | undefined][] = [
-    ['Browser', fingerprint.browser_major ? `Firefox ${fingerprint.browser_major}` : null],
-    ['Screen', fingerprint.screen],
-    ['CPU cores', fingerprint.hardware_concurrency],
+    [t('Browser'), fingerprint.browser_major ? `Firefox ${fingerprint.browser_major}` : null],
+    [t('Screen'), fingerprint.screen],
+    [t('CPU cores'), fingerprint.hardware_concurrency],
     ['GPU', fingerprint.gpu],
-    ['Fonts', fingerprint.font_count],
-    ['User agent', fingerprint.user_agent],
+    [t('Fonts'), fingerprint.font_count],
+    [t('User agent'), fingerprint.user_agent],
   ]
 
   return (
     <fieldset>
       <legend className="mb-0.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-faint">
-        Machine
+        {t('Machine')}
       </legend>
       <p className="mb-2.5 text-ink-faint">
-        Pinned across launches — {fingerprint.property_count} properties. Regenerate the
-        fingerprint to move this profile to different hardware.
+        {t('Pinned across launches — {count} properties. Regenerate the fingerprint to move this profile to different hardware.', { count: fingerprint.property_count })}
       </p>
       <div className="panel divide-y divide-line">
         {rows
@@ -969,12 +963,10 @@ function PinnedMachine({
           <TriangleAlert size={14} className="mt-0.5 shrink-0 text-signal" />
           <div className="flex-1">
             <p className="text-ink">
-              This profile still reports Firefox {fingerprint.browser_major}; the installed browser
-              is {fingerprint.installed_major}.
+              {t('This profile still reports Firefox {current}; the installed browser is {installed}.', { current: fingerprint.browser_major, installed: fingerprint.installed_major })}
             </p>
             <p className="mt-0.5 text-ink-faint">
-              Updating changes only the browser version. The screen, GPU, cores, fonts and canvas
-              stay exactly as they are — the same computer, with its browser updated.
+              {t('Updating changes only the browser version. The screen, GPU, cores, fonts and canvas stay exactly as they are — the same computer, with its browser updated.')}
             </p>
           </div>
           <button
@@ -984,7 +976,7 @@ function PinnedMachine({
             disabled={refreshing}
           >
             {refreshing && <LoaderCircle size={13} className="animate-spin" />}
-            Update
+            {t('Update')}
           </button>
         </div>
       )}
@@ -999,15 +991,10 @@ function PinnedMachine({
             <TriangleAlert size={14} className="mt-0.5 shrink-0 text-warn" />
             <div>
               <p className="text-ink">
-                This profile is set to {osLabel(fingerprint.settings_os)}, but its pinned machine is
-                a {osLabel(fingerprint.pinned_os)} one — and the machine is what every page sees.
+                {t('This profile is set to {configured}, but its pinned machine is a {pinned} one — and the machine is what every page sees.', { configured: t(osLabel(fingerprint.settings_os)), pinned: t(osLabel(fingerprint.pinned_os)) })}
               </p>
               <p className="mt-0.5 text-ink-faint">
-                Keeping the machine puts the setting back to {osLabel(fingerprint.pinned_os)} and
-                changes no fingerprint at all. Pinning a{' '}
-                {osLabel(fingerprint.settings_os)} machine instead gives this profile different
-                hardware — screen, GPU, cores, fonts and canvas — which any account already warmed
-                up on the old one will notice.
+                {t('Keeping the machine puts the setting back to {pinned} and changes no fingerprint at all. Pinning a {configured} machine instead gives this profile different hardware — screen, GPU, cores, fonts and canvas — which any account already warmed up on the old one will notice.', { pinned: t(osLabel(fingerprint.pinned_os)), configured: t(osLabel(fingerprint.settings_os)) })}
               </p>
             </div>
           </div>
@@ -1019,7 +1006,7 @@ function PinnedMachine({
               disabled={reconciling}
             >
               {reconciling && <LoaderCircle size={13} className="animate-spin" />}
-              Keep this machine
+              {t('Keep this machine')}
             </button>
             <button
               type="button"
@@ -1027,7 +1014,7 @@ function PinnedMachine({
               onClick={() => onReconcileOs(false)}
               disabled={reconciling}
             >
-              New {osLabel(fingerprint.settings_os)} machine
+              {t('New {os} machine', { os: t(osLabel(fingerprint.settings_os)) })}
             </button>
           </div>
         </div>
@@ -1071,6 +1058,7 @@ function Section({
  * launching, amber for something a page can detect, grey for a note.
  */
 function ProxyCheckResult({ result }: { result: ProxyCheck | null }) {
+  const { t } = useI18n()
   if (!result) return null
 
   if (!result.reachable) {
@@ -1090,7 +1078,7 @@ function ProxyCheckResult({ result }: { result: ProxyCheck | null }) {
       <p className="flex items-start gap-1.5 text-ink-muted">
         <Check size={13} className="mt-0.5 shrink-0 text-ok" />
         <span>
-          Exits at <span className="font-mono">{where?.ip}</span>
+          <span className="font-mono">{t('Exits at {ip}', { ip: where?.ip })}</span>
           {place && <> — {place}</>}
           {result.latency_ms !== null && <> · {result.latency_ms} ms</>}
         </span>
