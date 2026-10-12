@@ -22,6 +22,7 @@ import {
 
 interface FormState {
   name: string
+  tags: string
   group: string
   status: string
   notes: string
@@ -45,6 +46,7 @@ interface FormState {
 
 const EMPTY: FormState = {
   name: '',
+  tags: '',
   group: '',
   status: 'active',
   notes: '',
@@ -74,6 +76,7 @@ function fromProfile(profile: Profile): FormState {
   const lon = geo?.lon ?? geo?.longitude
   return {
     name: profile.name,
+    tags: (profile.tags ?? []).join(', '),
     group: profile.group ?? '',
     status: profile.status,
     notes: profile.notes ?? '',
@@ -273,6 +276,7 @@ export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) 
     try {
       const payload: Record<string, unknown> = {
         name: form.name.trim(),
+        tags: form.tags.split(',').map(tag => tag.trim()).filter(Boolean),
         group: form.group || null,
         notes: form.notes.trim() || null,
         browser_settings: buildBrowserSettings(),
@@ -536,6 +540,12 @@ export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) 
               </select>
             </div>
           )}
+
+          <div className="col-span-2">
+            <label className="field-label" htmlFor="pf-tags">{t('Tags')}</label>
+            <input id="pf-tags" className="field" value={form.tags} onChange={event => set('tags', event.target.value)} placeholder={t('work, client-a')} maxLength={700} aria-describedby="pf-tags-help" />
+            <p id="pf-tags-help" className="mt-1 text-ink-dim">{t('Comma-separated labels, up to 20. Tags are normalized to lowercase and do not change the browser fingerprint.')}</p>
+          </div>
 
           <div className="col-span-2">
             <label className="field-label" htmlFor="pf-notes">

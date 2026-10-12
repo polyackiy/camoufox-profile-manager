@@ -7,6 +7,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- Standard JSON/Netscape cookie import and export with validation, merge/replace
+  choices and a recovery snapshot before replacement.
+- Reusable profile templates that preserve settings and extension selections
+  while creating independent browser identities without copied sessions.
+- A local Firefox extension library with permission summaries, validated XPI
+  uploads and portable per-profile snapshots using Camoufox's add-on support.
+- Profile tags, bulk tag changes and persistent saved search/filter/order views.
 - A reusable proxy library with named entries, encrypted write-only passwords,
   on-demand health checks and bulk URL-list import with safe line diagnostics.
 - Bulk proxy assignment to closed profiles with concurrency checks and explicit
@@ -15,6 +22,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Authenticated SOCKS5 browsing through a session-owned loopback relay, with
   upstream DNS, memory-only credentials and cleanup on browser exit. The manager
   resolves GeoIP through the original proxy before launch without forking Camoufox.
+
+### Changed
+- Camoufox 0.5.8 with its paired Firefox 156 beta.36 browser and Playwright 1.62.
+  Setup now prepares the verified fpgen model; desktop builds carry the model.
+  Browser readiness checks reject unsupported protocol interfaces before launch.
+- Real-browser compatibility checks on Linux, Windows and macOS, including the
+  combined stage-two workflow and offline synthetic test sites.
+- Documented coordinated manager/browser updates, complete installation
+  checkpoints and safe rollback requirements in the update design.
 
 ## [0.6.0-rc.1] - 2026-10-07
 

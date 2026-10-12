@@ -22,6 +22,8 @@ from camoufox_pm.api.models.profiles import (
     ActiveBrowsersResponse,
     BrowserCloseResponse,
     BrowsersCloseAllResponse,
+    BulkTagsRequest,
+    BulkTagsResponse,
     ClearGeographyRequest,
     ClearGeographyResponse,
     ProfileCloneRequest,
@@ -78,7 +80,9 @@ async def list_profiles(
     per_page: int = Query(10, ge=1, le=100, description="Profiles per page"),
     status: ProfileStatus | None = Query(None, description="Filter by status"),
     group: str | None = Query(None, description="Filter by group"),
-    search: str | None = Query(None, description="Search by name"),
+    search: str | None = Query(None, max_length=255, description="Search by name or ID"),
+    tag: str | None = Query(None, max_length=32),
+    tags: list[str] | None = Query(None, description="All selected tags must match"),
 ):
     """List profiles with filtering."""
     try:
@@ -91,16 +95,17 @@ async def list_profiles(
         if group:
             filters["group"] = group
         if search:
-            filters["name_like"] = search
+            filters["search"] = search
 
-        # Fetch the profiles
-        profiles = await profile_manager.list_profiles(filters=filters)
+        from camoufox_pm.core.models import normalize_tags
 
-        # Pagination
-        total = len(profiles)
+        filters["tags"] = normalize_tags([*(tags or []), *([tag] if tag is not None else [])])
+        total = await profile_manager.storage.count_profiles(filters)
         start_idx = (page - 1) * per_page
         end_idx = start_idx + per_page
-        paginated_profiles = profiles[start_idx:end_idx]
+        paginated_profiles = await profile_manager.list_profiles(
+            filters=filters, limit=per_page, offset=start_idx
+        )
 
         # Convert to API models
         profile_responses = []
@@ -116,6 +121,8 @@ async def list_profiles(
             has_prev=page > 1,
         )
 
+    except ValueError as e:
+        raise HTTPException(422, str(e)) from e
     except Exception as e:
         logger.error(f"Failed to list profiles: {e}")
         raise HTTPException(status_code=500, detail=str(e)) from e
@@ -143,6 +150,7 @@ async def create_profile(request: ProfileCreateRequest):
             generate_fingerprint=request.generate_fingerprint,
             notes=request.notes,
             fingerprint_preset=request.fingerprint_preset,
+            tags=request.tags,
         )
 
         logger.info(f"Created profile: {profile.name} (ID: {profile.id})")
@@ -154,6 +162,25 @@ async def create_profile(request: ProfileCreateRequest):
     except Exception as e:
         logger.error(f"Failed to create profile: {e}")
         raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.post(
+    "/profiles/tags",
+    response_model=ApiResponse[BulkTagsResponse],
+    operation_id="bulk_update_profile_tags",
+)
+async def bulk_tags(request: BulkTagsRequest):
+    result = await get_profile_manager().bulk_update_tags(
+        [target.model_dump() for target in request.profiles], request.add, request.remove
+    )
+    return ApiResponse(
+        success=True,
+        message="Tag edit completed",
+        data={
+            "updated": [ProfileResponse.from_profile(profile) for profile in result["updated"]],
+            "skipped": result["skipped"],
+        },
+    )
 
 
 @router.get(
@@ -220,6 +247,8 @@ async def update_profile(profile_id: str, request: ProfileUpdateRequest):
             updates["proxy_config"] = sent["proxy_config"]
         if "notes" in sent:
             updates["notes"] = sent["notes"]
+        if "tags" in sent:
+            updates["tags"] = sent["tags"] or []
 
         # Not a field of the profile: the version this edit was based on, used
         # to refuse the save if someone else got there first.

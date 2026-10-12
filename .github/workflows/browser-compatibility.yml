@@ -1,0 +1,48 @@
+name: Browser compatibility
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'src/camoufox_pm/core/**'
+      - 'tests/browser/**'
+      - 'pyproject.toml'
+      - 'uv.lock'
+      - '.github/workflows/browser-compatibility.yml'
+
+concurrency:
+  group: browser-compatibility-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  browser:
+    name: Camoufox (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+      - name: Install locked dependencies
+        run: uv sync --locked --extra dev --python 3.12
+      - name: Install Linux browser libraries
+        if: runner.os == 'Linux'
+        run: uv run playwright install-deps firefox
+      - name: Install the upstream paired browser and resources
+        run: uv run camoufox fetch
+      - name: Record the tested pair
+        run: uv run camoufox version
+      - name: Test real browsers against local synthetic sites
+        run: uv run pytest -m browser --no-network --junitxml=browser-results.xml
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-results-${{ matrix.os }}
+          path: browser-results.xml
+          if-no-files-found: ignore

@@ -76,3 +76,6 @@ jobs:
       - name: Test desktop UI contracts
         working-directory: .
         run: uv run python web/tests/stage_one_ui.py
+      - name: Test stage two workflows
+        working-directory: .
+        run: uv run python web/tests/stage_two_ui.py

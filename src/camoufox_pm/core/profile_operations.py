@@ -37,7 +37,15 @@ async def run_file_operation(function, *args, **kwargs):
     try:
         return await asyncio.shield(task)
     except asyncio.CancelledError:
-        await task
+        # A second cancellation must not cancel the asyncio wrapper while its
+        # worker thread is still writing protected profile files.
+        while not task.done():
+            try:
+                await asyncio.shield(task)
+            except asyncio.CancelledError:
+                if task.cancelled():
+                    raise
+        task.result()
         raise
 
 

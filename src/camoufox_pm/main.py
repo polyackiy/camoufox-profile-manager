@@ -22,13 +22,17 @@ from camoufox_pm.api.middleware.logging import LoggingMiddleware
 from camoufox_pm.api.models.system import ErrorResponse, HealthResponse
 from camoufox_pm.api.routes import (
     auth,
+    cookies,
+    extensions,
     groups,
     profiles,
     proxies,
     recovery,
     runtime,
+    saved_filters,
     schedules,
     system,
+    templates,
 )
 from camoufox_pm.config import get_settings
 from camoufox_pm.core.backups import ProfileBackupManager
@@ -177,6 +181,19 @@ for _prefix, _in_schema in (("/api/v1", True), ("/api", False)):
             _router,
             prefix=_prefix,
             tags=["System"],
+            dependencies=protected,
+            include_in_schema=_in_schema,
+        )
+    for _router, _tag in (
+        (cookies.router, "Cookies"),
+        (extensions.router, "Extensions"),
+        (templates.router, "Templates"),
+        (saved_filters.router, "Saved views"),
+    ):
+        app.include_router(
+            _router,
+            prefix=_prefix,
+            tags=[_tag],
             dependencies=protected,
             include_in_schema=_in_schema,
         )

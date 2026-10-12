@@ -17,6 +17,10 @@ import {
   Search,
   Square,
   Trash2,
+  Tags,
+  Cookie,
+  Puzzle,
+  Bookmark,
   Upload,
   Users,
 } from 'lucide-react'
@@ -26,6 +30,12 @@ import { BrowserSetup } from '@/components/browser-setup'
 import { EmptyState } from '@/components/empty-state'
 import { ConfirmDialog, Modal } from '@/components/modal'
 import { ProfileForm } from '@/components/profile-form'
+import { CookieTransfer } from '@/components/cookie-transfer'
+import { ProfileExtensionsModal } from '@/components/profile-extensions-modal'
+import { TemplateFromProfileModal } from '@/components/template-from-profile-modal'
+import { ProfileTagsDialog } from '@/components/profile-tags-dialog'
+import { SavedProfileViews } from '@/components/saved-profile-views'
+import { DEFAULT_VIEW, profileViewQuery, readProfileView } from '@/lib/profile-views'
 import { useToast } from '@/components/toast'
 import {
   browsersAPI,
@@ -38,6 +48,7 @@ import {
   readProxyCheck,
   type Group,
   type Profile,
+  type ProfileViewConfig,
   type ProxyCheckRecord,
 } from '@/lib/api'
 
@@ -62,7 +73,10 @@ export default function ProfilesPage() {
   const [error, setError] = useState<string | null>(null)
 
   const [search, setSearch] = useState('')
-  const [statusFilter, setStatusFilter] = useState('all')
+  const [statusFilter, setStatusFilter] = useState<ProfileViewConfig['status']>('all')
+  const [groupFilter, setGroupFilter] = useState<string | null>(null)
+  const [tagFilters, setTagFilters] = useState<string[]>([])
+  const [urlReady, setUrlReady] = useState(false)
   const [sortKey, setSortKey] = useState<SortKey>('name')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
   const [page, setPage] = useState(1)
@@ -80,6 +94,10 @@ export default function ProfilesPage() {
     run: () => Promise<void>
   }>(null)
   const [exportOpen, setExportOpen] = useState(false)
+  const [cookiesFor, setCookiesFor] = useState<Profile | null>(null)
+  const [extensionsFor, setExtensionsFor] = useState<Profile | null>(null)
+  const [templateFor, setTemplateFor] = useState<Profile | null>(null)
+  const [tagsFor, setTagsFor] = useState<Profile[] | null>(null)
 
   const toast = useToast()
   const importRef = useRef<HTMLInputElement>(null)
@@ -95,6 +113,7 @@ export default function ProfilesPage() {
         const response = await profilesAPI.getProfiles({ page: pageNumber, per_page: 100 })
         collected.push(...response.profiles)
         if (!response.has_next) break
+        if (pageNumber === 200) throw new Error('The profile collection is too large to load completely. No partial filter results are shown.')
       }
       setProfiles(collected)
     } catch (err) {
@@ -152,11 +171,28 @@ export default function ProfilesPage() {
   // rather than in an effect: an effect would paint the new results clamped to
   // whatever page number survived, then snap to the first one, and React
   // documents this as the way to derive state from a change in props or state.
-  const [filterForPage, setFilterForPage] = useState(() => ({ search, statusFilter }))
-  if (filterForPage.search !== search || filterForPage.statusFilter !== statusFilter) {
-    setFilterForPage({ search, statusFilter })
+  const [filterForPage, setFilterForPage] = useState(() => ({ search, statusFilter, groupFilter, tagFilters: tagFilters.join('\0') }))
+  if (filterForPage.search !== search || filterForPage.statusFilter !== statusFilter || filterForPage.groupFilter !== groupFilter || filterForPage.tagFilters !== tagFilters.join('\0')) {
+    setFilterForPage({ search, statusFilter, groupFilter, tagFilters: tagFilters.join('\0') })
     setPage(1)
+    setSelected(new Set())
   }
+
+  const viewConfig = useMemo<ProfileViewConfig>(() => ({ search, status: statusFilter, group: groupFilter, tags: tagFilters, sort_key: sortKey, sort_direction: sortDir }), [search, statusFilter, groupFilter, tagFilters, sortKey, sortDir])
+  function applyView(config: ProfileViewConfig, targetPage = 1) {
+    setSearch(config.search); setStatusFilter(config.status); setGroupFilter(config.group); setTagFilters(config.tags)
+    setSortKey(config.sort_key); setSortDir(config.sort_direction); setPage(targetPage); setSelected(new Set())
+    setFilterForPage({ search: config.search, statusFilter: config.status, groupFilter: config.group, tagFilters: config.tags.join('\0') })
+  }
+
+  useEffect(() => {
+    const read = () => { const view = readProfileView(new URLSearchParams(window.location.search)); applyView(view.config, view.page); setUrlReady(true) }
+    // Read only after mount: the bundled static page has no request URL.
+    read()
+    window.addEventListener('popstate', read)
+    return () => window.removeEventListener('popstate', read)
+  }, [])
+
 
   const groupNames = useMemo(
     () => new Map(groups.map((group) => [group.id, group.name])),
@@ -167,6 +203,9 @@ export default function ProfilesPage() {
     const needle = search.trim().toLowerCase()
     const filtered = profiles.filter((profile) => {
       if (statusFilter !== 'all' && profile.status !== statusFilter) return false
+      if (groupFilter === '__ungrouped__' && profile.group) return false
+      if (groupFilter && groupFilter !== '__ungrouped__' && profile.group !== groupFilter) return false
+      if (!tagFilters.every(tag => (profile.tags ?? []).includes(tag))) return false
       if (!needle) return true
       return (
         profile.name.toLowerCase().includes(needle) || profile.id.toLowerCase().includes(needle)
@@ -194,7 +233,7 @@ export default function ProfilesPage() {
           return a.name.localeCompare(b.name) * direction
       }
     })
-  }, [profiles, search, statusFilter, sortKey, sortDir, groupNames])
+  }, [profiles, search, statusFilter, groupFilter, tagFilters, sortKey, sortDir, groupNames])
 
   // Offering the bulk clear when nothing selected would change is just noise.
   const selectedWithGeography = useMemo(
@@ -212,6 +251,13 @@ export default function ProfilesPage() {
   // Deleting the last rows of a page must not strand the user on an empty one.
   const currentPage = Math.min(page, totalPages)
   const pageRows = visible.slice((currentPage - 1) * perPage, currentPage * perPage)
+  const availableTags = [...new Set(profiles.flatMap(profile => profile.tags ?? []))].sort()
+  useEffect(() => {
+    if (!urlReady || loading) return
+    const query = profileViewQuery(viewConfig, currentPage, new URLSearchParams(window.location.search))
+    const target = `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`
+    window.history.replaceState(null, '', target)
+  }, [viewConfig, currentPage, urlReady, loading])
   const allOnPageSelected = pageRows.length > 0 && pageRows.every((row) => selected.has(row.id))
 
   /** Close the row menu and hand focus back to the button that opened it.
@@ -537,7 +583,7 @@ export default function ProfilesPage() {
         <select
           className="field h-[30px] w-[132px]"
           value={statusFilter}
-          onChange={(event) => setStatusFilter(event.target.value)}
+          onChange={(event) => setStatusFilter(event.target.value as ProfileViewConfig['status'])}
           aria-label={t('Filter by status')}
         >
           <option value="all">{t('All statuses')}</option>
@@ -598,9 +644,23 @@ export default function ProfilesPage() {
         </div>
       </header>
 
+      <section aria-label={t('Profile filters and saved views')} className="border-b border-line bg-surface px-5 py-3">
+        <SavedProfileViews config={viewConfig} onApply={applyView} />
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <label htmlFor="profile-group-filter" className="text-ink-dim">{t('Group')}</label>
+          <select id="profile-group-filter" className="field h-[30px] w-[170px]" value={groupFilter ?? ''} onChange={event => setGroupFilter(event.target.value || null)}><option value="">{t('All groups')}</option><option value="__ungrouped__">{t('Ungrouped')}</option>{groupFilter && groupFilter !== '__ungrouped__' && !groups.some(group => group.id === groupFilter) && <option value={groupFilter}>{t('Unavailable group ({id})', { id: groupFilter })}</option>}{groups.map(group => <option key={group.id} value={group.id}>{group.name}</option>)}</select>
+          <label htmlFor="profile-tag-filter" className="text-ink-dim">{t('Tags')}</label>
+          <select id="profile-tag-filter" className="field h-[30px] w-[170px]" value="" disabled={tagFilters.length >= 20} onChange={event => { if (event.target.value && !tagFilters.includes(event.target.value)) setTagFilters(current => [...current, event.target.value]) }}><option value="">{t('Add tag filter')}</option>{availableTags.filter(tag => !tagFilters.includes(tag)).map(tag => <option key={tag} value={tag}>{tag}</option>)}</select>
+          {tagFilters.map(tag => <button key={tag} className="btn btn-default h-7" onClick={() => setTagFilters(current => current.filter(value => value !== tag))} aria-label={t('Remove tag filter {tag}', { tag })}>{tag} ×</button>)}
+          {tagFilters.length > 0 && <span className="text-[11px] text-ink-dim">{t('Match all selected tags')}</span>}
+          <button className="btn btn-ghost ml-auto" onClick={() => applyView(DEFAULT_VIEW)}>{t('Clear filters')}</button>
+        </div>
+      </section>
+
       {selected.size > 0 && (
         <div className="flex items-center gap-3 border-b border-line bg-raised px-5 py-2">
           <span>{t('{count} selected', { count: selected.size })}</span>
+          <button className="btn btn-default h-7" onClick={() => setTagsFor(profiles.filter(profile => selected.has(profile.id)))}><Tags size={13} aria-hidden="true" />{t('Edit tags')}</button>
           {selectedWithProxy > 0 && (
             <button
               className="btn btn-default h-7"
@@ -671,8 +731,7 @@ export default function ProfilesPage() {
             <button
               className="btn btn-default"
               onClick={() => {
-                setSearch('')
-                setStatusFilter('all')
+                applyView(DEFAULT_VIEW)
               }}
             >
               {t('Clear filters')}
@@ -747,7 +806,7 @@ export default function ProfilesPage() {
                     />
                   </td>
 
-                  <td className="py-2.5 pr-4 font-medium">{profile.name}</td>
+                  <td className="py-2.5 pr-4 font-medium"><p>{profile.name}</p>{(profile.tags ?? []).length > 0 && <div className="mt-1 flex max-w-[240px] flex-wrap gap-1">{profile.tags?.map(tag => <button key={tag} className="rounded border border-line bg-raised px-1.5 py-px text-[11px] font-normal text-ink-dim hover:text-ink" aria-label={t('Filter by tag {tag}', { tag })} onClick={() => setTagFilters([tag])}>{tag}</button>)}</div>}</td>
                   <td className="py-2.5 pr-4 font-mono text-ink-faint">{profile.id}</td>
                   <td className="py-2.5 pr-4 text-ink-dim">
                     {profile.group ? (groupNames.get(profile.group) ?? profile.group) : '—'}
@@ -854,6 +913,9 @@ export default function ProfilesPage() {
                                 closeMenu(profile.id)
                               }}
                             />
+                            <MenuItem icon={<Cookie size={13} />} label={t('Cookies')} onClick={() => { setCookiesFor(profile); closeMenu(profile.id) }} />
+                            <MenuItem icon={<Bookmark size={13} />} label={t('Save as template')} onClick={() => { setTemplateFor(profile); closeMenu(profile.id) }} />
+                            <MenuItem icon={<Puzzle size={13} />} label={t('Extensions')} onClick={() => { setExtensionsFor(profile); closeMenu(profile.id) }} />
                             <MenuItem
                               icon={<PackageOpen size={13} />}
                               label={t('Export…')}
@@ -911,6 +973,11 @@ export default function ProfilesPage() {
           </div>
         </div>
       )}
+
+      {cookiesFor && <CookieTransfer profile={cookiesFor} onClose={() => setCookiesFor(null)} onChanged={loadProfiles} />}
+      {templateFor && <TemplateFromProfileModal profile={templateFor} onClose={() => setTemplateFor(null)} onSaved={loadProfiles} />}
+      {extensionsFor && <ProfileExtensionsModal profile={extensionsFor} onClose={() => setExtensionsFor(null)} onSaved={loadProfiles} />}
+      {tagsFor && <ProfileTagsDialog profiles={tagsFor} onClose={() => setTagsFor(null)} onUpdated={updated => { setProfiles(current => current.map(profile => updated.find(item => item.id === profile.id) ?? profile)); setSelected(new Set()) }} />}
 
       <ProfileForm
         open={formOpen}

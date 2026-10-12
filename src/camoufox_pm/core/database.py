@@ -21,6 +21,7 @@ from .models import (
     Schedule,
     ScheduleRun,
     UsageStats,
+    normalize_tags,
 )
 
 
@@ -105,6 +106,7 @@ class DatabaseManager:
                 # version to match against.
                 ("row_version", "BIGINT NOT NULL DEFAULT 0"),
                 ("deleted_at", "TIMESTAMP"),
+                ("tags", "TEXT NOT NULL DEFAULT '[]'"),
             ],
         }
         for table, columns in added_columns.items():
@@ -154,6 +156,7 @@ class DatabaseManager:
                 browser_settings TEXT NOT NULL,
                 proxy_config TEXT,
                 extensions TEXT,
+                tags TEXT NOT NULL DEFAULT '[]',
                 storage_path TEXT,
                 notes TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -244,6 +247,14 @@ class DatabaseManager:
             )
         """)
 
+        # Feature-owned table definitions keep metadata modules independent.
+        from .extension_library import initialize_tables as initialize_extensions
+        from .profile_templates import initialize_tables as initialize_templates
+        from .saved_filters import initialize_tables as initialize_saved_filters
+
+        initialize_extensions(self._connection)
+        initialize_templates(self._connection)
+        initialize_saved_filters(self._connection)
         self._connection.commit()
 
     async def _create_indexes(self):
@@ -272,6 +283,7 @@ class DatabaseManager:
         a column added to one and forgotten in the other would be written on a
         create and silently ignored on an edit.
         """
+        profile.tags = normalize_tags(profile.tags)
         return (
             profile.id,
             profile.name,
@@ -287,6 +299,7 @@ class DatabaseManager:
             profile.last_used.isoformat() if profile.last_used else None,
             json.dumps(profile.fingerprint) if profile.fingerprint else None,
             profile.proxy_check.model_dump_json() if profile.proxy_check else None,
+            json.dumps(profile.tags, ensure_ascii=False),
         )
 
     def _upsert_profile(self, profile: Profile) -> None:
@@ -303,8 +316,8 @@ class DatabaseManager:
             INSERT INTO profiles (
                 id, name, group_id, status, browser_settings, proxy_config,
                 extensions, storage_path, notes, created_at, updated_at, last_used,
-                fingerprint, proxy_check
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                fingerprint, proxy_check, tags
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 name = excluded.name,
                 group_id = excluded.group_id,
@@ -318,7 +331,8 @@ class DatabaseManager:
                 updated_at = excluded.updated_at,
                 last_used = excluded.last_used,
                 fingerprint = excluded.fingerprint,
-                proxy_check = excluded.proxy_check
+                proxy_check = excluded.proxy_check,
+                tags = excluded.tags
         """,
             self._profile_columns(profile),
         )
@@ -356,7 +370,7 @@ class DatabaseManager:
                 name = ?, group_id = ?, status = ?, browser_settings = ?,
                 proxy_config = ?, extensions = ?, storage_path = ?, notes = ?,
                 created_at = ?, updated_at = ?, last_used = ?, fingerprint = ?,
-                proxy_check = ?, row_version = row_version + 1
+                proxy_check = ?, tags = ?, row_version = row_version + 1
             WHERE id = ? AND row_version = ? AND deleted_at IS NULL
             """,
             (*self._profile_columns(profile)[1:], profile.id, expected_row_version),
@@ -455,61 +469,84 @@ class DatabaseManager:
                 )
         return cursor.rowcount > 0
 
+    def _profile_filters(self, filters: dict | None = None) -> tuple[str, list]:
+        filters = filters or {}
+        predicate = (
+            "deleted_at IS NOT NULL"
+            if filters.get("trashed")
+            else "1=1"
+            if filters.get("include_deleted")
+            else "deleted_at IS NULL"
+        )
+        params: list = []
+        if "group" in filters:
+            if filters["group"] == "__ungrouped__" or filters["group"] is None:
+                predicate += " AND group_id IS NULL"
+            else:
+                predicate += " AND group_id = ?"
+                params.append(filters["group"])
+        if "status" in filters:
+            predicate += " AND status = ?"
+            params.append(filters["status"])
+        if "name_like" in filters:
+            predicate += " AND name LIKE ?"
+            params.append(f"%{filters['name_like']}%")
+        if filters.get("search"):
+            # Search is literal, including percent/underscore; never SQL syntax.
+            value = (
+                str(filters["search"]).replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            )
+            predicate += " AND (name LIKE ? ESCAPE '\\' OR id LIKE ? ESCAPE '\\')"
+            params.extend([f"%{value}%", f"%{value}%"])
+        requested = filters.get("tags", [])
+        if filters.get("tag"):
+            requested = [*requested, filters["tag"]]
+        for tag in normalize_tags(requested):
+            predicate += " AND EXISTS (SELECT 1 FROM json_each(profiles.tags) WHERE value = ?)"
+            params.append(tag)
+        return predicate, params
+
     async def list_profiles(
         self, filters: dict | None = None, limit: int | None = None, offset: int = 0
     ) -> list[Profile]:
-        """List profiles with optional filtering."""
-        query = "SELECT * FROM profiles WHERE " + (
-            "deleted_at IS NOT NULL"
-            if filters and filters.get("trashed")
-            else "1=1"
-            if filters and filters.get("include_deleted")
-            else "deleted_at IS NULL"
-        )
-        params = []
-
-        if filters:
-            if "group" in filters:
-                query += " AND group_id = ?"
-                params.append(filters["group"])
-            if "status" in filters:
-                query += " AND status = ?"
-                params.append(filters["status"])
-            if "name_like" in filters:
-                query += " AND name LIKE ?"
-                params.append(f"%{filters['name_like']}%")
-
-        query += " ORDER BY created_at DESC"
-
-        # SQLite will not take an OFFSET without a LIMIT, so an offset on its own
-        # used to be dropped and the caller silently got the first page back.
-        if limit or offset:
+        """Filter before pagination; listing and counting use identical predicates."""
+        predicate, params = self._profile_filters(filters)
+        query = f"SELECT * FROM profiles WHERE {predicate} ORDER BY created_at DESC, id"
+        if limit is not None or offset:
             query += " LIMIT ?"
-            params.append(limit if limit else -1)
+            params.append(limit if limit is not None else -1)
         if offset:
             query += " OFFSET ?"
             params.append(offset)
-
-        cursor = self._connection.execute(query, params)
-        rows = cursor.fetchall()
-
+        rows = self._connection.execute(query, params).fetchall()
         return [self._row_to_profile(row) for row in rows]
 
     async def count_profiles(self, filters: dict | None = None) -> int:
-        """Count profiles."""
-        query = "SELECT COUNT(*) FROM profiles WHERE deleted_at IS NULL"
-        params = []
+        predicate, params = self._profile_filters(filters)
+        return self._connection.execute(
+            f"SELECT COUNT(*) FROM profiles WHERE {predicate}", params
+        ).fetchone()[0]
 
-        if filters:
-            if "group" in filters:
-                query += " AND group_id = ?"
-                params.append(filters["group"])
-            if "status" in filters:
-                query += " AND status = ?"
-                params.append(filters["status"])
-
-        cursor = self._connection.execute(query, params)
-        return cursor.fetchone()[0]
+    async def set_profile_tags(
+        self, profile_id: str, tags: list[str], expected_row_version: int
+    ) -> Profile:
+        """A metadata-only CAS; never replaces browser settings, leases or launch pins."""
+        with self._connection:
+            cursor = self._connection.execute(
+                "UPDATE profiles SET tags = ?, updated_at = ?, row_version = row_version + 1 "
+                "WHERE id = ? AND row_version = ? AND deleted_at IS NULL",
+                (
+                    json.dumps(normalize_tags(tags), ensure_ascii=False),
+                    datetime.now().isoformat(),
+                    profile_id,
+                    expected_row_version,
+                ),
+            )
+            if not cursor.rowcount:
+                raise StaleWriteError(profile_id, expected_row_version)
+        profile = await self.get_profile(profile_id)
+        assert profile is not None
+        return profile
 
     # --- Profile groups ---
 
@@ -1010,6 +1047,7 @@ class DatabaseManager:
             id=row["id"],
             name=row["name"],
             group=row["group_id"],
+            tags=json.loads(row["tags"] or "[]"),
             status=ProfileStatus(row["status"]),
             browser_settings=browser_settings,
             proxy=proxy,

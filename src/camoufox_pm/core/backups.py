@@ -18,7 +18,7 @@ from pathlib import Path
 from loguru import logger
 
 from . import profile_archive
-from .leases import ProfileLocked, make_lease_holder
+from .leases import ProfileLocked, lease_expired, make_lease_holder
 from .profile_operations import profile_data_path, profile_operation, run_file_operation
 
 
@@ -142,47 +142,58 @@ class ProfileBackupManager:
         return await self.create_backups(reason="automatic", due_only=True)
 
     async def _create_one(self, profile_id: str, reason: str) -> dict:
+        async with profile_operation(self.manager, profile_id, include_deleted=True) as profile:
+            return await self._write_locked_profile(profile, reason)
+
+    async def create_locked_backup(self, profile, holder: str, reason: str) -> dict:
+        """Publish a recovery archive without reacquiring/releasing a caller's lease."""
+        lease = await self.manager.storage.get_lease(profile.id)
+        if lease is None or lease[0] != holder or lease_expired(lease[1]):
+            raise ProfileLocked(profile.id)
+        async with self._exclusive():
+            return await self._write_locked_profile(profile, reason)
+
+    async def _write_locked_profile(self, profile, reason: str) -> dict:
+        profile_id = profile.id
         backup_id = uuid.uuid4().hex
         destination = self._archive_path(backup_id)
         temporary = destination.with_suffix(".partial")
         metadata = destination.with_suffix(".json")
         temporary_metadata = metadata.with_suffix(".pending")
         try:
-            async with profile_operation(self.manager, profile_id, include_deleted=True) as profile:
-                if (
-                    profile.proxy
-                    and profile.proxy.password
-                    and profile.proxy.password.startswith("enc:")
-                ):
-                    raise ValueError(
-                        "Stored proxy credentials could not be decrypted. Restore the original "
-                        "secret.key or CPM_SECRET_KEY before creating a recoverable backup."
-                    )
-                data = profile_data_path(self.manager, profile)
-                if not data.is_dir():
-                    raise ValueError("Profile data directory is missing; backup was not created")
-                await run_file_operation(
-                    profile_archive.export_profile, profile, data, temporary, strict=True
+            if (
+                profile.proxy
+                and profile.proxy.password
+                and profile.proxy.password.startswith("enc:")
+            ):
+                raise ValueError(
+                    "Stored proxy credentials could not be decrypted. Restore the original "
+                    "secret.key or CPM_SECRET_KEY before creating a recoverable backup."
                 )
-                temporary.chmod(0o600)
-                record = {
-                    "id": backup_id,
-                    "profile_id": profile.id,
-                    "profile_name": profile.name,
-                    "created_at": datetime.now().isoformat(),
-                    "reason": reason,
-                    "size_bytes": temporary.stat().st_size,
-                }
-                temporary_metadata.write_text(json.dumps(record), encoding="utf-8")
-                temporary_metadata.chmod(0o600)
-                temporary.replace(destination)
-                temporary_metadata.replace(metadata)
+            data = profile_data_path(self.manager, profile)
+            if not data.is_dir():
+                raise ValueError("Profile data directory is missing; backup was not created")
+            await run_file_operation(
+                profile_archive.export_profile, profile, data, temporary, strict=True
+            )
+            temporary.chmod(0o600)
+            record = {
+                "id": backup_id,
+                "profile_id": profile.id,
+                "profile_name": profile.name,
+                "created_at": datetime.now().isoformat(),
+                "reason": reason,
+                "size_bytes": temporary.stat().st_size,
+            }
+            temporary_metadata.write_text(json.dumps(record), encoding="utf-8")
+            temporary_metadata.chmod(0o600)
+            temporary.replace(destination)
+            temporary_metadata.replace(metadata)
             self._prune(profile_id)
             return record
         except BaseException:
             temporary.unlink(missing_ok=True)
             temporary_metadata.unlink(missing_ok=True)
-            # A zip without metadata is an unpublished, incomplete operation.
             if not metadata.exists():
                 destination.unlink(missing_ok=True)
             raise

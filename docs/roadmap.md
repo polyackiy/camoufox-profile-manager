@@ -16,15 +16,16 @@ for ordinary tabs and controls, with a per-profile choice. See
 [browser-interface.md](browser-interface.md) for the implementation and policy
 for tracking upstream changes without maintaining an engine fork.
 
-Stage two starts with the [proxy library](proxy-library.md): reusable entries,
+Stage two includes the [proxy library](proxy-library.md): reusable entries,
 bulk import, health checks and assignment to closed profiles. Authenticated
 SOCKS5 uses a session-owned relay without changing the Camoufox engine.
-Implementation and acceptance are tracked in
-[#69](https://github.com/polyackiy/camoufox-profile-manager/issues/69).
-Next priorities are standard cookie import, reusable profile
-templates/extensions, and tags/saved filters. Team permissions and cross-device
-synchronisation require a separate design. In-place automatic application
-replacement remains separate from the implemented backup/download update flow.
+It also adds [JSON/Netscape cookies](cookies.md), reusable [templates](templates.md),
+managed [Firefox extensions](extensions.md), and [tags/saved views](profile-organization.md).
+See [stage-two.md](stage-two.md) for the acceptance record and linked GitHub work.
+The [Camoufox compatibility review](camoufox-compatibility.md) records the tested
+wrapper/browser pair. Team permissions and cross-device synchronisation require
+a separate design. [Coordinated manager/browser updates](update-design.md) are
+planned separately from the implemented backup/download update flow.
 
 ## Since 0.2.0
 

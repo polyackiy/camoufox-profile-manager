@@ -128,6 +128,20 @@ def test_extract_refuses_an_oversized_archive(tmp_path, monkeypatch):
         profile_archive.extract_data(bomb, tmp_path / "target")
 
 
+@pytest.mark.parametrize(
+    "name", ["CON", "aux.js", "COM1.txt", "LPT².js", "file:stream", "name.", "dir\\NUL"]
+)
+def test_archive_rejects_windows_device_paths_before_extracting_any_file(tmp_path, name):
+    source = tmp_path / "unsafe.zip"
+    with zipfile.ZipFile(source, "w") as archive:
+        archive.writestr("data/safe.txt", "must not be extracted first")
+        archive.writestr("data/.cpm-addons/" + "a" * 64 + "/" + name, "unsafe")
+    target = tmp_path / "target"
+    with pytest.raises(ValueError, match="unsafe file name"):
+        profile_archive.extract_data(source, target)
+    assert not (target / "safe.txt").exists()
+
+
 def test_extract_refuses_repeated_members_that_exceed_the_cap(tmp_path, monkeypatch):
     """The declared total counts a duplicated name once; extraction writes it twice.
 

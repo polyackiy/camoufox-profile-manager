@@ -21,13 +21,15 @@ password, so it is exactly as sensitive as the account it belongs to.
 
 import json
 import zipfile
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from loguru import logger
 
 from camoufox_pm import __version__
 from camoufox_pm.core.models import Profile
+
+from .archive_paths import portable_component
 
 FORMAT_VERSION = 1
 MANIFEST_NAME = "manifest.json"
@@ -174,6 +176,25 @@ def extract_data(source: Path, target_dir: Path) -> int:
         )
         if declared > _MAX_EXTRACTED_BYTES:
             raise ValueError("Profile archive is larger than the import limit")
+
+        # Windows device names and alternate streams are unsafe before any
+        # browser/add-on validation can run. Validate every portable component
+        # before extracting even the first file, on every host OS.
+        for name in archive.namelist():
+            if not name.startswith(DATA_PREFIX):
+                continue
+            relative = name[len(DATA_PREFIX) :]
+            if (
+                "\\" in relative
+                or ":" in relative
+                or any(ord(char) < 32 for char in relative)
+                or any(
+                    not portable_component(part)
+                    for part in PurePosixPath(relative).parts
+                    if part not in {"..", "/"}
+                )
+            ):
+                raise ValueError("Profile archive contains an unsafe file name")
 
         budget = _MAX_EXTRACTED_BYTES
         for name in archive.namelist():
