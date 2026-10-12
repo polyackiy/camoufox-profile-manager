@@ -6,6 +6,8 @@ profile persistence, archive recovery and app-only removal/reinstallation worked
 on this Mac. Closing the published app left its manager process running:
 [failure #67](https://github.com/polyackiy/camoufox-profile-manager/issues/67).
 This is a developer-workstation trial, **not a completed clean-system acceptance**.
+The completed shutdown fix was subsequently rebuilt and retested on the same Mac;
+see [the final candidate results](#completed-shutdown-fix-and-native-icons) below.
 
 ## Artifact and environment
 
@@ -96,7 +98,7 @@ This demonstrates **0.5 source/CLI data → 0.6.0rc1 DMG** migration on this hos
 It does not demonstrate upgrade between two distinct published DMGs, preservation
 of pre-existing Trash during that upgrade, or whole-installation rollback.
 
-## Local helper-dispatch candidate
+## Intermediate local helper-dispatch candidate
 
 A separate, unpublished DMG was built from main commit
 `8043ab7c60ebb5a9f8a8636236605426ae6c0c99` plus the launcher change to call
@@ -117,15 +119,76 @@ bundle version `0.6.0rc1`; it is **not another public release**.
   The sample identifies where it was delayed, not the definitive root cause.
 
 The launcher change follows [PyInstaller's multiprocessing guidance](https://pyinstaller.org/en/stable/common-issues-and-pitfalls.html#multi-processing)
-and resolves helper dispatch only. It must not close #67 or claim clean shutdown.
+and resolved helper dispatch only. That intermediate candidate did not resolve #67.
 Native packaging/static UI export succeeded; local verification recorded
 **547 passed, 2 skipped, 24 browser tests deselected**, Ruff check/format passed,
 and mypy passed for 43 source files.
+
+## Completed shutdown fix and native icons
+
+The final local build's runtime source corresponds to commit
+`6c15112a59bfabcc422e8a3a4541b97876d1f241` in PR #68. It still reports version
+`0.6.0rc1`, is unpublished and ad-hoc signed. The public preview asset above was
+not replaced. The installation used the same isolated data, system-only PATH,
+cached browser and non-quarantined CLI workflow as the initial trial.
+
+- Asset: `camoufox-pm-macos-arm64.dmg`.
+- SHA-256: `e27f20382f287e7e1fe1be74d1e84f44ced8c507c02c5d43f39c13153bc5bd3a`.
+- Native bundle signature verification passed. `CFBundleIconFile` names
+  `camoufox-pm.icns`; the installed resource matches the checked-in icon exactly.
+  Finder displayed the project's fox icon in both list and icon views.
+- The real frozen resource-tracker pipe/EOF probe again exited 0 without entering
+  desktop startup.
+
+The fix keeps helper dispatch before GUI imports and waits for the server thread's
+lifespan cleanup. A synchronous macOS closing handler also completes that cleanup
+before Cocoa's Cmd+Q can terminate the app. If the server does not stop within the
+existing 15+3 second bounds, closing is cancelled and normal return cannot report
+successful shutdown.
+
+After successful standalone macOS cleanup, the packaged entry point flushes logs
+and uses an explicit process exit to avoid the observed `Py_FinalizeEx` module-GC
+hang. This is a lifecycle workaround at the app boundary, not a claimed fix to
+CPython or PyObjC. [Python documents](https://docs.python.org/3/library/os.html#os._exit)
+that this exit skips Python exit handlers and automatic stream flushing; therefore
+browser/driver shutdown, database close and lock release are performed explicitly
+before it, and streams are flushed explicitly. Source/CLI and other platforms
+retain ordinary interpreter exit. Failed startup or incomplete server shutdown
+does not take the successful-exit path.
+
+| Retest | Observed complete exit after request | Result |
+| --- | --- | --- |
+| Native window close with running profile | 1.14 s | Pass |
+| Normal reopen, then Cmd+Q with running profile | 1.02 s | Pass |
+| Normal reopen, then repeated native window close | 1.15 s | Pass |
+
+Each cycle inspected the manager's process tree immediately before close, confirmed
+all captured browser/driver/tracker processes and every executable from the test
+app were gone, and confirmed its listening endpoint was closed. Every corresponding
+desktop log reached `Finished server process`. SQLite integrity passed and all
+profile leases were released. The key digest stayed unchanged. Normal reopen
+retained both profiles' full settings/pinned identity, synthetic proxy credentials,
+group and paused schedule; all nine fixture fields matched without reseeding.
+The existing production-data manifest matched after testing. No forced process
+cleanup was needed for these three final cycles; the fixture server was stopped.
+
+Local final verification: **556 passed, 2 skipped, 24 browser tests deselected**;
+Ruff check/format and mypy passed. Regression cases cover helper routing, exit
+ordering/platform scope, failed startup, missing native window, incomplete server
+cleanup and cleanup before permitting macOS native quit. The native artifact
+checks and retests above establish D08 for this local Apple Silicon candidate;
+they do not turn the original public DMG failure into a pass.
+
+The shared SVG now supplies macOS ICNS, Windows EXE/installer/uninstaller ICO and
+Linux launcher/window icons. Generated representations include small and Retina
+sizes; `iconutil` decoded the ICNS and Windows ICO structure was inspected. Actual
+Windows/Intel/Linux runtime behavior remains outside this Mac trial.
 
 ## Remaining acceptance work
 
 #62 remains open. Apple Silicon still requires quarantined normal installation,
 a fresh account/system without development runtimes or browser cache, browser
 download/retry, the remaining deletion/update scenarios, a distinct later DMG
-upgrade, and a passing retest of #67. Intel macOS, Windows and Linux need their
+upgrade, and testing the corrected package in the clean-system matrix. The local
+Apple Silicon shutdown retest passed as recorded above. Intel macOS, Windows and Linux need their
 own target trials. Signing/notarization is tracked separately in #61.
