@@ -185,7 +185,28 @@ async def read_canvases(options, user_data_dir, *urls, diagnostics=None):
             png_hash = hashlib.sha256(value.encode()).hexdigest()[:16]
             seen.append(png_hash)
             if diagnostics is not None:
-                diagnostics.append(canvas_launch_diagnostic(options, snapshot, png_hash))
+                record = canvas_launch_diagnostic(options, snapshot, png_hash)
+                # Evaluate a separate identical draw as a real page script.
+                # Reading its result through DOM text avoids isolated-world
+                # window/typed-array wrappers. This does not replace the exact
+                # PNG measurement above or change its stability assertion.
+                await page.add_script_tag(
+                    content=(
+                        "(() => { const result = (" + CANVAS_DIAGNOSTIC + ")();"
+                        "const out = document.createElement('pre');"
+                        "out.id = 'cpm-canvas-mainworld';"
+                        "out.textContent = JSON.stringify(result);"
+                        "document.body.appendChild(out); })();"
+                    )
+                )
+                main_snapshot = json.loads(
+                    await page.locator("#cpm-canvas-mainworld").text_content()
+                )
+                record["mainWorld"] = {
+                    "pngHash": hashlib.sha256(main_snapshot["value"].encode()).hexdigest()[:16],
+                    **{key: item for key, item in main_snapshot.items() if key != "value"},
+                }
+                diagnostics.append(record)
         return seen
 
 
