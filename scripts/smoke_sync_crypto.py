@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import sys
 import tempfile
 from pathlib import Path
 
@@ -12,6 +13,8 @@ from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
 from camoufox_pm.core.update_permissions import create_private_directory
 from camoufox_pm.sync.crypto import decrypt_file, encrypt_file
 from camoufox_pm.sync.protocol import SUITE, RecipientEnvelope, SnapshotContext, SnapshotManifest
+
+assert "camoufox" not in sys.modules, "Crypto helpers initialized the browser stack"
 
 
 def fixture():

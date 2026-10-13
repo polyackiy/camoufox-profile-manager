@@ -141,6 +141,20 @@ def test_strict_fields(field, value):
         b" " * (MAX_MANIFEST_BYTES + 1),
         b"",
     ],
+    ids=[
+        "duplicate",
+        "float",
+        "exponent",
+        "nan",
+        "infinity",
+        "array",
+        "null",
+        "trailing",
+        "utf8",
+        "depth",
+        "oversize",
+        "empty",
+    ],
 )
 def test_malformed_or_unbounded_json(raw):
     with pytest.raises(ValueError):

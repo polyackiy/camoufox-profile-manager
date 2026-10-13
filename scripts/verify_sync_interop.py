@@ -15,10 +15,11 @@ manifest, _, _ = fixture()
 recipient = manifest.recipients[0]
 info = recipient_info(manifest, recipient.kind, recipient.recipient_id)
 result = subprocess.check_output(
-    ["go", "run", "-mod=mod", ".", info.hex()],
+    ["go", "run", "-mod=readonly", ".", info.hex()],
     cwd=root / "tests/vectors/sync/hpke_interop",
 )
 vector = json.loads(result)
+assert vector == json.loads((root / "tests/vectors/sync/hpke-circl-v1.json").read_text())
 assert bytes.fromhex(vector["info"]) == info and vector["aad"] == ""
 key = X25519PrivateKey.from_private_bytes(bytes.fromhex(vector["recipient_secret"]))
 assert HPKE_SUITE.decrypt(bytes.fromhex(vector["wrapped_key"]), key, info=info) == bytes.fromhex(

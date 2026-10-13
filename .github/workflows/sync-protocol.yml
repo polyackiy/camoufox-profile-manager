@@ -4,6 +4,8 @@ on:
   pull_request:
     paths:
       - 'src/camoufox_pm/sync/**'
+      - 'src/camoufox_pm/core/__init__.py'
+      - 'src/camoufox_pm/core/update_permissions.py'
       - 'tests/unit/test_sync_*.py'
       - 'tests/vectors/sync/**'
       - 'scripts/smoke_sync_crypto.py'
