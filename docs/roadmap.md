@@ -23,8 +23,9 @@ It also adds [JSON/Netscape cookies](cookies.md), reusable [templates](templates
 managed [Firefox extensions](extensions.md), and [tags/saved views](profile-organization.md).
 See [stage-two.md](stage-two.md) for the acceptance record and linked GitHub work.
 The [Camoufox compatibility review](camoufox-compatibility.md) records the tested
-wrapper/browser pair. Team permissions and cross-device synchronisation require
-a separate design. [Coordinated manager/browser updates](update-recovery.md) now have an integrated
+wrapper/browser pair. Stage three starts with [roles, profile access and activity records](stage-three.md)
+([#77](https://github.com/polyackiy/camoufox-profile-manager/issues/77)).
+Cross-device synchronisation follows a separate design. [Coordinated manager/browser updates](update-recovery.md) now have an integrated
 checkpoint, helper, validation and rollback transaction. Public unsigned previews
 retain manual installation until production signing and platform acceptance.
 

@@ -7,6 +7,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- Begin stage three with a typed, secret-free request principal and an explicit
+  roles/profile-access/audit implementation plan (#77); authorization behavior is unchanged.
 - Integrate verified manager/browser downloads with complete checkpoints, offline
   application replacement, numbered migrations and fresh-process browser validation (#63).
 - Offer timestamp-confirmed binary/data rollback and a standalone recovery window
