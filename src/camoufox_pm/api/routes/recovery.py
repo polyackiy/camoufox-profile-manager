@@ -4,6 +4,7 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from camoufox_pm.api.access import (
+    is_admin,
     require_admin,
     require_profile_access,
     visible_profile_ids,
@@ -80,7 +81,7 @@ async def permanently_delete(profile_id: str, confirm: bool = Query(False)):
     try:
         deleted = await get_profile_manager().permanently_delete_profile(profile_id)
     except ValueError as exc:
-        raise HTTPException(400, str(exc)) from exc
+        raise HTTPException(400, str(exc) if is_admin() else "Recovery operation failed") from exc
     if not deleted:
         raise HTTPException(404, "Trashed profile not found")
     return ApiResponse(success=True, message="Profile permanently deleted", data=None)
@@ -119,7 +120,7 @@ async def restore_backup(backup_id: str, request: RestoreBackupRequest):
     except FileNotFoundError as exc:
         raise HTTPException(404, str(exc)) from exc
     except ValueError as exc:
-        raise HTTPException(400, str(exc)) from exc
+        raise HTTPException(400, str(exc) if is_admin() else "Recovery operation failed") from exc
     return ApiResponse(
         success=True,
         message="Backup restored as a new profile",

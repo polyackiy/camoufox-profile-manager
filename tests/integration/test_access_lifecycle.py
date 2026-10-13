@@ -200,3 +200,63 @@ async def test_schedule_api_stamps_actor_and_hides_ungranted_schedule(client):
         assert known.status_code == missing.status_code == 404
         assert known.json()["error"]["message"] == missing.json()["error"]["message"]
         assert (await client.get(prefix + "/schedules")).json()["total"] == 1
+
+
+@pytest.mark.asyncio
+async def test_nonadmin_server_errors_and_password_validation_do_not_echo_secrets(
+    client, monkeypatch
+):
+    manager = dependencies.get_profile_manager()
+    profile = await manager.create_profile("Failing", generate_fingerprint=False)
+    _, token = await account(manager.storage)
+    await manager.storage.set_profile_grant("operator", profile.id)
+    client.cookies.set(auth.SESSION_COOKIE, token)
+    monkeypatch.setattr(
+        manager,
+        "launch_browser",
+        AsyncMock(side_effect=RuntimeError("proxy-secret at /private/browser")),
+    )
+    response = await client.post(f"/api/v1/profiles/{profile.id}/launch", json={})
+    assert response.status_code == 500
+    assert "proxy-secret" not in response.text and "/private/browser" not in response.text
+    events = await manager.storage.list_audit(action="launch_profile")
+    assert events[0]["result"] == "failure"
+    assert "proxy-secret" not in str(events)
+    # Validation responses must not echo the password even when a required field
+    # is missing and pydantic's input would otherwise contain the whole object.
+    await manager.storage.update_user_access("operator", role="administrator")
+    token = await auth.create_session(
+        manager.storage, (await manager.storage.get_user_by_username("operator"))["id"]
+    )
+    client.cookies.set(auth.SESSION_COOKIE, token)
+    response = await client.post(
+        "/api/v1/access/users", json={"username": "new", "password": "secret-not-for-response"}
+    )
+    assert response.status_code == 422
+    assert "secret-not-for-response" not in response.text
+
+
+@pytest.mark.asyncio
+async def test_nonadmin_conflict_handler_hides_lease_holder(client):
+    from httpx import ASGITransport, AsyncClient
+
+    from camoufox_pm.api.errors import install_error_handlers
+    from camoufox_pm.core.leases import ProfileLocked
+
+    manager = dependencies.get_profile_manager()
+    _, token = await account(manager.storage)
+    isolated_app = FastAPI()
+    install_error_handlers(isolated_app)
+
+    @isolated_app.get("/conflict", dependencies=[Depends(dependencies.require_auth)])
+    async def conflict():
+        raise ProfileLocked("test-profile", "private-host:1234:private-uuid")
+
+    async with AsyncClient(
+        transport=ASGITransport(app=isolated_app), base_url="http://test"
+    ) as isolated_client:
+        isolated_client.cookies.set(auth.SESSION_COOKIE, token)
+        response = await isolated_client.get("/conflict")
+    assert response.status_code == 409
+    assert "private-host" not in response.text
+    assert "private-uuid" not in response.text

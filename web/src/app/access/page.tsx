@@ -27,6 +27,7 @@ async function allProfiles() {
 const roles: AccessRole[] = ['administrator', 'operator', 'viewer']
 const roleLabel = { administrator: 'Administrator', operator: 'Operator', viewer: 'Viewer' }
 const filterLabel = { actor: 'Actor', action: 'Action', result: 'Result' }
+const auditResults = ['success', 'denied', 'failure', 'partial', 'interrupted', 'skipped']
 
 export default function AccessPage() {
   const { canManageAccess } = useAuth()
@@ -302,7 +303,14 @@ export default function AccessPage() {
           {(['actor', 'action', 'result'] as const).map(key => (
             <label key={key}>
               {t(filterLabel[key])}
-              <input className="field block" value={draftFilters[key]} onChange={event => setDraftFilters({ ...draftFilters, [key]: event.target.value })} />
+              {key === 'result' ? (
+                <select className="field block" value={draftFilters.result} onChange={event => setDraftFilters({ ...draftFilters, result: event.target.value })}>
+                  <option value="">{t('All results')}</option>
+                  {auditResults.map(result => <option key={result} value={result}>{t(result)}</option>)}
+                </select>
+              ) : (
+                <input className="field block" value={draftFilters[key]} onChange={event => setDraftFilters({ ...draftFilters, [key]: event.target.value })} />
+              )}
             </label>
           ))}
           <button className="btn btn-default">{t('Apply filters')}</button>

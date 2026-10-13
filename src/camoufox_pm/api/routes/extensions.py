@@ -5,6 +5,7 @@ from typing import Any
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile
 
 from camoufox_pm.api.access import (
+    is_admin,
     require_admin,
     require_profile_access,
 )
@@ -22,7 +23,7 @@ async def perform(operation):
     except LookupError:
         raise HTTPException(404, "Extension or profile not found") from None
     except ValueError as exc:
-        raise HTTPException(422, str(exc)) from None
+        raise HTTPException(422, str(exc) if is_admin() else "Invalid extension request") from None
 
 
 @router.get(

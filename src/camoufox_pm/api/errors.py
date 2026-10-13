@@ -29,6 +29,7 @@ from camoufox_pm.core.leases import ProfileLocked
 DEFAULT_CODES = {
     400: "bad_request",
     401: "unauthorized",
+    403: "forbidden",
     404: "not_found",
     405: "method_not_allowed",
     409: "conflict",
@@ -75,6 +76,10 @@ def install_error_handlers(app: FastAPI) -> None:
         code = getattr(exc, "code", None) or DEFAULT_CODES.get(exc.status_code, "error")
         details = getattr(exc, "details", None)
         message = exc.detail if isinstance(exc.detail, str) else str(exc.detail)
+        principal = getattr(request.state, "principal", None)
+        if exc.status_code >= 500 and principal is not None and principal.role != "administrator":
+            message = "Operation failed. Ask an administrator to inspect the server log."
+            details = None
         return JSONResponse(
             status_code=exc.status_code,
             content=_payload(code, message, details),
@@ -83,7 +88,11 @@ def install_error_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(ProfileLocked)
     async def _profile_locked(request: Request, exc: ProfileLocked) -> JSONResponse:
-        return JSONResponse(status_code=409, content=_payload("conflict", str(exc)))
+        principal = getattr(request.state, "principal", None)
+        message = str(exc)
+        if principal is not None and principal.role != "administrator":
+            message = "Profile is in use. Try again after it is closed."
+        return JSONResponse(status_code=409, content=_payload("conflict", message))
 
     @app.exception_handler(StaleWriteError)
     async def _stale_write(request: Request, exc: StaleWriteError) -> JSONResponse:
@@ -113,6 +122,12 @@ def install_error_handlers(app: FastAPI) -> None:
         if sensitive_cookie_path or any(
             request.url.path == prefix or request.url.path.startswith(prefix + "/")
             for prefix in (
+                "/api/auth",
+                "/api/v1/auth",
+                "/api/access",
+                "/api/v1/access",
+                "/api/profiles",
+                "/api/v1/profiles",
                 "/api/proxies",
                 "/api/v1/proxies",
                 "/api/templates",

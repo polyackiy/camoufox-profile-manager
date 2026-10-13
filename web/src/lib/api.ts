@@ -150,7 +150,12 @@ const API_KEY_STORAGE = 'camoufox-pm.api-key'
 /** The key CPM_API_KEY expects, if the user has stored one. */
 export function getApiKey(): string {
   if (typeof window === 'undefined') return ''
-  return window.localStorage.getItem(API_KEY_STORAGE) ?? ''
+  try {
+    return window.localStorage.getItem(API_KEY_STORAGE) ?? ''
+  } catch {
+    // Cookie/local authentication remains usable when browser storage is blocked.
+    return ''
+  }
 }
 
 export function setApiKey(key: string): void {

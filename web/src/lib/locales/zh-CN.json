@@ -763,5 +763,11 @@
   "Previous": "上一页",
   "Next": "下一页",
   "Ask an administrator to grant you access to profiles.": "请联系管理员授予您配置访问权限。",
-  "Assigned extension snapshots": "已授权的扩展快照"
+  "Assigned extension snapshots": "已授权的扩展快照",
+  "All results": "所有结果",
+  "success": "成功",
+  "denied": "已拒绝",
+  "failure": "失败",
+  "partial": "部分完成",
+  "interrupted": "已中断"
 }

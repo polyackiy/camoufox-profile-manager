@@ -233,3 +233,61 @@ async def test_proxy_check_never_exposes_historical_or_live_error_credentials(cl
     assert response.status_code == 200
     assert "proxy-secret" not in response.text and "proxy-user" not in response.text
     assert "proxy-secret" not in (await client.get("/api/v1/profiles/" + own.id)).text
+
+
+@pytest.mark.asyncio
+async def test_browser_service_failures_and_messages_do_not_echo_secrets(client, monkeypatch):
+    manager, own, other = await setup_actor(client, "operator", monkeypatch)
+
+    async def launch_failure(*args, **kwargs):
+        raise ValueError("proxy-secret /host/private/profile")
+
+    monkeypatch.setattr(manager, "launch_browser", launch_failure)
+    response = await client.post("/api/v1/profiles/" + own.id + "/launch", json={})
+    assert response.status_code == 404
+    assert "proxy-secret" not in response.text and "/host/private" not in response.text
+
+    async def launch_message(*args, **kwargs):
+        return {
+            "status": "proxy-secret",
+            "message": "proxy-secret /host/private/profile",
+            "camoufox_options": {"password": "proxy-secret"},
+        }
+
+    monkeypatch.setattr(manager, "launch_browser", launch_message)
+    response = await client.post("/api/v1/profiles/" + own.id + "/launch", json={})
+    assert response.status_code == 200
+    assert "proxy-secret" not in response.text and "/host/private" not in response.text
+
+    async def close_message(*args, **kwargs):
+        return {
+            "status": "proxy-secret",
+            "profile_id": own.id,
+            "message": "proxy-secret /host/private",
+        }
+
+    monkeypatch.setattr(manager, "close_browser", close_message)
+    response = await client.post("/api/v1/profiles/" + own.id + "/close")
+    assert response.status_code == 200
+    assert "proxy-secret" not in response.text and "/host/private" not in response.text
+
+
+@pytest.mark.asyncio
+async def test_archive_temp_file_is_removed_if_export_revoked_during_generation(
+    client, monkeypatch
+):
+    manager, own, other = await setup_actor(client, "operator", monkeypatch)
+    storage = dependencies.get_storage_manager()
+    await storage.set_profile_grant("member", own.id, can_export=True)
+    paths = []
+
+    async def export(profile_id, destination):
+        paths.append(destination)
+        destination.write_bytes(b"private archive bytes")
+        await storage.set_profile_grant("member", own.id, can_export=False)
+
+    monkeypatch.setattr(manager, "export_profile", export)
+    response = await client.get("/api/v1/profiles/" + own.id + "/export")
+    assert response.status_code == 404
+    assert len(paths) == 1 and not paths[0].exists()
+    assert "private archive" not in response.text

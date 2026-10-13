@@ -4,7 +4,7 @@ from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Query
 
-from camoufox_pm.api.access import authorized_bytes_response, require_profile_access
+from camoufox_pm.api.access import authorized_bytes_response, is_admin, require_profile_access
 from camoufox_pm.api.dependencies import get_profile_manager
 from camoufox_pm.api.models.cookies import (
     CookieImportData,
@@ -31,7 +31,10 @@ async def _perform(operation):
     try:
         return await operation
     except CookieTransferError as exc:
-        raise HTTPException(422, str(exc)) from exc
+        raise HTTPException(
+            422,
+            str(exc) if is_admin() else "Could not transfer cookies; verify the input and retry",
+        ) from exc
     except BrowserLaunchError as exc:
         raise HTTPException(
             503, "Install the browser in Settings before transferring cookies"
