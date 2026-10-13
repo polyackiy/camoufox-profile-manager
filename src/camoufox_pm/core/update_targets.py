@@ -10,7 +10,7 @@ import os
 import re
 import stat
 from dataclasses import dataclass
-from pathlib import Path, PurePosixPath
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from urllib.parse import urlsplit
 from uuid import uuid4
 
@@ -119,6 +119,20 @@ def validate_manifest(custom: dict, target_path: str, policy: UpdatePolicy) -> d
     return dict(manifest)
 
 
+def _valid_root_history_link(text: str, *, windows: bool | None = None) -> bool:
+    """Accept only TUF's canonical relative two-component cache link."""
+    windows = os.name == "nt" if windows is None else windows
+    path = PureWindowsPath(text) if windows else PurePosixPath(text)
+    normalized = text.replace("\\", "/") if windows else text
+    return (
+        not path.anchor
+        and len(path.parts) == 2
+        and path.parts[0] == "root_history"
+        and re.fullmatch(r"[1-9][0-9]*\.root\.json", path.parts[1]) is not None
+        and normalized == path.as_posix()
+    )
+
+
 def _metadata_permissions(directory: Path, *, protect: bool) -> None:
     # python-tuf 7 atomically publishes root.json as an internal root-history
     # symlink on POSIX. Permit only that exact maintained-client cache format.
@@ -126,7 +140,7 @@ def _metadata_permissions(directory: Path, *, protect: bool) -> None:
         if cached.is_symlink():
             if (
                 cached != directory / "root.json"
-                or not re.fullmatch(r"root_history/[1-9][0-9]*\.root\.json", os.readlink(cached))
+                or not _valid_root_history_link(os.readlink(cached))
                 or not cached.resolve().is_relative_to(directory.resolve())
                 or not cached.resolve().is_file()
             ):

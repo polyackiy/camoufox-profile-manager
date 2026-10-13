@@ -2,6 +2,7 @@
 
 import json
 import sqlite3
+from contextlib import closing
 
 import pytest
 
@@ -14,7 +15,7 @@ from camoufox_pm.core.update_checkpoint import (
 
 def setup_state(tmp_path):
     db = tmp_path / "state.db"
-    with sqlite3.connect(db) as conn:
+    with closing(sqlite3.connect(db)) as conn, conn:
         conn.execute("CREATE TABLE settings (value TEXT)")
         conn.execute("INSERT INTO settings VALUES ('old')")
     profiles = tmp_path / "profiles"
@@ -31,13 +32,13 @@ def test_complete_restore_and_preserve(tmp_path):
     create_checkpoint(root, db_path=db, paths=paths, maintenance_check=lambda: True)
     (paths["profiles"] / "cookies").write_bytes(b"new")
     paths["optional"].write_text("new setting")
-    with sqlite3.connect(db) as conn:
+    with closing(sqlite3.connect(db)) as conn, conn:
         conn.execute("UPDATE settings SET value = 'new'")
     restore_checkpoint(root, db_path=db, paths=paths, maintenance_check=lambda: True)
     assert (paths["profiles"] / "cookies").read_bytes() == b"private-cookie"
     assert (tmp_path / "profiles.failed-checkpoint" / "cookies").read_bytes() == b"new"
     assert not paths["optional"].exists()
-    with sqlite3.connect(db) as conn:
+    with closing(sqlite3.connect(db)) as conn, conn:
         assert conn.execute("SELECT value FROM settings").fetchone() == ("old",)
     if __import__("os").name != "nt":
         assert (root / "0").stat().st_mode & 0o777 == 0o600
@@ -237,7 +238,7 @@ def test_live_wal_database_checkpoint_is_self_contained(tmp_path):
         create_checkpoint(root, db_path=db, paths=paths, maintenance_check=lambda: True)
     finally:
         live.close()
-    with sqlite3.connect(root / "0") as snapshot:
+    with closing(sqlite3.connect(root / "0")) as snapshot:
         assert snapshot.execute("SELECT value FROM settings").fetchone() == ("in-wal",)
     assert not (root / "0-wal").exists()
 

@@ -161,7 +161,10 @@ def main() -> None:
             print("Complete data and browser checkpoint restored; newer copies were retained.")
             return
         if args.action == "cancel":
-            service.cancel_preparation()
+            if service.status()["state"] == "checkpoint_interrupted":
+                service.cancel_abandoned_checkpoint()
+            else:
+                service.cancel_preparation()
         status = service.status()
         status["checkpoints"] = []
         for journal_path in sorted((service.root / "checkpoints").glob("*/journal.json")):

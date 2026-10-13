@@ -158,3 +158,21 @@ def test_encrypted_credential_validation_requires_actual_original_key(tmp_path, 
     with pytest.raises(ValueError, match="cannot read"):
         recovery._validate_encrypted_credentials(database, Fernet.generate_key().decode())
     recovery._validate_encrypted_credentials(database, key.decode())
+
+
+def test_legacy_scan_ignores_unrelated_protected_process_but_not_candidate(monkeypatch):
+    import os
+    from types import SimpleNamespace
+
+    import psutil
+
+    def denied():
+        raise psutil.AccessDenied(123)
+
+    process = SimpleNamespace(pid=123, name=lambda: "csrss.exe", username=denied, cmdline=denied)
+    current = SimpleNamespace(pid=os.getpid(), username=lambda: "user", parents=lambda: [])
+    monkeypatch.setattr(psutil, "Process", lambda: current)
+    monkeypatch.setattr(psutil, "process_iter", lambda: [process])
+    assert recovery._legacy_processes_stopped()
+    process.name = lambda: "camoufox.exe"
+    assert not recovery._legacy_processes_stopped()

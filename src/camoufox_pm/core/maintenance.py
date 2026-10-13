@@ -43,6 +43,7 @@ class MaintenanceGate:
                 "CREATE TABLE IF NOT EXISTS gate (id INTEGER PRIMARY KEY CHECK(id=1), owner TEXT); INSERT OR IGNORE INTO gate VALUES (1, NULL); CREATE TABLE IF NOT EXISTS operations (token TEXT PRIMARY KEY, pid INTEGER NOT NULL); CREATE TABLE IF NOT EXISTS managers (pid INTEGER PRIMARY KEY, created REAL NOT NULL);"
             )
         with closing(self._connect()) as db, db:
+            db.execute("BEGIN IMMEDIATE")
             columns = {row[1] for row in db.execute("PRAGMA table_info(operations)")}
             for name, type_name in (("created", "REAL"), ("machine", "TEXT")):
                 if name not in columns:

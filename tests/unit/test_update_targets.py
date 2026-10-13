@@ -268,3 +268,30 @@ def test_external_cached_root_symlink_rejected(signed_repository, policy, tmp_pa
     (client.metadata_dir / "root.json").symlink_to(external)
     with pytest.raises(UpdateVerificationError, match="Unsafe cached metadata"):
         client.download("manager.zip", policy)
+
+
+@pytest.mark.parametrize(
+    "text,windows,accepted",
+    [
+        ("root_history/1.root.json", False, True),
+        ("root_history/42.root.json", True, True),
+        (r"root_history\1.root.json", True, True),
+        (r"root_history\1.root.json", False, False),
+        (r"C:\root_history\1.root.json", True, False),
+        (r"C:root_history\1.root.json", True, False),
+        (r"\\server\root_history\1.root.json", True, False),
+        (r"\root_history\1.root.json", True, False),
+        ("/root_history/1.root.json", False, False),
+        ("root_history/../1.root.json", True, False),
+        ("root_history/./1.root.json", True, False),
+        ("root_history//1.root.json", True, False),
+        ("root_history/01.root.json", True, False),
+        ("root_history/0.root.json", True, False),
+        ("root_history/1.root.json:stream", True, False),
+        ("other/1.root.json", True, False),
+    ],
+)
+def test_native_root_history_link_lexical_contract(text, windows, accepted):
+    from camoufox_pm.core.update_targets import _valid_root_history_link
+
+    assert _valid_root_history_link(text, windows=windows) is accepted

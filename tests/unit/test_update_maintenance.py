@@ -264,3 +264,50 @@ def test_cancel_cannot_bypass_helper_replacement_journal(tmp_path: Path):
     with pytest.raises(MaintenanceBlocked, match="helper journal"):
         service.cancel_preparation()
     assert gate.blocked
+
+
+def test_interrupted_offline_checkpoint_can_be_cancelled_without_deleting_copy(tmp_path: Path):
+    from camoufox_pm.core.update_service import UpdateService
+
+    gate = MaintenanceGate(tmp_path / "control" / "maintenance.sqlite3")
+    service = UpdateService(gate.path.parent, gate)
+    owner = "checkpoint-" + "a" * 32
+    copy = service.root / "checkpoints" / ("a" * 32)
+    copy.mkdir(parents=True)
+    (copy / "partial").write_text("retained")
+    gate.acquire(owner)
+    reopened = UpdateService(gate.path.parent, MaintenanceGate(gate.path))
+    assert reopened.status()["state"] == "checkpoint_interrupted"
+    reopened.cancel_abandoned_checkpoint()
+    assert not gate.blocked
+    assert reopened.status()["state"] == "idle"
+    assert (copy / "partial").read_text() == "retained"
+    with gate.operation():
+        pass
+
+
+@pytest.mark.parametrize("owner", ["restore-" + "a" * 32, "checkpoint-invalid", "replacement"])
+def test_checkpoint_cancel_refuses_other_owner(tmp_path: Path, owner):
+    from camoufox_pm.core.update_service import UpdateService
+
+    gate = MaintenanceGate(tmp_path / "control" / "maintenance.sqlite3")
+    service = UpdateService(gate.path.parent, gate)
+    gate.acquire(owner)
+    with pytest.raises(MaintenanceBlocked):
+        service.cancel_abandoned_checkpoint()
+    assert gate.blocked
+
+
+def test_checkpoint_cancel_refuses_active_control_and_helper_journal(tmp_path: Path):
+    from camoufox_pm.core.update_service import UpdateService
+
+    gate = MaintenanceGate(tmp_path / "control" / "maintenance.sqlite3")
+    service = UpdateService(gate.path.parent, gate)
+    gate.acquire("checkpoint-" + "a" * 32)
+    with service._control():
+        with pytest.raises(MaintenanceBlocked, match="already running"):
+            service.cancel_abandoned_checkpoint()
+    (service.root / "replacement.json").write_text("{}")
+    with pytest.raises(MaintenanceBlocked, match="helper journal"):
+        service.cancel_abandoned_checkpoint()
+    assert gate.blocked

@@ -126,10 +126,31 @@ def _legacy_processes_stopped() -> bool:
         if process.pid == os.getpid() or process.pid in launcher_ancestors:
             continue
         try:
+            name = process.name().lower()
+            candidate = (
+                "camoufox" in name
+                or "firefox" in name
+                or name.startswith("python")
+                or name
+                in (
+                    "uvicorn",
+                    "uvicorn.exe",
+                    "uv",
+                    "uv.exe",
+                    "pipx",
+                    "pipx.exe",
+                    "bash",
+                    "zsh",
+                    "sh",
+                )
+            )
+            # Do not query protected SYSTEM processes' private command lines.
+            # Candidate interpreter/browser/manager uncertainty stays closed.
+            if not candidate:
+                continue
             if process.username() != user:
                 continue
             command = " ".join(process.cmdline()).lower()
-            name = process.name().lower()
             if any(
                 marker in command
                 for marker in ("camoufox_pm", "camoufox-pm", "camoufox profile manager")

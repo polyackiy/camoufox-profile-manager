@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import sqlite3
 import uuid
 from collections.abc import Callable, Mapping
@@ -45,11 +46,24 @@ class UpdateService:
 
     def status(self) -> dict:
         if not self.journal.exists():
-            return {"state": "idle", "automatic_install_available": False}
+            owner = self.gate.owner
+            return {
+                "state": "checkpoint_interrupted"
+                if owner and re.fullmatch(r"checkpoint-[a-f0-9]{32}", owner)
+                else "idle",
+                "automatic_install_available": False,
+            }
         try:
             value = json.loads(self.journal.read_text())
             if not isinstance(value, dict) or not value.get("transaction_id"):
                 raise ValueError("Invalid update journal")
+            owner = self.gate.owner
+            if (
+                value.get("state") in ("idle", "cancelled", "committed")
+                and owner
+                and re.fullmatch(r"checkpoint-[a-f0-9]{32}", owner)
+            ):
+                value = {**value, "state": "checkpoint_interrupted"}
             return value
         except (ValueError, OSError) as exc:
             raise MaintenanceBlocked(
@@ -141,3 +155,23 @@ class UpdateService:
             self.gate.release(transaction["transaction_id"])
         transaction["state"] = "cancelled"
         self._save(transaction)
+
+    @_serialized
+    def cancel_abandoned_checkpoint(self):
+        """Release only an interrupted read-only offline checkpoint owner.
+
+        The cross-process control lock proves no checkpoint creation is still
+        running. Copies are retained; restoring/replacing is never cancellable.
+        """
+        owner = self.gate.owner
+        if not owner or not re.fullmatch(r"checkpoint-[a-f0-9]{32}", owner):
+            raise MaintenanceBlocked("Only an abandoned offline checkpoint can be cancelled")
+        if (self.root / "replacement.json").exists():
+            raise MaintenanceBlocked(
+                "A replacement helper journal exists; offline recovery is required"
+            )
+        if self.status()["state"] != "checkpoint_interrupted":
+            raise MaintenanceBlocked(
+                "Resolve the update transaction before cancelling its maintenance"
+            )
+        self.gate.release(owner)

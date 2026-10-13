@@ -42,7 +42,9 @@ stays closed; rerun the same command after resolving the failure. Use a compatib
 manager binary before opening the restored data. This command does not install or
 restore the previous manager executable.
 
-Interrupted **preparation**, before executable replacement, can be cancelled:
+Interrupted **preparation**, before executable replacement, and abandoned
+read-only checkpoint creation (`checkpoint_interrupted`) can be cancelled.
+Partial checkpoint copies are retained:
 
 ```sh
 camoufox-pm update-recovery cancel
