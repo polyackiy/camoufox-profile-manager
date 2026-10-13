@@ -156,8 +156,8 @@ downloads have a thirty-minute total deadline. Small authenticated RPC requests
 have a sixty-second deadline and eight concurrent slots. read
 silence over 30 seconds or total upload time over thirty minutes fails closed.
 Configure lower blob/storage limits when appropriate. Committed history is
-retained, so reaching a quota blocks writes; automatic destructive pruning is not
-implemented.
+retained, so reaching a quota blocks writes; there is no automatic age-based pruning. Explicit owner-signed retention
+decisions are required for historical ciphertext collection.
 
 An interrupted upload retains its reserved quota and cannot become a head.
 `discard_upload` explicitly cancels an uncommitted upload owned by the requesting
@@ -203,10 +203,10 @@ and reservation for a later sweep. Revision IDs remain permanently occupied.
 `blob_status` reports `expiring` with its reserved length or `expired` with length
 zero; the original writer and ciphertext hash remain. An explicit client retry
 must reconcile before replacing an expired pending transfer with a freshly
-encrypted revision; old ciphertext is retained locally. A partially uploaded byte
-stream is not resumed by offset.
+encrypted revision; old ciphertext is retained locally. A resumable ciphertext upload continues only from its durable confirmed byte
+offset; it never re-encrypts changed data into an existing revision.
 
-Stop all old-version workers before upgrading the relay. Schema v2 migrates v1
+Stop all old-version workers before upgrading the relay. Schema v4 migrates v1/v2/v3
 transactionally and grants pre-existing unpublished uploads a full seven-day
 period from migration; preserve a complete database/object backup first. Clock
 rollback below the retained high-water mark stops new expiry decisions; already
@@ -215,9 +215,9 @@ metadata and time state from an old backup cannot prove current time or freshnes
 normal independent client history checks remain required.
 
 This cleanup never selects committed revisions, including old ancestors, and
-never deletes transition history. Signed profile deletion/Trash and delayed
-committed-history garbage collection remain separate work; committed retention
-continues to be indefinite and quota-bounded.
+never deletes transition history. Profile Trash uses authenticated encrypted lifecycle snapshots. Committed
+ciphertext retention is indefinite unless the owner explicitly signs a delayed
+retention decision; the protocol history remains permanent.
 
 Explicit authenticated cancellation uses the same crash-safe sequence with an
 `aborting` fence and terminal `aborted` status. Only the original currently
@@ -226,3 +226,73 @@ device certificate. A retry or operator maintenance can finish an interrupted
 cancellation; its retained quota is released only after successful deletion and
 flush. Maintenance's `expired` count includes completed prior cancellations.
 Neither `aborting` nor `expiring` permits commit or replacement upload.
+
+
+## Resumable immutable ciphertext uploads
+
+The current client uses `upload_begin` with the revision ID, total ciphertext
+length and SHA-256. The enrolled original writer may repeat that exact request;
+it returns the durable `offset` and fixed `chunk_bytes` (8 MiB). Changing the
+writer, length or digest fails. The grace period is not extended by retry/status
+requests. Legacy incomplete whole-body uploads restart at zero only after their
+original worker is confirmed dead; already-ready legacy uploads remain usable.
+
+`PUT /v1/owners/{owner}/uploads/{revision}/chunks/{offset}` signs the full URL path
+(including offset) and the chunk's SHA-256. At most four bounded chunk requests
+are buffered per process. An exact duplicate retained range succeeds; conflicting,
+overlapping or noncontiguous bytes fail. A SQLite writer transaction serializes
+file append, fsync and confirmed-offset persistence with other upload workers,
+expiry and cancellation. After a crash, bytes beyond the confirmed offset are
+truncated before another append. No partial object can become a profile head.
+
+`upload_finish` verifies the complete length and SHA-256 before publishing the
+immutable file. It can recover a crash after rename but before the ready state
+was recorded. Full-file hashing currently holds the SQLite writer lock with a
+30-second deadline; operators should allow for a temporary pause in other writes
+when finalizing very large objects. Keep relay data on responsive local storage.
+The client keeps its original encrypted file and resumes on explicit Retry,
+including after a lost chunk acknowledgement. Plaintext is never sent or resumed.
+
+
+## Explicit delayed retention of historical ciphertext
+
+Only an owner-authority-signed `SignedRetention` decision can select historical
+ciphertexts for collection. A decision binds the owner/root, unique decision ID,
+issue time, not-before time, and up to 64 sorted unique revision/profile IDs with
+the exact SHA-256 of each canonical manifest. `retention_schedule` submits it
+through an enrolled device; it cannot select any current profile head. Scheduling
+is idempotent for the exact same signed decision. Device credentials alone never
+authorize historical deletion.
+
+The server retains a durable deadline at least seven days after receipt and no
+earlier than the signed not-before time. This allows delayed request retries
+without shortening grace due to clock skew. A separate root-signed cancellation
+binds the full decision digest and is accepted only before collection starts.
+`retention_status` returns the signed decision, advisory state (`scheduled`,
+`cancelled`, `collecting`, `collected`) and signed cancellation when present.
+Clients verify signatures rather than trusting relay status as authority.
+
+Operators execute only eligible signed decisions using:
+
+```sh
+camoufox-sync-relay --data /srv/camoufox/data --collect-retained --maintenance-limit 100
+```
+
+The sweep rechecks every signature/manifest binding and protects all current
+heads. Persistent download leases bind PID plus process creation time; live or
+uncertain readers block collection, without relying on heartbeat expiry. Dead
+readers can be reclaimed. A durable `collecting` fence precedes filesystem
+removal; only successful deletion and directory flush releases quota. A crash or
+failed deletion remains retryable, including after a backwards clock once the
+deletion decision is already fenced. Cancellation and collection use the same
+SQLite writer lock, so exactly one wins. Cancellation after collection starts is
+rejected; there is no mechanism to restore already-collected ciphertext remotely.
+Local backup files are never touched.
+
+Collection keeps manifests, writer signatures, transitions, membership history,
+retention decisions and revision IDs. Download of collected ciphertext returns
+410 with the original signed manifest and owner-signed retention proof. The
+client verifies that proof against the independently pinned root and expected
+revision/hash/length before reporting owner-authorized unavailability. This proof
+never establishes a newer profile head or permits launching a stale profile.
+A complete relay backup must include these tables as well as all retained files.

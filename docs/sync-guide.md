@@ -137,3 +137,46 @@ profile heads while the device is still authorized. If some heads cannot be
 verified, revocation still proceeds and displays a recovery warning. An old-epoch
 head advertised only after revocation is not automatically trusted; use an
 independent retained checkpoint or explicit historical-copy recovery.
+
+## Interrupted uploads
+
+**Resume pending transfer** continues the same saved encrypted file from the last
+server-confirmed byte offset. Keep the manager's private transfer directory intact.
+A partial network chunk is retried; it never reuses an encryption stream for
+changed browser data. Unfinished uploads expire after seven days. When the relay
+confirms expiry and checkout/history still match, an explicit retry creates a new
+revision with fresh encryption while retaining the original local ciphertext.
+
+## Synchronized Trash and restore
+
+Close the profile on its current holder, open **Device synchronization**, then
+choose **Move synchronized profile to Trash** and confirm. This publishes a signed,
+encrypted deletion version and releases the profile. Data, local access grants
+and signed history remain available for recovery. Other computers learn about the
+deletion when they retrieve its latest version; an offline browser cannot be stopped.
+
+A receiving computer displays **Synchronized profile is in Trash** and blocks
+opening. **Apply deletion on this device** requires confirmation and retains local
+browser data in Trash. To recover, open **Trash → Device synchronization → Restore
+synchronized profile**. Restore verifies the retained snapshot, backs up local
+unsent data and publishes a new active version. Other devices must retrieve it.
+If interrupted, use **Resume pending transfer** to finish the same confirmed
+operation. Ordinary local restore and permanent deletion cannot bypass sync fences.
+
+## Owner-approved historical storage cleanup
+
+History is retained by default. On the owner-authority computer, open the profile's
+**Device synchronization → Historical storage cleanup → Load verified historical
+versions**. Select only old versions you no longer need, export any required
+[offline recovery bundles](sync-recovery-guide.md), and confirm **Sign cleanup
+decision**. Up to 64 exact historical versions can be selected in one decision.
+The current version, signed receipts and local backups are never selected.
+
+The relay waits at least seven days after receiving the decision and never acts
+before the owner's signed earliest date. The displayed date is an earliest bound,
+not a promise of when operator maintenance runs. **Cancel historical cleanup**
+is available until collection begins; an unconfirmed cancellation remains pending
+and must be retried. The operator runs the bounded collector described in
+[sync-relay.md](sync-relay.md). Collected ciphertext cannot support historical
+recovery without a separately saved bundle. Cleanup cannot erase copies that
+other devices already downloaded, and relay status is not a global freshness proof.

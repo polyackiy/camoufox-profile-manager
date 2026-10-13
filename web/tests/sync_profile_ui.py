@@ -17,6 +17,7 @@ class SyncProfileUI(StageThreeUI):
         self.sync_fail = False
         self.vault_kind = "native"
         self.authority = True
+        self.retention_decisions = []
         self.checkpoint = {
             "profile_id": "remote-profile",
             "holder_device_id": "this-device",
@@ -53,6 +54,41 @@ class SyncProfileUI(StageThreeUI):
                 return route.fulfill(json={"profiles": self.bindings, "available": self.available})
             if self.sync_fail:
                 return route.fulfill(status=409, json={"detail": "Sensitive internal diagnostic"})
+            if path.endswith("/retention/list"):
+                return route.fulfill(
+                    json={
+                        "revisions": [
+                            {
+                                "revision_id": "old-version",
+                                "profile_id": "remote-profile",
+                                "manifest_sha256": "a" * 64,
+                            }
+                        ],
+                        "decisions": self.retention_decisions,
+                        "grace_seconds": 604800,
+                    }
+                )
+            if path.endswith("/retention/schedule"):
+                body = json.loads(request.post_data)
+                self.assertIs(body["acknowledge_cleanup"], True)
+                self.assertEqual(body["revisions"], ["old-version"])
+                item = {
+                    "decision": {
+                        "body": {
+                            "decision_id": "decision-one",
+                            "not_before": 1800000000,
+                            "revisions": [{"revision_id": "old-version"}],
+                        },
+                        "signature": "signed",
+                    },
+                    "state": "scheduled",
+                }
+                self.retention_decisions = [item]
+                return route.fulfill(json=item)
+            if path.endswith("/retention/cancel"):
+                self.assertEqual(json.loads(request.post_data)["decision_id"], "decision-one")
+                self.retention_decisions[0]["state"] = "cancelled"
+                return route.fulfill(json=self.retention_decisions[0])
             if path.endswith("/preserve-copy"):
                 self.assertTrue(json.loads(request.post_data)["acknowledge_fork"])
                 return route.fulfill(json={"local_id": "copy0001", "name": "Recovered copy"})
@@ -60,7 +96,16 @@ class SyncProfileUI(StageThreeUI):
                 self.assertEqual(json.loads(request.post_data)["pack"]["signature"], "owner-signed")
                 self.available = [{"profile_id": "remote-profile", "checkpoint": self.checkpoint}]
                 return route.fulfill(json={"accepted": True, "added": 1, "sequence": 2})
-            if path.endswith("/takeover"):
+            if path.endswith("/trash") or path.endswith("/apply-trash"):
+                self.assertTrue(json.loads(request.post_data)["acknowledge_deletion"])
+                item = self.binding("released")
+                item["lifecycle"] = {"state": "trashed", "revision_id": "revision-trash"}
+                item["local_trashed"] = True
+                self.bindings = [item]
+            elif path.endswith("/restore"):
+                self.assertTrue(json.loads(request.post_data)["acknowledge_restore"])
+                self.bindings = [self.binding("held")]
+            elif path.endswith("/takeover"):
                 self.assertTrue(json.loads(request.post_data)["acknowledge_lost_device"])
                 self.bindings = [self.binding("held")]
             elif path.endswith("/enable"):
@@ -200,6 +245,76 @@ class SyncProfileUI(StageThreeUI):
         expect(
             dialog.get_by_text("Conflicting history — opening blocked", exact=True)
         ).to_be_visible()
+
+    def test_sync_trash_requires_confirmation_and_retains_data_notice(self):
+        self.bindings = [self.binding("held")]
+        dialog = self.open_profile_sync()
+        dialog.get_by_role("button", name="Move synchronized profile to Trash", exact=True).click()
+        confirm = self.page.get_by_role(
+            "dialog", name="Move synchronized profile to Trash?", exact=True
+        )
+        expect(confirm).to_contain_text("Browser data and history are retained")
+        self.assertFalse(any(path.endswith("/trash") for _, path, _ in self.calls))
+        confirm.get_by_role("button", name="Publish deletion", exact=True).click()
+        expect(dialog.get_by_text("Synchronized profile is in Trash", exact=True)).to_be_visible()
+        expect(dialog.get_by_role("button", name="Send to another device")).to_have_count(0)
+        expect(
+            dialog.get_by_role("button", name="Restore synchronized profile", exact=True)
+        ).to_be_visible()
+
+    def test_remote_trash_requires_explicit_apply_or_restore(self):
+        binding = self.binding("released")
+        binding["lifecycle"] = {"state": "trashed", "revision_id": "revision-trash"}
+        binding["local_trashed"] = False
+        self.bindings = [binding]
+        dialog = self.open_profile_sync()
+        expect(dialog.get_by_role("button", name="Get latest profile")).to_have_count(0)
+        dialog.get_by_role("button", name="Apply deletion on this device", exact=True).click()
+        confirm = self.page.get_by_role("dialog", name="Apply deletion on this device?", exact=True)
+        expect(confirm).to_contain_text("No local data is permanently erased")
+        confirm.get_by_role("button", name="Apply verified deletion", exact=True).click()
+        expect(
+            dialog.get_by_role("button", name="Apply deletion on this device", exact=True)
+        ).to_have_count(0)
+        dialog.get_by_role("button", name="Restore synchronized profile", exact=True).click()
+        confirm = self.page.get_by_role("dialog", name="Restore synchronized profile?", exact=True)
+        expect(confirm).to_contain_text("Local unsent data is backed up")
+        confirm.get_by_role("button", name="Restore and publish", exact=True).click()
+        expect(dialog.get_by_text("Ready on this device", exact=True)).to_be_visible()
+
+    def test_cancel_sync_deletion_sends_no_request(self):
+        self.bindings = [self.binding("held")]
+        dialog = self.open_profile_sync()
+        dialog.get_by_role("button", name="Move synchronized profile to Trash", exact=True).click()
+        self.page.get_by_role(
+            "dialog", name="Move synchronized profile to Trash?", exact=True
+        ).get_by_role("button", name="Cancel", exact=True).click()
+        self.assertFalse(any(path.endswith("/trash") for _, path, _ in self.calls))
+        expect(dialog.get_by_role("button", name="Send to another device")).to_be_visible()
+
+    def test_historical_cleanup_selection_confirmation_and_cancel(self):
+        self.bindings = [self.binding("held")]
+        dialog = self.open_profile_sync()
+        dialog.get_by_text("Historical storage cleanup", exact=True).click()
+        dialog.get_by_role("button", name="Load verified historical versions").click()
+        expect(dialog.get_by_role("button", name="Schedule selected cleanup")).to_be_disabled()
+        dialog.get_by_label("old-version", exact=True).check()
+        dialog.get_by_role("button", name="Schedule selected cleanup").click()
+        confirm = self.page.get_by_role(
+            "dialog", name="Schedule permanent historical cleanup?", exact=True
+        )
+        expect(confirm).to_contain_text("Current profiles and local backups are retained")
+        self.assertFalse(any(path.endswith("/retention/schedule") for _, path, _ in self.calls))
+        confirm.get_by_role("button", name="Sign cleanup decision", exact=True).click()
+        expect(dialog.get_by_text("Cleanup scheduled", exact=True)).to_be_visible()
+        dialog.get_by_role("button", name="Cancel historical cleanup").click()
+        expect(dialog.get_by_text("Cleanup cancelled", exact=True)).to_be_visible()
+
+    def test_regular_device_cannot_see_historical_cleanup_controls(self):
+        self.authority = False
+        self.bindings = [self.binding("held")]
+        dialog = self.open_profile_sync()
+        expect(dialog.get_by_text("Historical storage cleanup", exact=True)).to_have_count(0)
 
 
 if __name__ == "__main__":

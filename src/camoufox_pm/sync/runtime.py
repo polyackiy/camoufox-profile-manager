@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import platform
+from contextlib import ExitStack
 from contextvars import ContextVar
 from functools import wraps
 from pathlib import Path
@@ -20,6 +21,7 @@ from camoufox_pm.core.update_permissions import create_private_directory, verify
 
 from .apply import apply_snapshot, recover_apply
 from .client import RelayClient
+from .control import ControlMutation
 from .engine import Binding, EngineError, SyncEngine
 from .protocol import SnapshotManifest
 from .quiescence import browser_profile_lock
@@ -185,6 +187,7 @@ class SyncRuntime:
         if directory is not None:
             verify_private_path(directory)
             (directory / "snapshot.zip").unlink(missing_ok=True)
+            (directory / "restored.zip").unlink(missing_ok=True)
             preflight = directory / "preflight"
             if preflight.exists():
                 import shutil
@@ -192,10 +195,401 @@ class SyncRuntime:
                 verify_private_path(preflight)
                 shutil.rmtree(preflight)
 
-    def _capture(self, profile, directory, compatibility):
+    def _capture(self, profile, directory, compatibility, *, lifecycle=None):
+        if lifecycle is None and self.service.control.get("lifecycle/" + profile.id) is not None:
+            lifecycle = "active"
         data = profile_data_path(self.manager, profile)
         with browser_profile_lock(data):
-            return build_snapshot(profile, data, directory / "snapshot.zip", compatibility)
+            return build_snapshot(
+                profile, data, directory / "snapshot.zip", compatibility, lifecycle=lifecycle
+            )
+
+    def _require_lifecycle_idle(self, local_id, *, resume=None):
+        record = self.service.control.get("lifecycle/" + local_id)
+        if (
+            record
+            and record.payload.get("phase") == "pending"
+            and record.payload.get("operation") != resume
+        ):
+            raise EngineError("Resume the pending lifecycle operation first")
+
+    def _lifecycle_write(self, local_id, state, revision_id, *, phase="complete", **details):
+        key = "lifecycle/" + local_id
+        previous = self.service.control.get(key)
+        payload = {"state": state, "revision_id": revision_id, "phase": phase, **details}
+        if previous:
+            self.service.control.update(key, payload, previous.revision)
+        else:
+            self.service.control.create(key, payload)
+
+    async def _set_local_trash(self, user_id, profile, trashed):
+        with ExitStack() as locks:
+            await run_file_operation(
+                locks.enter_context, browser_profile_lock(profile_data_path(self.manager, profile))
+            )
+            await self._authorize(user_id)
+            return await self.manager.storage.set_profile_trashed(profile.id, trashed)
+
+    async def _publish_lifecycle_record(self, engine, local_id, payload):
+        path = Path(payload["ciphertext_path"])
+        if (
+            path.name != "ciphertext"
+            or path.parent.parent != self.cache.absolute()
+            or path.parent.name != str(UUID(path.parent.name))
+        ):
+            raise EngineError("Invalid lifecycle ciphertext location")
+        verify_private_path(path.parent)
+        manifest = SnapshotManifest.model_validate(payload["manifest"])
+        return await run_file_operation(
+            engine.publish, local_id, manifest, payload["signature"], path
+        )
+
+    async def _lifecycle_snapshot(self, engine, keys, local_id, directory):
+        from .snapshots import validate_snapshot
+
+        selected = await run_file_operation(engine.reconcile, local_id)
+        if selected.pending:
+            raise EngineError("Resolve the pending transfer before changing lifecycle")
+        transfer = SnapshotTransfer(engine, keys)
+        revision = await run_file_operation(
+            transfer.download,
+            local_id,
+            directory / "ciphertext",
+            directory / "snapshot.zip",
+            require_checkout=False,
+        )
+        compatibility = await run_file_operation(self.compatibility)
+        metadata = await run_file_operation(
+            validate_snapshot, directory / "snapshot.zip", directory / "preflight", compatibility
+        )
+        checked = await run_file_operation(engine.reconcile, local_id)
+        if checked.checkpoint != selected.checkpoint or revision != selected.checkpoint.revision_id:
+            raise EngineError("Profile changed while authenticating lifecycle; retry")
+        return checked, metadata, compatibility
+
+    @authorized
+    async def trash(self, user_id, local_id, *, acknowledge_deletion, password=None):
+        if acknowledge_deletion is not True:
+            raise EngineError("Confirm recoverable deletion on synchronized devices")
+        engine, keys, client = await self._session(user_id, password)
+        directory = None
+        try:
+            with self.maintenance.operation():
+                async with profile_operation(
+                    self.manager, local_id, include_deleted=True, sync_operation=True
+                ) as profile:
+                    await self._authorize(user_id)
+                    job = self.service.control.get("lifecycle/" + local_id)
+                    state = await run_file_operation(engine.reconcile, local_id)
+                    if (
+                        job
+                        and job.payload.get("phase") == "complete"
+                        and job.payload.get("state") == "trashed"
+                    ):
+                        if job.payload["revision_id"] != state.checkpoint.revision_id:
+                            raise EngineError(
+                                "Remote profile changed; authenticate its lifecycle first"
+                            )
+                        await self._set_local_trash(user_id, profile, True)
+                        return _public(state)
+                    if (
+                        job
+                        and job.payload.get("phase") == "pending"
+                        and job.payload.get("operation") != "trash"
+                    ):
+                        raise EngineError("Another lifecycle operation requires recovery")
+                    resuming = job is not None and job.payload.get("operation") == "trash"
+                    target = job.payload.get("revision_id") if resuming else None
+                    if not resuming:
+                        await self._authorize(user_id)
+                        binding_record, binding = engine._read(local_id)
+                        if not engine.may_launch(local_id):
+                            raise EngineError("Deletion requires confirmed local checkout")
+                        # The lifecycle decision and handoff fence become durable together.
+                        # A crash cannot leave an unidentifiable handoff between them.
+                        self.service.control.batch(
+                            (
+                                ControlMutation(
+                                    binding_record.key,
+                                    binding.model_copy(
+                                        update={
+                                            "phase": "handoff",
+                                            "needs_snapshot": True,
+                                            "handoff": True,
+                                        }
+                                    ).model_dump(mode="json"),
+                                    binding_record.revision,
+                                ),
+                                ControlMutation(
+                                    "lifecycle/" + local_id,
+                                    {
+                                        "state": "trashed",
+                                        "revision_id": None,
+                                        "phase": "pending",
+                                        "operation": "trash",
+                                    },
+                                    job.revision if job else None,
+                                ),
+                            )
+                        )
+                    if state.pending:
+                        if not resuming or state.pending.kind not in {"commit", "release"}:
+                            raise EngineError("Another transfer is pending")
+                        restarted = await run_file_operation(
+                            engine.restart_expired_upload, local_id
+                        )
+                        if restarted:
+                            target = None
+                            self._lifecycle_write(
+                                local_id, "trashed", None, phase="pending", operation="trash"
+                            )
+                        else:
+                            await self._retry(engine, user_id, local_id)
+                        state = engine.status(local_id)
+                    if target is not None and state.checkpoint.revision_id != target:
+                        state = await self._publish_lifecycle_record(engine, local_id, job.payload)
+                    if target is None:
+                        compatibility = await run_file_operation(self.compatibility)
+                        directory = self._job_directory(local_id)
+                        await run_file_operation(
+                            self._capture, profile, directory, compatibility, lifecycle="trashed"
+                        )
+                        manifest, signature = await run_file_operation(
+                            SnapshotTransfer(engine, keys).encrypt,
+                            local_id,
+                            directory / "snapshot.zip",
+                            directory / "ciphertext",
+                        )
+                        await self._authorize(user_id)
+                        target = manifest.revision_id
+                        self._lifecycle_write(
+                            local_id,
+                            "trashed",
+                            target,
+                            phase="pending",
+                            operation="trash",
+                            manifest=manifest.model_dump(mode="json"),
+                            signature=signature,
+                            ciphertext_path=str((directory / "ciphertext").absolute()),
+                        )
+                        state = await run_file_operation(
+                            engine.publish, local_id, manifest, signature, directory / "ciphertext"
+                        )
+                    if state.checkpoint.holder_device_id == engine.device_id:
+                        state = await run_file_operation(engine.release, local_id)
+                    if (
+                        state.checkpoint.revision_id != target
+                        or state.checkpoint.holder_device_id is not None
+                    ):
+                        raise EngineError("Deletion handoff is not confirmed")
+                    await self._authorize(user_id)
+                    await self._set_local_trash(user_id, profile, True)
+                    self._lifecycle_write(local_id, "trashed", target)
+                    return _public(state)
+        finally:
+            self._cleanup(directory)
+            client.close()
+
+    @authorized
+    async def apply_trash(self, user_id, local_id, *, acknowledge_deletion, password=None):
+        if acknowledge_deletion is not True:
+            raise EngineError("Confirm keeping local changes in recoverable Trash")
+        engine, keys, client = await self._session(user_id, password)
+        directory = None
+        try:
+            with self.maintenance.operation():
+                async with profile_operation(
+                    self.manager, local_id, include_deleted=True, sync_operation=True
+                ) as profile:
+                    directory = self._job_directory(local_id)
+                    state, metadata, _ = await self._lifecycle_snapshot(
+                        engine, keys, local_id, directory
+                    )
+                    if (
+                        metadata.lifecycle != "trashed"
+                        or state.checkpoint.holder_device_id is not None
+                    ):
+                        raise EngineError("No authenticated, released deletion is available")
+                    await run_file_operation(self._assert_quiescent, profile)
+                    await self._authorize(user_id)
+                    self._lifecycle_write(
+                        local_id,
+                        "trashed",
+                        state.checkpoint.revision_id,
+                        phase="pending",
+                        operation="apply-trash",
+                    )
+                    await self._set_local_trash(user_id, profile, True)
+                    self._lifecycle_write(local_id, "trashed", state.checkpoint.revision_id)
+                    return _public(state)
+        finally:
+            self._cleanup(directory)
+            client.close()
+
+    def _assert_quiescent(self, profile):
+        with browser_profile_lock(profile_data_path(self.manager, profile)):
+            pass
+
+    async def _restore_publish(self, engine, keys, user_id, profile, source_revision):
+        directory = self._job_directory(profile.id)
+        try:
+            compatibility = await run_file_operation(self.compatibility)
+            await run_file_operation(
+                self._capture, profile, directory, compatibility, lifecycle="active"
+            )
+            manifest, signature = await run_file_operation(
+                SnapshotTransfer(engine, keys).encrypt,
+                profile.id,
+                directory / "snapshot.zip",
+                directory / "ciphertext",
+            )
+            await self._authorize(user_id)
+            self._lifecycle_write(
+                profile.id,
+                "trashed",
+                source_revision,
+                phase="pending",
+                operation="restore",
+                publication=manifest.revision_id,
+                publication_row_version=profile.row_version,
+                publication_storage_path=profile.storage_path,
+                manifest=manifest.model_dump(mode="json"),
+                signature=signature,
+                ciphertext_path=str((directory / "ciphertext").absolute()),
+            )
+            await run_file_operation(
+                engine.publish, profile.id, manifest, signature, directory / "ciphertext"
+            )
+            await self._authorize(user_id)
+            engine.record_applied(profile.id, manifest.revision_id)
+            self._lifecycle_write(profile.id, "active", manifest.revision_id)
+            return _public(engine.status(profile.id))
+        finally:
+            self._cleanup(directory)
+
+    @authorized
+    async def restore(self, user_id, local_id, *, acknowledge_restore, password=None):
+        if acknowledge_restore is not True:
+            raise EngineError(
+                "Confirm restoration of the authenticated deleted snapshot; local data is backed up"
+            )
+        engine, keys, client = await self._session(user_id, password)
+        directory = None
+        try:
+            journal = self.service.control.get("apply/" + local_id)
+            lifecycle = self.service.control.get("lifecycle/" + local_id)
+            if (
+                journal
+                and journal.payload.get("phase") not in {"complete", "aborted"}
+                and lifecycle
+                and lifecycle.payload.get("operation") == "restore"
+            ):
+                await recover_apply(
+                    self.manager,
+                    local_id,
+                    self.service.control,
+                    maintenance=self.maintenance,
+                    authorize=lambda: self._authorize(user_id),
+                )
+            with self.maintenance.operation():
+                async with profile_operation(
+                    self.manager, local_id, include_deleted=True, sync_operation=True
+                ) as profile:
+                    job = self.service.control.get("lifecycle/" + local_id)
+                    state = await run_file_operation(engine.reconcile, local_id)
+                    resuming = job is not None and job.payload.get("operation") == "restore"
+                    if job and job.payload.get("phase") == "pending" and not resuming:
+                        raise EngineError("Finish the pending lifecycle operation first")
+                    if resuming and job.payload.get("publication"):
+                        target = job.payload["publication"]
+                        if profile.row_version != job.payload.get(
+                            "publication_row_version"
+                        ) or profile.storage_path != job.payload.get("publication_storage_path"):
+                            raise EngineError(
+                                "Local restored data changed; preserve and recover it first"
+                            )
+                        if state.pending:
+                            restarted = await run_file_operation(
+                                engine.restart_expired_upload, local_id
+                            )
+                            if restarted:
+                                return await self._restore_publish(
+                                    engine, keys, user_id, profile, job.payload["revision_id"]
+                                )
+                            await self._retry(engine, user_id, local_id)
+                            state = engine.status(local_id)
+                        if state.checkpoint.revision_id != target:
+                            state = await self._publish_lifecycle_record(
+                                engine, local_id, job.payload
+                            )
+                        if state.checkpoint.holder_device_id != engine.device_id:
+                            raise EngineError("Restoration publication is uncertain")
+                        await self._authorize(user_id)
+                        if (
+                            state.installed_revision != target
+                            or state.installed_generation != state.checkpoint.checkout_generation
+                        ):
+                            engine.record_applied(local_id, target)
+                        await self._set_local_trash(user_id, profile, False)
+                        self._lifecycle_write(local_id, "active", target)
+                        return _public(engine.status(local_id))
+                    if resuming and state.pending is not None and state.pending.kind == "claim":
+                        state = await run_file_operation(engine.claim, local_id)
+                    directory = self._job_directory(local_id)
+                    state, metadata, compatibility = await self._lifecycle_snapshot(
+                        engine, keys, local_id, directory
+                    )
+                    if metadata.lifecycle != "trashed":
+                        raise EngineError("The latest authenticated revision is not deleted")
+                    if state.checkpoint.holder_device_id not in {None, engine.device_id}:
+                        raise EngineError("Restoration is checked out on another device")
+                    await self._authorize(user_id)
+                    revision = state.checkpoint.revision_id
+                    self._lifecycle_write(
+                        local_id, "trashed", revision, phase="pending", operation="restore"
+                    )
+                    # Rebuild only already authenticated staging with active format2 metadata.
+                    values = profile.model_dump(mode="json")
+                    values.update(metadata.profile.apply_fields())
+                    restored = type(profile).model_validate(values)
+                    active_archive = directory / "restored.zip"
+                    await run_file_operation(
+                        build_snapshot,
+                        restored,
+                        directory / "preflight" / "data",
+                        active_archive,
+                        compatibility,
+                        lifecycle="active",
+                    )
+                    if state.checkpoint.holder_device_id is None:
+                        state = await run_file_operation(
+                            engine.claim, local_id, expected_checkpoint=state.checkpoint
+                        )
+                    if profile.deleted_at:
+                        await self._set_local_trash(user_id, profile, False)
+                        profile = await self.manager.storage.get_profile(local_id)
+                    expected_version = profile.row_version
+                await apply_snapshot(
+                    self.manager,
+                    local_id,
+                    active_archive,
+                    compatibility,
+                    self.service.control,
+                    revision,
+                    expected_version,
+                    maintenance=self.maintenance,
+                    authorize=lambda: self._authorize(user_id),
+                )
+                await self._record_activation(engine, user_id, local_id, revision)
+                async with profile_operation(
+                    self.manager, local_id, sync_operation=True
+                ) as profile:
+                    return await self._restore_publish(engine, keys, user_id, profile, revision)
+        finally:
+            if directory is not None:
+                (directory / "restored.zip").unlink(missing_ok=True)
+            self._cleanup(directory)
+            client.close()
 
     @authorized
     async def enable(self, user_id: str, local_id: str, *, password: str | None = None):
@@ -284,6 +678,7 @@ class SyncRuntime:
 
     @authorized
     async def handoff(self, user_id: str, local_id: str, *, password: str | None = None):
+        self._require_lifecycle_idle(local_id)
         engine, keys, client = await self._session(user_id, password)
         directory = None
         try:
@@ -397,12 +792,13 @@ class SyncRuntime:
     async def _acquire(
         self, user_id: str, local_id: str, *, password: str | None = None, lost_device: bool = False
     ):
+        self._require_lifecycle_idle(local_id, resume="acquire")
         engine, keys, client = await self._session(user_id, password)
         directory = None
         try:
             with self.maintenance.operation():
                 async with profile_operation(
-                    self.manager, local_id, sync_operation=True
+                    self.manager, local_id, include_deleted=True, sync_operation=True
                 ) as profile:
                     from .snapshots import validate_snapshot
 
@@ -460,12 +856,21 @@ class SyncRuntime:
                         directory / "snapshot.zip",
                         require_checkout=False,
                     )
-                    await run_file_operation(
+                    metadata = await run_file_operation(
                         validate_snapshot,
                         directory / "snapshot.zip",
                         directory / "preflight",
                         compatibility,
                     )
+                    if metadata.lifecycle == "trashed":
+                        observed = await run_file_operation(engine.reconcile, local_id)
+                        if revision != selected.revision_id or observed.checkpoint != selected:
+                            raise EngineError("Remote deletion changed during preflight; retry")
+                        await self._authorize(user_id)
+                        self._lifecycle_write(local_id, "trashed", revision)
+                        raise EngineError(
+                            "Authenticated deletion: choose Apply deletion or Restore"
+                        )
                     if revision != selected.revision_id:
                         raise EngineError("Remote snapshot changed during preflight; retry")
                     if lost_device and (
@@ -486,6 +891,13 @@ class SyncRuntime:
                         )
                     if state.checkpoint.revision_id != revision:
                         raise EngineError("Remote snapshot changed before activation")
+                    if profile.deleted_at:
+                        await self._authorize(user_id)
+                        self._lifecycle_write(
+                            local_id, "active", revision, phase="pending", operation="acquire"
+                        )
+                        await self._set_local_trash(user_id, profile, False)
+                        profile = await self.manager.storage.get_profile(local_id)
                     expected_version = profile.row_version
                 await self._authorize(user_id)
                 compatibility = await run_file_operation(self.compatibility)
@@ -501,7 +913,10 @@ class SyncRuntime:
                     authorize=lambda: self._authorize(user_id),
                 )
                 await self._authorize(user_id)
-                return await self._record_activation(engine, user_id, local_id, revision)
+                result = await self._record_activation(engine, user_id, local_id, revision)
+                await self._authorize(user_id)
+                self._lifecycle_write(local_id, "active", revision)
+                return result
         finally:
             try:
                 self._cleanup(directory)
@@ -528,7 +943,14 @@ class SyncRuntime:
                 or state.checkpoint.revision_id != result.revision_id
             ):
                 raise EngineError("Recovered snapshot is no longer the selected revision")
-            return await self._record_activation(engine, user_id, local_id, result.revision_id)
+            result_state = await self._record_activation(
+                engine, user_id, local_id, result.revision_id
+            )
+            lifecycle = self.service.control.get("lifecycle/" + local_id)
+            if lifecycle and lifecycle.payload.get("operation") == "acquire":
+                await self._authorize(user_id)
+                self._lifecycle_write(local_id, "active", result.revision_id)
+            return result_state
         finally:
             try:
                 self._cleanup(directory)
@@ -562,6 +984,29 @@ class SyncRuntime:
 
     @authorized
     async def retry(self, user_id: str, local_id: str, *, password: str | None = None):
+        lifecycle = self.service.control.get("lifecycle/" + local_id)
+        if lifecycle is not None and lifecycle.payload.get("phase") == "pending":
+            action = lifecycle.payload.get("operation")
+            if action in {"trash", "apply-trash", "restore"}:
+                method = getattr(self, action.replace("-", "_"))
+                acknowledgement = {
+                    "acknowledge_restore" if action == "restore" else "acknowledge_deletion": True
+                }
+                return await method(
+                    user_id,
+                    local_id,
+                    password=password,
+                    authorize=_authorization.get(),
+                    **acknowledgement,
+                )
+        if (
+            lifecycle is not None
+            and lifecycle.payload.get("phase") == "pending"
+            and lifecycle.payload.get("operation") == "acquire"
+        ):
+            return await self.acquire(
+                user_id, local_id, password=password, authorize=_authorization.get()
+            )
         initial = self.service.control.get("runtime/initial/" + local_id)
         if initial is not None and initial.payload.get("phase") == "initializing":
             return await self.enable(
@@ -624,14 +1069,53 @@ class SyncRuntime:
         return found
 
     @authorized
+    async def retention_list(self, user_id, local_id, *, password=None):
+        from .retention_workflow import listing
+
+        return await listing(self, user_id, local_id, password=password)
+
+    @authorized
+    async def retention_schedule(
+        self, user_id, local_id, *, revisions, acknowledge_cleanup, password=None
+    ):
+        from .retention_workflow import schedule
+
+        return await schedule(
+            self,
+            user_id,
+            local_id,
+            revisions=revisions,
+            acknowledge_cleanup=acknowledge_cleanup,
+            password=password,
+        )
+
+    @authorized
+    async def retention_cancel(self, user_id, local_id, *, decision_id, password=None):
+        from .retention_workflow import cancel
+
+        return await cancel(self, user_id, local_id, decision_id=decision_id, password=password)
+
+    @authorized
     async def list_profiles(self, user_id: str):
         await self._authorize(user_id)
         profiles = []
         for record in self.service.control.list("profile/"):
             state = Binding.model_validate(record.payload)
             profile = await self.manager.storage.get_profile(state.local_id, include_deleted=True)
+            lifecycle = self.service.control.get("lifecycle/" + state.local_id)
+            value = lifecycle.payload if lifecycle else {}
             profiles.append(
-                {**_public(state), "name": profile.name if profile else "Unavailable local profile"}
+                {
+                    **_public(state),
+                    "name": profile.name if profile else "Unavailable local profile",
+                    "local_trashed": bool(profile and profile.deleted_at),
+                    "lifecycle": {
+                        "state": value.get("state", "unknown"),
+                        "revision_id": value.get("revision_id"),
+                        "operation": value.get("operation"),
+                        "pending": value.get("phase") == "pending",
+                    },
+                }
             )
         available = [
             {"profile_id": identifier, "checkpoint": checkpoint}
@@ -722,7 +1206,9 @@ class SyncRuntime:
         target_owned = False
         try:
             with self.maintenance.operation():
-                async with profile_operation(self.manager, local_id, sync_operation=True) as source:
+                async with profile_operation(
+                    self.manager, local_id, include_deleted=True, sync_operation=True
+                ) as source:
                     record = self.service.control.get("profile/" + local_id)
                     if record is None:
                         raise EngineError("Source profile has no synchronization binding")

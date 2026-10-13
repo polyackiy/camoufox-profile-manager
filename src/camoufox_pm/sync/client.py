@@ -53,6 +53,10 @@ class RelayError(ValueError):
     """Sanitized transport failure; the engine retains all pending local state."""
 
 
+class RelayCollected(RelayError):
+    """Owner-authorized old ciphertext collection, independently verified."""
+
+
 class RelayConflict(RelayError):
     """Remote state changed; retry requires explicit reconciliation."""
 
@@ -136,9 +140,14 @@ class RelayClient:
         if response.headers.get("content-encoding", "identity") != "identity":
             raise RelayError("Unexpected relay encoding")
 
-    def _response(self, response: httpx.Response, deadline: float) -> dict:
+    def _response(
+        self, response: httpx.Response, deadline: float, *, collected: bool = False
+    ) -> dict:
         _check_deadline(deadline)
-        self._accepted(response)
+        if not (collected and response.status_code == 410):
+            self._accepted(response)
+        elif response.headers.get("content-encoding", "identity") != "identity":
+            raise RelayError("Unexpected relay encoding")
         raw = bytearray()
         for part in _response_chunks(response, deadline):
             if len(raw) + len(part) > MAX_RESPONSE:
@@ -198,7 +207,15 @@ class RelayClient:
             _check_deadline(deadline)
             if (
                 payload.get("operation")
-                in {"claim", "commit", "release", "takeover", "update_membership"}
+                in {
+                    "claim",
+                    "commit",
+                    "release",
+                    "takeover",
+                    "update_membership",
+                    "retention_schedule",
+                    "retention_cancel",
+                }
                 and self.authorize is not None
             ):
                 self.authorize()
@@ -208,6 +225,33 @@ class RelayClient:
             raise
         except Exception:
             raise RelayError("Relay operation failed") from None
+
+    def retention_schedule(self, decision) -> dict:
+        if self.authorize is not None:
+            self.authorize()
+        return self.rpc(
+            {
+                "operation": "retention_schedule",
+                "decision": decision.model_dump(mode="json")
+                if hasattr(decision, "model_dump")
+                else decision,
+            }
+        )
+
+    def retention_cancel(self, cancellation) -> dict:
+        if self.authorize is not None:
+            self.authorize()
+        return self.rpc(
+            {
+                "operation": "retention_cancel",
+                "cancellation": cancellation.model_dump(mode="json")
+                if hasattr(cancellation, "model_dump")
+                else cancellation,
+            }
+        )
+
+    def retention_status(self, decision_id: str) -> dict:
+        return self.rpc({"operation": "retention_status", "decision_id": _uuid(decision_id)})
 
     def upload(
         self, revision_id: str, source: Path, expected_hash: str, expected_size: int
@@ -243,37 +287,66 @@ class RelayClient:
                     raise ValueError
                 if count != expected_size:
                     raise ValueError
-                stream.seek(0)
 
-                def chunks():
-                    remaining = expected_size
-                    while remaining:
-                        _check_deadline(deadline)
-                        part = stream.read(min(_CHUNK, remaining))
-                        _check_deadline(deadline)
-                        if not part:
-                            raise RelayError("Encrypted source changed")
-                        remaining -= len(part)
-                        yield part
-                        _check_deadline(deadline)
+                def upload_rpc(payload):
                     _check_deadline(deadline)
-                    if stream.read(1):
-                        raise RelayError("Encrypted source changed")
-                    _check_deadline(deadline)
+                    if self.authorize is not None:
+                        self.authorize()
+                    raw = _json(payload)
+                    path = f"/v1/owners/{self.root.owner_id}/rpc"
+                    headers = self._headers("POST", path, hashlib.sha256(raw).hexdigest())
+                    headers["Content-Type"] = "application/json"
+                    with self._http.stream("POST", path, content=raw, headers=headers) as response:
+                        return self._response(response, deadline)
 
-                path = f"/v1/owners/{self.root.owner_id}/blobs/{revision_id}"
-                headers = self._headers("PUT", path, expected_hash)
-                headers.update(
+                status = upload_rpc(
                     {
-                        "Content-Length": str(expected_size),
-                        "Content-Type": "application/octet-stream",
+                        "operation": "upload_begin",
+                        "revision_id": revision_id,
+                        "ciphertext_length": expected_size,
+                        "ciphertext_sha256": expected_hash,
                     }
                 )
-                _check_deadline(deadline)
-                if self.authorize is not None:
-                    self.authorize()
-                with self._http.stream("PUT", path, content=chunks(), headers=headers) as response:
-                    return self._response(response, deadline)
+                if (
+                    set(status) != {"revision_id", "offset", "chunk_bytes"}
+                    or status["revision_id"] != revision_id
+                    or type(status["offset"]) is not int
+                    or not 0 <= status["offset"] <= expected_size
+                    or status["chunk_bytes"] != 8 * 1024 * 1024
+                ):
+                    raise ValueError
+                offset = status["offset"]
+                stream.seek(offset)
+                while offset < expected_size:
+                    _check_deadline(deadline)
+                    part = stream.read(min(8 * 1024 * 1024, expected_size - offset))
+                    if not part:
+                        raise ValueError
+                    if self.authorize is not None:
+                        self.authorize()
+                    path = f"/v1/owners/{self.root.owner_id}/uploads/{revision_id}/chunks/{offset}"
+                    headers = self._headers("PUT", path, hashlib.sha256(part).hexdigest())
+                    headers.update(
+                        {
+                            "Content-Length": str(len(part)),
+                            "Content-Type": "application/octet-stream",
+                        }
+                    )
+                    with self._http.stream("PUT", path, content=part, headers=headers) as response:
+                        result = self._response(response, deadline)
+                    offset += len(part)
+                    if result != {"revision_id": revision_id, "offset": offset}:
+                        raise ValueError
+                if stream.read(1):
+                    raise ValueError
+                result = upload_rpc({"operation": "upload_finish", "revision_id": revision_id})
+                if result != {
+                    "revision_id": revision_id,
+                    "ciphertext_sha256": expected_hash,
+                    "ciphertext_length": expected_size,
+                }:
+                    raise ValueError
+                return result
         except RelayConflict:
             raise
         except Exception:
@@ -298,6 +371,14 @@ class RelayClient:
             _check_deadline(deadline)
             with self._http.stream("GET", path, headers=headers) as response:
                 _check_deadline(deadline)
+                if response.status_code == 410:
+                    from .retention import verify_collected
+
+                    evidence = self._response(response, deadline, collected=True)
+                    verify_collected(self.root, evidence, revision_id, expected_hash, expected_size)
+                    raise RelayCollected(
+                        "Ciphertext removed by an owner-authorized retention decision"
+                    )
                 self._accepted(response)
                 if response.headers.get("content-length") != str(expected_size):
                     raise ValueError
@@ -316,6 +397,8 @@ class RelayClient:
                     output.flush()
                     os.fsync(output.fileno())
                     _check_deadline(deadline)
+        except RelayCollected:
+            raise
         except Exception:
             if created:
                 try:

@@ -110,6 +110,28 @@ class TakeoverBody(PasswordBody):
         return value
 
 
+class DeletionBody(PasswordBody):
+    acknowledge_deletion: Literal[True]
+
+    @field_validator("acknowledge_deletion", mode="before")
+    @classmethod
+    def explicit_confirmation(cls, value):
+        if value is not True:
+            raise ValueError("Explicit confirmation is required")
+        return value
+
+
+class RestoreBody(PasswordBody):
+    acknowledge_restore: Literal[True]
+
+    @field_validator("acknowledge_restore", mode="before")
+    @classmethod
+    def explicit_confirmation(cls, value):
+        if value is not True:
+            raise ValueError("Explicit confirmation is required")
+        return value
+
+
 class PrepareBody(PasswordBody):
     root: dict[str, Any]
     device_label: str = Field(min_length=1, max_length=80)
@@ -665,6 +687,22 @@ async def sync_profile_action(request: Request, local_id: str, action: str):
     user_id = await _live_owner(request)
     if len(local_id) != 8 or not local_id.isascii() or not local_id.isalnum():
         raise _error(422, "Invalid local profile identifier")
+    if action in {"trash", "apply-trash", "restore"}:
+        model = RestoreBody if action == "restore" else DeletionBody
+        lifecycle_body = await _body(request, model)
+        acknowledgement = {
+            "acknowledge_restore" if action == "restore" else "acknowledge_deletion": True
+        }
+        return _response(
+            await _runtime_call(
+                request,
+                user_id,
+                action.replace("-", "_"),
+                local_id,
+                password=_password(lifecycle_body),
+                **acknowledgement,
+            )
+        )
     if action == "takeover":
         takeover_body = await _body(request, TakeoverBody)
         return _response(
@@ -694,4 +732,62 @@ async def sync_profile_action(request: Request, local_id: str, action: str):
     body = await _body(request, PasswordBody)
     return _response(
         await _runtime_call(request, user_id, action, local_id, password=_password(body))
+    )
+
+
+class RetentionBody(PasswordBody):
+    revisions: list[str] = Field(min_length=1, max_length=64)
+    acknowledge_cleanup: Literal[True]
+
+    @field_validator("acknowledge_cleanup", mode="before")
+    @classmethod
+    def explicit_confirmation(cls, value):
+        if value is not True:
+            raise ValueError("Explicit confirmation is required")
+        return value
+
+
+class CancelRetentionBody(PasswordBody):
+    decision_id: str = Field(min_length=36, max_length=36)
+
+
+@router.post("/sync/profiles/{local_id}/retention/list")
+async def retention_list(request: Request, local_id: str):
+    user_id = await _live_owner(request)
+    body = await _body(request, PasswordBody)
+    return _response(
+        await _runtime_call(request, user_id, "retention_list", local_id, password=_password(body))
+    )
+
+
+@router.post("/sync/profiles/{local_id}/retention/schedule")
+async def retention_schedule(request: Request, local_id: str):
+    user_id = await _live_owner(request)
+    body = await _body(request, RetentionBody)
+    return _response(
+        await _runtime_call(
+            request,
+            user_id,
+            "retention_schedule",
+            local_id,
+            revisions=body.revisions,
+            acknowledge_cleanup=body.acknowledge_cleanup,
+            password=_password(body),
+        )
+    )
+
+
+@router.post("/sync/profiles/{local_id}/retention/cancel")
+async def retention_cancel(request: Request, local_id: str):
+    user_id = await _live_owner(request)
+    body = await _body(request, CancelRetentionBody)
+    return _response(
+        await _runtime_call(
+            request,
+            user_id,
+            "retention_cancel",
+            local_id,
+            decision_id=body.decision_id,
+            password=_password(body),
+        )
     )

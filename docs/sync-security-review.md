@@ -206,3 +206,45 @@ ciphertext, then creates a fresh revision/key/stream. A missing response, change
 head, late signed commit, lost authorization or malformed expiry report cannot
 silently reset ownership or replace the pending operation. Unit tests cover these
 races; separate-agent review checks the new cleanup and retry boundaries.
+
+## Completion review: resume, lifecycle and retention
+
+Internal review on 2026-10-14 covered the new byte-offset upload protocol,
+authenticated encrypted Trash/restore, owner-signed historical ciphertext cleanup,
+and their manager authorization/UI paths. A separate coding agent reviewed code
+it did not author; this remains an internal review rather than external audit.
+
+Fixed findings and regression coverage:
+
+- **Interrupted lifecycle publication:** persist exact manifest, signature and
+  retained ciphertext intent before sending; initial Trash handoff and lifecycle
+  intent share a control-store transaction. Crashes before the engine intent or
+  after a committed publication resume the original revision.
+- **Repeated restoration activation:** a retry may already have recorded the
+  installed revision. Exact revision/generation plus retained local row/path
+  checks allow completion without repeating activation or weakening the fence.
+- **Retention clock skew:** the signed not-before date alone must not reject
+  ordinary network delay or shorten grace. The relay persists a separate deadline
+  at least seven days after first receipt; exact signed decisions are retryable.
+- **Cancellation acknowledgement:** an original valid schedule is not evidence
+  of successful cancellation. Require the exact root-signed cancellation in the
+  reply; retain uncertain cancellation intent and display it as pending.
+- **Crashed download leases:** reap confirmed-dead PID/birth identities independently
+  of old-version collection, including current heads. Live or uncertain readers
+  remain protected and cannot be evicted by a heartbeat timeout.
+
+The reviewer reported no remaining actionable P1/P2 findings in the final source
+review. Targeted real-relay workflow tests cover owner-only authorization, explicit
+cleanup consent, current-head exclusion, idempotent schedule/cancel and dishonest
+cancellation acknowledgements. Relay tests cover chunk overlap, retained offsets,
+crash tails, legacy live-writer fencing, hash completion, lost acknowledgements,
+collection fences, signed evidence and reader protection. Lifecycle tests cover
+real two-device Trash/restore, old-client format rejection, local bypass attempts
+and interruptions before/after each durable publication boundary.
+
+A new native installed-manager acceptance workflow builds ordinary installers and
+runs two isolated installed manager processes with their bundled UI and a real
+HTTPS relay. Its ephemeral test CA is added only to disposable installed copies;
+release artifacts and TLS validation are not weakened. Until recorded successful
+CI results exist, the harness itself is not proof that installed-platform behavior
+passes. Same-runner testing also does not prove every physical GPU/font environment.

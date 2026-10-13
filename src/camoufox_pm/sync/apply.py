@@ -336,6 +336,10 @@ async def apply_snapshot(
                     metadata = await run_file_operation(
                         validate_snapshot, authenticated_archive, staging, compatibility
                     )
+                    if metadata.lifecycle == "trashed":
+                        raise ApplyError(
+                            "Deletion snapshots require explicit lifecycle confirmation"
+                        )
                     new_data = staging / "data"
                     await run_file_operation(locks.enter_context, browser_profile_lock(new_data))
                     values = profile.model_dump(mode="json")

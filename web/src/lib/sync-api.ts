@@ -93,10 +93,12 @@ export function readConnectionCode<T>(kind: 'owner' | 'request' | 'approval' | '
 }
 
 export type SyncCheckpoint = { profile_id: string; holder_device_id: string | null; revision_id: string | null; checkout_generation: number; membership_epoch: number }
-export type ProfileSyncBinding = { local_id: string; name?: string; phase: 'held' | 'released' | 'held_elsewhere' | 'apply_required' | 'unknown' | 'pending' | 'handoff' | 'conflict' | 'revoked'; checkpoint: SyncCheckpoint; installed_revision: string | null; needs_snapshot: boolean; forked?: boolean; pending?: { kind: string; operation_id: string } | null }
+export type ProfileSyncBinding = { local_id: string; name?: string; local_trashed?: boolean; lifecycle?: { state: 'active' | 'trashed' | 'unknown'; revision_id: string | null; pending?: boolean; operation?: ProfileLifecycleAction }; phase: 'held' | 'released' | 'held_elsewhere' | 'apply_required' | 'unknown' | 'pending' | 'handoff' | 'conflict' | 'revoked'; checkpoint: SyncCheckpoint; installed_revision: string | null; needs_snapshot: boolean; forked?: boolean; pending?: { kind: string; operation_id: string } | null }
 export type ProfileSyncListing = { profiles: ProfileSyncBinding[]; available: { profile_id: string; checkpoint: SyncCheckpoint }[] }
 export type ProfileSyncAction = 'enable' | 'handoff' | 'acquire' | 'retry' | 'recover'
+export type ProfileLifecycleAction = 'trash' | 'apply-trash' | 'restore'
 export const profileSyncAPI = {
+  lifecycle: (id: string, action: ProfileLifecycleAction, password?: string) => syncRequest<ProfileSyncBinding>(`/profiles/${encodeURIComponent(id)}/${action}`, { ...(action === 'restore' ? { acknowledge_restore: true } : { acknowledge_deletion: true }), password }),
   takeover: (id: string, password?: string) => syncRequest<ProfileSyncBinding>(`/profiles/${encodeURIComponent(id)}/takeover`, { acknowledge_lost_device: true, password }),
   share: (target_device_id: string, password?: string) => syncRequest<Record<string, unknown>>('/profiles/share', { target_device_id, password }),
   acceptCode: (pack: Record<string, unknown>) => syncRequest<unknown>('/profiles/accept-code', { pack }),
@@ -104,4 +106,13 @@ export const profileSyncAPI = {
   list: () => syncRequest<ProfileSyncListing>('/profiles'),
   action: (id: string, action: ProfileSyncAction, password?: string) => syncRequest<ProfileSyncBinding>(`/profiles/${encodeURIComponent(id)}/${action}`, { password }),
   import: (profile_id: string, password?: string) => syncRequest<ProfileSyncBinding>('/profiles/import', { profile_id, password }),
+}
+
+export type RetentionRevision = { revision_id: string; profile_id: string; manifest_sha256: string }
+export type RetentionStatus = { decision: { body: { decision_id: string; not_before: number; revisions: RetentionRevision[] }; signature: string }; state: 'scheduled' | 'cancelled' | 'collecting' | 'collected' | 'unconfirmed' | 'cancellation_pending' }
+export type RetentionListing = { revisions: RetentionRevision[]; decisions: RetentionStatus[]; grace_seconds: number }
+export const retentionAPI = {
+  list: (id: string, password?: string) => syncRequest<RetentionListing>(`/profiles/${encodeURIComponent(id)}/retention/list`, { password }),
+  schedule: (id: string, revisions: string[], password?: string) => syncRequest<RetentionStatus>(`/profiles/${encodeURIComponent(id)}/retention/schedule`, { revisions, acknowledge_cleanup: true, password }),
+  cancel: (id: string, decision_id: string, password?: string) => syncRequest<RetentionStatus>(`/profiles/${encodeURIComponent(id)}/retention/cancel`, { decision_id, password }),
 }

@@ -900,6 +900,10 @@ def test_expiry_v1_migration_grants_full_grace(relay):
     revision = str(uuid4())
     assert relay.upload(revision, b"x" * 100).status_code == 200
     with sqlite3.connect(relay.directory / "relay.sqlite3") as db:
+        db.execute("DROP TABLE active_downloads")
+        db.execute("DROP TABLE retention_items")
+        db.execute("DROP TABLE retention_decisions")
+        db.execute("DROP TABLE upload_offsets")
         db.execute("DROP TABLE upload_expiry")
         db.execute("PRAGMA user_version=1")
     before = int(time.time())
@@ -995,3 +999,229 @@ def test_discard_crash_fence_blocks_commit_and_operator_finishes(relay, monkeypa
         assert db.execute(
             "SELECT state,size FROM revisions WHERE id=?", (manifest.revision_id,)
         ).fetchone() == ("aborted", 0)
+
+
+def start_resumable(relay, revision, data):
+    return relay.rpc(
+        "upload_begin",
+        revision_id=revision,
+        ciphertext_length=len(data),
+        ciphertext_sha256=hashlib.sha256(data).hexdigest(),
+    )
+
+
+def send_chunk(relay, revision, offset, data, headers=None):
+    path = f"/v1/owners/{relay.root.owner_id}/uploads/{revision}/chunks/{offset}"
+    return relay.client.put(path, content=data, headers=headers or relay.headers("PUT", path, data))
+
+
+def test_resumable_exact_prefix_duplicate_and_complete(relay):
+    revision, data = str(uuid4()), b"0123456789" * 10
+    assert start_resumable(relay, revision, data).json()["offset"] == 0
+    assert send_chunk(relay, revision, 0, data[:40]).json()["offset"] == 40
+    assert start_resumable(relay, revision, data).json()["offset"] == 40
+    assert send_chunk(relay, revision, 0, data[:40]).json()["offset"] == 40
+    assert send_chunk(relay, revision, 0, b"x" * 40).status_code == 409
+    assert send_chunk(relay, revision, 39, data[39:]).status_code == 409
+    assert send_chunk(relay, revision, 41, data[41:]).status_code == 409
+    assert relay.rpc("upload_finish", revision_id=revision).status_code == 409
+    assert send_chunk(relay, revision, 40, data[40:]).status_code == 200
+    assert relay.rpc("upload_finish", revision_id=revision).status_code == 200
+    assert relay.rpc("upload_finish", revision_id=revision).status_code == 200
+    assert (
+        relay.directory / "blobs" / f"{relay.root.owner_id}-{revision}.blob"
+    ).read_bytes() == data
+
+
+def test_resumable_rejects_identity_changes_and_bad_final_hash(relay):
+    revision, data = str(uuid4()), b"x" * 100
+    assert start_resumable(relay, revision, data).status_code == 200
+    assert start_resumable(relay, revision, data + b"x").status_code == 409
+    assert start_resumable(relay, revision, b"y" * 100).status_code == 409
+    assert send_chunk(relay, revision, 0, b"y" * 100).status_code == 200
+    assert relay.rpc("upload_finish", revision_id=revision).status_code == 409
+    assert relay.rpc("blob_status", revision_id=revision).json()["state"] == "uploading"
+
+
+def test_resumable_offset_and_chunk_hash_are_authenticated(relay):
+    revision, data = str(uuid4()), b"x" * 100
+    start_resumable(relay, revision, data)
+    path = f"/v1/owners/{relay.root.owner_id}/uploads/{revision}/chunks/0"
+    assert (
+        send_chunk(relay, revision, 1, data[:20], relay.headers("PUT", path, data[:20])).status_code
+        == 400
+    )
+    assert (
+        send_chunk(relay, revision, 0, b"y" * 20, relay.headers("PUT", path, data[:20])).status_code
+        == 400
+    )
+    assert start_resumable(relay, revision, data).json()["offset"] == 0
+
+
+def test_resumable_crash_tail_truncated_before_retry(relay, monkeypatch):
+    from camoufox_pm.sync.relay import _Store
+
+    revision, data = str(uuid4()), b"x" * 100
+    start_resumable(relay, revision, data)
+    assert send_chunk(relay, revision, 0, data[:40]).status_code == 200
+    original = _Store.sync_directory
+
+    def crash(path):
+        if path.name == "blobs":
+            raise OSError("crash after append before DB commit")
+        original(path)
+
+    monkeypatch.setattr(_Store, "sync_directory", staticmethod(crash))
+    assert send_chunk(relay, revision, 40, data[40:]).status_code == 400
+    pending = relay.directory / "blobs" / f".pending-{relay.root.owner_id}-{revision}"
+    assert pending.stat().st_size == 100
+    monkeypatch.undo()
+    assert start_resumable(relay, revision, data).json()["offset"] == 40
+    assert send_chunk(relay, revision, 40, data[40:]).status_code == 200
+    assert relay.rpc("upload_finish", revision_id=revision).status_code == 200
+
+
+def test_resumable_finalize_rename_crash_reopens_safely(relay, monkeypatch):
+    from camoufox_pm.sync.relay import _Store
+
+    revision, data = str(uuid4()), b"x" * 100
+    start_resumable(relay, revision, data)
+    send_chunk(relay, revision, 0, data)
+    original = _Store.sync_directory
+
+    def crash(path):
+        if path.name == "blobs":
+            raise OSError("crash after rename before ready metadata")
+        original(path)
+
+    monkeypatch.setattr(_Store, "sync_directory", staticmethod(crash))
+    assert relay.rpc("upload_finish", revision_id=revision).status_code == 400
+    monkeypatch.undo()
+    _Store(relay.directory)
+    assert relay.rpc("blob_status", revision_id=revision).json()["state"] == "uploading"
+    assert relay.rpc("upload_finish", revision_id=revision).status_code == 200
+
+
+def test_resumable_expiry_rejects_late_chunk(relay):
+    from camoufox_pm.sync.relay import expire_uncommitted_uploads
+
+    revision, data = str(uuid4()), b"x" * 100
+    start_resumable(relay, revision, data)
+    send_chunk(relay, revision, 0, data[:40])
+    overdue(relay, revision)
+    assert expire_uncommitted_uploads(relay.directory)["expired"] == 1
+    assert send_chunk(relay, revision, 40, data[40:]).status_code == 409
+    assert start_resumable(relay, revision, data).status_code == 409
+
+
+def test_real_client_resumes_existing_ciphertext_prefix(relay, tmp_path):
+    import httpx
+
+    from camoufox_pm.sync.client import RelayClient
+
+    revision, data = str(uuid4()), b"x" * 100
+    source = tmp_path / "ciphertext"
+    source.write_bytes(data)
+    start_resumable(relay, revision, data)
+    send_chunk(relay, revision, 0, data[:40])
+    sent = []
+
+    def transport(request):
+        if request.method == "PUT":
+            sent.append((request.url.path, len(request.read())))
+        response = relay.client.request(
+            request.method, request.url.path, headers=dict(request.headers), content=request.read()
+        )
+        return httpx.Response(
+            response.status_code,
+            stream=httpx.ByteStream(response.content),
+            headers=response.headers,
+        )
+
+    with RelayClient(
+        relay.root, relay.device_id, relay.secrets.device, transport=httpx.MockTransport(transport)
+    ) as client:
+        result = client.upload(revision, source, hashlib.sha256(data).hexdigest(), len(data))
+    assert result["ciphertext_length"] == 100
+    assert len(sent) == 1 and sent[0][0].endswith("/chunks/40") and sent[0][1] == 60
+
+
+def test_real_client_lost_chunk_ack_resumes_without_resending(relay, tmp_path):
+    import httpx
+
+    from camoufox_pm.sync.client import RelayClient, RelayError
+
+    revision, data = str(uuid4()), b"x" * 100
+    source = tmp_path / "ciphertext"
+    source.write_bytes(data)
+    chunks = []
+    lose = True
+
+    def transport(request):
+        nonlocal lose
+        response = relay.client.request(
+            request.method, request.url.path, headers=dict(request.headers), content=request.read()
+        )
+        if request.method == "PUT":
+            chunks.append(request.url.path)
+            if lose:
+                lose = False
+                raise httpx.ReadError("ack lost")
+        return httpx.Response(
+            response.status_code,
+            stream=httpx.ByteStream(response.content),
+            headers=response.headers,
+        )
+
+    with RelayClient(
+        relay.root, relay.device_id, relay.secrets.device, transport=httpx.MockTransport(transport)
+    ) as client:
+        with pytest.raises(RelayError):
+            client.upload(revision, source, hashlib.sha256(data).hexdigest(), len(data))
+        assert (
+            client.upload(revision, source, hashlib.sha256(data).hexdigest(), len(data))[
+                "ciphertext_length"
+            ]
+            == 100
+        )
+    assert len(chunks) == 1
+    assert source.read_bytes() == data
+
+
+@pytest.mark.parametrize("live", [False, True])
+def test_resumable_adopts_only_dead_legacy_writer(relay, live):
+    import os
+
+    import psutil
+
+    from camoufox_pm.core.update_permissions import create_private_file
+
+    revision, data = str(uuid4()), b"x" * 100
+    pending = relay.directory / "blobs" / f".pending-{relay.root.owner_id}-{revision}"
+    with os.fdopen(create_private_file(pending), "wb") as output:
+        output.write(data[:20])
+    with sqlite3.connect(relay.directory / "relay.sqlite3") as db:
+        db.execute(
+            "INSERT INTO revisions VALUES(?,?,?,?,?,'uploading',NULL,NULL)",
+            (relay.root.owner_id, revision, relay.device_id, 100, hashlib.sha256(data).hexdigest()),
+        )
+        db.execute(
+            "INSERT INTO upload_expiry VALUES(?,?,?)",
+            (relay.root.owner_id, revision, int(time.time()) + 1000),
+        )
+        db.execute(
+            "INSERT INTO active_uploads VALUES(?,?,?,?)",
+            (
+                relay.root.owner_id,
+                revision,
+                os.getpid(),
+                psutil.Process().create_time() if live else 0,
+            ),
+        )
+    result = start_resumable(relay, revision, data)
+    if live:
+        assert result.status_code == 409 and pending.read_bytes() == data[:20]
+    else:
+        assert result.json()["offset"] == 0 and not pending.exists()
+        assert send_chunk(relay, revision, 0, data).status_code == 200
+        assert relay.rpc("upload_finish", revision_id=revision).status_code == 200

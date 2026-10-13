@@ -20,7 +20,7 @@ from contextlib import closing, contextmanager, suppress
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import psutil
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
@@ -46,11 +46,19 @@ from camoufox_pm.sync.identity import (
     verify_membership,
 )
 from camoufox_pm.sync.protocol import MAX_CIPHERTEXT_BYTES, parse_manifest, signing_bytes
+from camoufox_pm.sync.retention import (
+    GRACE_SECONDS,
+    SignedCancellation,
+    SignedRetention,
+    verify_cancellation,
+    verify_retention,
+)
 
 _DOMAIN = b"camoufox-pm/sync/experimental-v1/relay/"
 _EMPTY_HASH = hashlib.sha256(b"").hexdigest()
 _MAX_JSON = 512 * 1024
 _MAX_COUNTER = 2**53 - 1
+UPLOAD_CHUNK_BYTES = 8 * 1024 * 1024
 _ERROR = "Sync relay request rejected"
 
 
@@ -175,25 +183,37 @@ class _Auth:
 class _LimitedFileResponse(FileResponse):
     """Hold a bounded download slot until completion, disconnect or deadline."""
 
-    def __init__(self, *args, slots: asyncio.Semaphore, deadline: float = 1800, **kwargs):
+    def __init__(
+        self, *args, slots: asyncio.Semaphore, deadline: float = 1800, cleanup=None, **kwargs
+    ):
         super().__init__(*args, **kwargs)
         self.slots = slots
         self.deadline = deadline
+        self.cleanup = cleanup
 
     async def __call__(self, scope, receive, send):
+        acquired = False
         try:
-            await asyncio.wait_for(self.slots.acquire(), timeout=0.1)
-        except asyncio.TimeoutError:
-            await JSONResponse(status_code=429, content={"detail": _ERROR})(scope, receive, send)
-            return
-        try:
-            await asyncio.wait_for(super().__call__(scope, receive, send), timeout=self.deadline)
-        except asyncio.TimeoutError:
-            # Do not append JSON to a partially sent ciphertext body. Closing the
-            # incomplete response makes the client retain its pending operation.
-            return
+            try:
+                await asyncio.wait_for(self.slots.acquire(), timeout=0.1)
+                acquired = True
+            except asyncio.TimeoutError:
+                await JSONResponse(status_code=429, content={"detail": _ERROR})(
+                    scope, receive, send
+                )
+                return
+            try:
+                await asyncio.wait_for(
+                    super().__call__(scope, receive, send), timeout=self.deadline
+                )
+            except asyncio.TimeoutError:
+                return
         finally:
-            self.slots.release()
+            if acquired:
+                self.slots.release()
+            if self.cleanup is not None:
+                with suppress(Exception):
+                    self.cleanup()
 
 
 UNCOMMITTED_TTL_SECONDS = 7 * 24 * 60 * 60
@@ -278,32 +298,65 @@ COMMIT;""")
                     (baseline + UNCOMMITTED_TTL_SECONDS,),
                 )
                 db.execute("PRAGMA user_version=2")
+            if db.execute("PRAGMA user_version").fetchone()[0] == 2:
+                _Store._schema(db, version=2)
+                db.execute(
+                    "CREATE TABLE upload_offsets (owner TEXT NOT NULL, revision TEXT NOT NULL, offset INTEGER NOT NULL, PRIMARY KEY(owner,revision))"
+                )
+                db.execute("PRAGMA user_version=3")
+            if db.execute("PRAGMA user_version").fetchone()[0] == 3:
+                _Store._schema(db, version=3)
+                db.execute(
+                    "CREATE TABLE retention_decisions (owner TEXT NOT NULL, id TEXT NOT NULL, document TEXT NOT NULL, state TEXT NOT NULL, cancellation TEXT, eligible_at INTEGER NOT NULL, PRIMARY KEY(owner,id))"
+                )
+                db.execute(
+                    "CREATE TABLE retention_items (owner TEXT NOT NULL, revision TEXT NOT NULL, decision TEXT NOT NULL, PRIMARY KEY(owner,revision))"
+                )
+                db.execute(
+                    "CREATE TABLE active_downloads (id TEXT PRIMARY KEY, owner TEXT NOT NULL, revision TEXT NOT NULL, pid INTEGER NOT NULL, created REAL NOT NULL)"
+                )
+                db.execute("PRAGMA user_version=4")
             db.commit()
         except BaseException:
             db.rollback()
             raise
 
     @staticmethod
-    def _schema(db: sqlite3.Connection, *, legacy: bool = False) -> None:
+    def _schema(db: sqlite3.Connection, *, legacy: bool = False, version: int = 4) -> None:
+        version = 1 if legacy else version
         if (
-            db.execute("PRAGMA user_version").fetchone()[0] != (1 if legacy else 2)
+            db.execute("PRAGMA user_version").fetchone()[0] != version
             or db.execute("PRAGMA application_id").fetchone()[0] != 1129336146
         ):
             raise ValueError(_ERROR)
         actual = db.execute(
             "SELECT type,name FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' ORDER BY name"
         ).fetchall()
-        if actual != [
-            ("table", "active_uploads"),
-            ("table", "clock"),
-            ("index", "event_profile"),
-            ("table", "events"),
-            ("table", "memberships"),
-            ("table", "nonces"),
-            ("table", "owners"),
-            ("table", "profiles"),
-            ("table", "revisions"),
-        ] + ([] if legacy else [("table", "upload_expiry")]):
+        expected = (
+            [
+                ("table", "active_uploads"),
+                ("table", "clock"),
+                ("index", "event_profile"),
+                ("table", "events"),
+                ("table", "memberships"),
+                ("table", "nonces"),
+                ("table", "owners"),
+                ("table", "profiles"),
+                ("table", "revisions"),
+            ]
+            + ([] if version < 2 else [("table", "upload_expiry")])
+            + ([] if version < 3 else [("table", "upload_offsets")])
+            + (
+                []
+                if version < 4
+                else [
+                    ("table", "active_downloads"),
+                    ("table", "retention_decisions"),
+                    ("table", "retention_items"),
+                ]
+            )
+        )
+        if actual != sorted(expected, key=lambda item: item[1]):
             raise ValueError(_ERROR)
 
     def connection(self) -> sqlite3.Connection:
@@ -699,6 +752,11 @@ def create_relay_app(
             "memberships": {"operation", "after_epoch"},
             "discard_upload": {"operation", "revision_id"},
             "blob_status": {"operation", "revision_id"},
+            "upload_begin": {"operation", "revision_id", "ciphertext_length", "ciphertext_sha256"},
+            "upload_finish": {"operation", "revision_id"},
+            "retention_schedule": {"operation", "decision"},
+            "retention_cancel": {"operation", "cancellation"},
+            "retention_status": {"operation", "decision_id"},
         }
         if type(operation) is not str or operation not in allowed or set(obj) != allowed[operation]:
             raise HTTPException(400, _ERROR)
@@ -762,6 +820,249 @@ def create_relay_app(
             root, membership = store.owner(db, owner_id)
             device = current_device(membership, auth)
             epoch = membership.membership.epoch
+            if operation in {"retention_schedule", "retention_cancel", "retention_status"}:
+                if operation == "retention_schedule":
+                    decision = SignedRetention.model_validate(obj["decision"])
+                    verify_retention(root, decision)
+                    decision_id = decision.body.decision_id
+                    previous = db.execute(
+                        "SELECT document FROM retention_decisions WHERE owner=? AND id=?",
+                        (owner_id, decision_id),
+                    ).fetchone()
+                    if previous is not None:
+                        if previous[0] != canonical_bytes(decision).decode():
+                            raise HTTPException(409, _ERROR)
+                    else:
+                        now = int(time.time())
+                        if decision.body.issued_at > now + 300:
+                            raise HTTPException(400, _ERROR)
+                        count, used = db.execute(
+                            "SELECT count(*),coalesce(sum(length(document)+coalesce(length(cancellation),0)),0) FROM retention_decisions WHERE owner=?",
+                            (owner_id,),
+                        ).fetchone()
+                        if count >= 10000 or used + len(canonical_bytes(decision)) > 64 * 1024**2:
+                            raise HTTPException(429, _ERROR)
+                        for item in decision.body.revisions:
+                            row = db.execute(
+                                "SELECT manifest FROM revisions WHERE owner=? AND id=? AND state='committed'",
+                                (owner_id, item.revision_id),
+                            ).fetchone()
+                            if (
+                                row is None
+                                or digest(parse_manifest(row[0].encode())) != item.manifest_sha256
+                                or json.loads(row[0])["profile_id"] != item.profile_id
+                                or db.execute(
+                                    "SELECT 1 FROM profiles WHERE owner=? AND head=?",
+                                    (owner_id, item.revision_id),
+                                ).fetchone()
+                            ):
+                                raise HTTPException(409, _ERROR)
+                            if db.execute(
+                                "SELECT 1 FROM retention_items WHERE owner=? AND revision=?",
+                                (owner_id, item.revision_id),
+                            ).fetchone():
+                                raise HTTPException(409, _ERROR)
+                        db.execute(
+                            "INSERT INTO retention_decisions VALUES(?,?,?,'scheduled',NULL,?)",
+                            (
+                                owner_id,
+                                decision_id,
+                                canonical_bytes(decision).decode(),
+                                max(now + GRACE_SECONDS, decision.body.not_before),
+                            ),
+                        )
+                        for item in decision.body.revisions:
+                            db.execute(
+                                "INSERT INTO retention_items VALUES(?,?,?)",
+                                (owner_id, item.revision_id, decision_id),
+                            )
+                elif operation == "retention_cancel":
+                    cancellation = SignedCancellation.model_validate(obj["cancellation"])
+                    decision_id = cancellation.body.decision_id
+                    row = db.execute(
+                        "SELECT document,state,cancellation FROM retention_decisions WHERE owner=? AND id=?",
+                        (owner_id, decision_id),
+                    ).fetchone()
+                    if row is None:
+                        raise HTTPException(404, _ERROR)
+                    decision = SignedRetention.model_validate_json(row[0])
+                    verify_cancellation(root, cancellation, decision)
+                    if row[1] == "cancelled":
+                        if row[2] != canonical_bytes(cancellation).decode():
+                            raise HTTPException(409, _ERROR)
+                    elif (
+                        row[1] != "scheduled"
+                        or cancellation.body.issued_at > int(time.time()) + 300
+                    ):
+                        raise HTTPException(409, _ERROR)
+                    else:
+                        db.execute(
+                            "UPDATE retention_decisions SET state='cancelled',cancellation=? WHERE owner=? AND id=?",
+                            (canonical_bytes(cancellation).decode(), owner_id, decision_id),
+                        )
+                        db.execute(
+                            "DELETE FROM retention_items WHERE owner=? AND decision=?",
+                            (owner_id, decision_id),
+                        )
+                else:
+                    decision_id = _id(obj["decision_id"])
+                row = db.execute(
+                    "SELECT document,state,cancellation FROM retention_decisions WHERE owner=? AND id=?",
+                    (owner_id, decision_id),
+                ).fetchone()
+                if row is None:
+                    raise HTTPException(404, _ERROR)
+                return {
+                    "decision": json.loads(row[0]),
+                    "state": row[1],
+                    "cancellation": json.loads(row[2]) if row[2] else None,
+                }
+            if operation == "upload_begin":
+                revision = _id(obj["revision_id"])
+                length, checksum = obj["ciphertext_length"], obj["ciphertext_sha256"]
+                if (
+                    type(length) is not int
+                    or not 41 <= length <= max_blob_bytes
+                    or type(checksum) is not str
+                    or not re.fullmatch(r"[0-9a-f]{64}", checksum)
+                ):
+                    raise HTTPException(400, _ERROR)
+                row = db.execute(
+                    "SELECT writer,size,hash,state FROM revisions WHERE owner=? AND id=?",
+                    (owner_id, revision),
+                ).fetchone()
+                if row is None:
+                    used, count = db.execute(
+                        "SELECT coalesce(sum(size),0),count(*) FROM revisions WHERE owner=?",
+                        (owner_id,),
+                    ).fetchone()
+                    if used + length > owner_quota_bytes or count >= 10000:
+                        raise HTTPException(429, _ERROR)
+                    db.execute(
+                        "INSERT INTO revisions VALUES(?,?,?,?,?,'uploading',NULL,NULL)",
+                        (owner_id, revision, auth.device_id, length, checksum),
+                    )
+                    db.execute("INSERT INTO upload_offsets VALUES(?,?,0)", (owner_id, revision))
+                    db.execute(
+                        "INSERT INTO upload_expiry VALUES(?,?,?)",
+                        (
+                            owner_id,
+                            revision,
+                            max(
+                                int(time.time()),
+                                db.execute("SELECT highwater FROM clock WHERE id=1").fetchone()[0],
+                            )
+                            + UNCOMMITTED_TTL_SECONDS,
+                        ),
+                    )
+                    offset = 0
+                else:
+                    if row[:3] != (auth.device_id, length, checksum) or row[3] not in {
+                        "uploading",
+                        "ready",
+                    }:
+                        raise HTTPException(409, _ERROR)
+                    confirmed = db.execute(
+                        "SELECT offset FROM upload_offsets WHERE owner=? AND revision=?",
+                        (owner_id, revision),
+                    ).fetchone()
+                    if confirmed is None:
+                        if row[3] == "ready":
+                            offset = length
+                        else:
+                            # Legacy whole-body uploads have no durable prefix.
+                            # Restart only after their exact worker has exited;
+                            # never truncate an open old-version write stream.
+                            active = db.execute(
+                                "SELECT pid,created FROM active_uploads WHERE owner=? AND revision=?",
+                                (owner_id, revision),
+                            ).fetchone()
+                            if active is not None:
+                                try:
+                                    if (
+                                        abs(psutil.Process(active[0]).create_time() - active[1])
+                                        < 0.01
+                                    ):
+                                        raise HTTPException(409, _ERROR)
+                                except psutil.NoSuchProcess:
+                                    pass
+                                except (psutil.Error, OSError):
+                                    raise HTTPException(409, _ERROR) from None
+                            store.pending_path(owner_id, revision).unlink(missing_ok=True)
+                            store.blob_path(owner_id, revision).unlink(missing_ok=True)
+                            store.sync_directory(store.blobs)
+                            db.execute(
+                                "DELETE FROM active_uploads WHERE owner=? AND revision=?",
+                                (owner_id, revision),
+                            )
+                            db.execute(
+                                "INSERT INTO upload_offsets VALUES(?,?,0)", (owner_id, revision)
+                            )
+                            offset = 0
+                    else:
+                        offset = confirmed[0]
+                return {
+                    "revision_id": revision,
+                    "offset": offset,
+                    "chunk_bytes": UPLOAD_CHUNK_BYTES,
+                }
+            if operation == "upload_finish":
+                revision = _id(obj["revision_id"])
+                row = db.execute(
+                    "SELECT writer,size,hash,state FROM revisions WHERE owner=? AND id=?",
+                    (owner_id, revision),
+                ).fetchone()
+                if row is None or row[0] != auth.device_id or row[3] not in {"uploading", "ready"}:
+                    raise HTTPException(409, _ERROR)
+                if row[3] == "uploading":
+                    confirmed = db.execute(
+                        "SELECT offset FROM upload_offsets WHERE owner=? AND revision=?",
+                        (owner_id, revision),
+                    ).fetchone()
+                    if confirmed != (row[1],):
+                        raise HTTPException(409, _ERROR)
+                    pending, final = (
+                        store.pending_path(owner_id, revision),
+                        store.blob_path(owner_id, revision),
+                    )
+                    # A crash after rename but before metadata commit is resumed
+                    # from the final inode; its full authenticated hash is checked.
+                    source = pending if pending.exists() else final
+                    verify_private_path(source)
+                    descriptor = os.open(
+                        source,
+                        os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0),
+                    )
+                    with os.fdopen(descriptor, "rb") as stream:
+                        info = os.fstat(stream.fileno())
+                        if (
+                            not stat.S_ISREG(info.st_mode)
+                            or info.st_nlink != 1
+                            or info.st_size != row[1]
+                        ):
+                            raise HTTPException(409, _ERROR)
+                        checksum = hashlib.sha256()
+                        deadline = time.monotonic() + 30
+                        while part := stream.read(1024 * 1024):
+                            if time.monotonic() >= deadline:
+                                raise HTTPException(409, _ERROR)
+                            checksum.update(part)
+                        if checksum.hexdigest() != row[2]:
+                            raise HTTPException(409, _ERROR)
+                    if source == pending:
+                        if final.exists():
+                            raise HTTPException(409, _ERROR)
+                        os.rename(pending, final)
+                    store.sync_directory(store.blobs)
+                    db.execute(
+                        "UPDATE revisions SET state='ready' WHERE owner=? AND id=? AND state='uploading'",
+                        (owner_id, revision),
+                    )
+                return {
+                    "revision_id": revision,
+                    "ciphertext_sha256": row[2],
+                    "ciphertext_length": row[1],
+                }
             if operation == "membership":
                 return {
                     "root": root.model_dump(mode="json"),
@@ -818,7 +1119,7 @@ def create_relay_app(
             if operation == "manifest":
                 revision = _id(obj["revision_id"])
                 row = db.execute(
-                    "SELECT manifest,signature FROM revisions WHERE owner=? AND id=? AND state='committed'",
+                    "SELECT manifest,signature FROM revisions WHERE owner=? AND id=? AND state IN ('committed','collecting','collected')",
                     (owner_id, revision),
                 ).fetchone()
                 if row is None:
@@ -951,6 +1252,87 @@ def create_relay_app(
                 "receipt": receipt,
             }
 
+    @app.put("/v1/owners/{owner_id}/uploads/{revision_id}/chunks/{offset}")
+    async def upload_chunk(owner_id: str, revision_id: str, offset: str, request: Request):
+        _id(revision_id)
+        if not re.fullmatch(r"0|[1-9][0-9]{0,11}", offset):
+            raise HTTPException(400, _ERROR)
+        position = int(offset)
+        body_hash = request.headers.get("x-sync-body-sha256", "")
+        auth = authenticate(request, owner_id, body_hash)
+        length_text = request.headers.get("content-length", "")
+        if (
+            not re.fullmatch(r"[1-9][0-9]{0,7}", length_text)
+            or not 1 <= int(length_text) <= UPLOAD_CHUNK_BYTES
+        ):
+            raise HTTPException(413, _ERROR)
+        length = int(length_text)
+        try:
+            await asyncio.wait_for(streams.acquire(), timeout=0.1)
+        except asyncio.TimeoutError:
+            raise HTTPException(429, _ERROR) from None
+        try:
+            raw = bytearray()
+            async for part in incoming(request):
+                if len(raw) + len(part) > length:
+                    raise HTTPException(413, _ERROR)
+                raw.extend(part)
+            if len(raw) != length or hashlib.sha256(raw).hexdigest() != body_hash:
+                raise HTTPException(400, _ERROR)
+            # No await while holding the writer transaction: confirmed offset,
+            # append/fsync, expiry and commit are serialized across processes.
+            with store.transaction() as db:
+                _, membership = store.owner(db, owner_id)
+                current_device(membership, auth)
+                row = db.execute(
+                    "SELECT r.writer,r.size,r.state,o.offset FROM revisions r JOIN upload_offsets o ON o.owner=r.owner AND o.revision=r.id WHERE r.owner=? AND r.id=?",
+                    (owner_id, revision_id),
+                ).fetchone()
+                if (
+                    row is None
+                    or row[0] != auth.device_id
+                    or row[2] != "uploading"
+                    or position > row[3]
+                    or position + length > row[1]
+                ):
+                    raise HTTPException(409, _ERROR)
+                pending = store.pending_path(owner_id, revision_id)
+                if not pending.exists():
+                    if row[3] != 0:
+                        raise HTTPException(409, _ERROR)
+                    os.close(create_private_file(pending))
+                verify_private_path(pending)
+                descriptor = os.open(
+                    pending, os.O_RDWR | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+                )
+                with os.fdopen(descriptor, "r+b") as output:
+                    info = os.fstat(output.fileno())
+                    if (
+                        not stat.S_ISREG(info.st_mode)
+                        or info.st_nlink != 1
+                        or info.st_size < row[3]
+                    ):
+                        raise HTTPException(409, _ERROR)
+                    # Tail bytes not acknowledged in SQLite survived an earlier
+                    # crash. They are never treated as a resumable prefix.
+                    output.truncate(row[3])
+                    output.seek(position)
+                    if position < row[3]:
+                        if position + length > row[3] or output.read(length) != raw:
+                            raise HTTPException(409, _ERROR)
+                    else:
+                        output.write(raw)
+                        output.flush()
+                        os.fsync(output.fileno())
+                        db.execute(
+                            "UPDATE upload_offsets SET offset=? WHERE owner=? AND revision=?",
+                            (position + length, owner_id, revision_id),
+                        )
+                    store.sync_directory(store.blobs)
+                return {"revision_id": revision_id, "offset": max(row[3], position + length)}
+        finally:
+            streams.release()
+
     @app.put("/v1/owners/{owner_id}/blobs/{revision_id}")
     async def upload(owner_id: str, revision_id: str, request: Request):
         _id(revision_id)
@@ -1067,25 +1449,89 @@ def create_relay_app(
         async for part in incoming(request):
             if part:
                 raise HTTPException(400, _ERROR)
-        with store.transaction() as db:
-            _, membership = store.owner(db, owner_id)
-            current_device(membership, auth)
-            row = db.execute(
-                "SELECT size,hash FROM revisions WHERE owner=? AND id=? AND state='committed'",
-                (owner_id, revision_id),
-            ).fetchone()
-            if row is None:
-                raise HTTPException(404, _ERROR)
-        path = store.blob_path(owner_id, revision_id)
-        verify_private_path(path)
-        info = path.lstat()
-        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_size != row[0]:
-            raise HTTPException(400, _ERROR)
-        return _LimitedFileResponse(
-            path,
-            slots=downloads,
-            media_type="application/octet-stream",
-            headers={"X-Sync-Body-SHA256": row[1], "Cache-Control": "no-store"},
-        )
+        lease = str(uuid4())
+
+        def cleanup():
+            with store.transaction() as db:
+                db.execute("DELETE FROM active_downloads WHERE id=?", (lease,))
+
+        try:
+            with store.transaction() as db:
+                _, membership = store.owner(db, owner_id)
+                current_device(membership, auth)
+                row = db.execute(
+                    "SELECT size,hash,state,manifest,signature FROM revisions WHERE owner=? AND id=?",
+                    (owner_id, revision_id),
+                ).fetchone()
+                if row is None or row[2] not in {"committed", "collecting", "collected"}:
+                    raise HTTPException(404, _ERROR)
+                if row[2] in {"collecting", "collected"}:
+                    retained = db.execute(
+                        "SELECT d.document FROM retention_items i JOIN retention_decisions d ON d.owner=i.owner AND d.id=i.decision WHERE i.owner=? AND i.revision=?",
+                        (owner_id, revision_id),
+                    ).fetchone()
+                    if retained is None:
+                        raise HTTPException(409, _ERROR)
+                    return JSONResponse(
+                        status_code=410,
+                        content={
+                            "retention": json.loads(retained[0]),
+                            "manifest": json.loads(row[3]),
+                            "signature": row[4],
+                        },
+                        headers={"Cache-Control": "no-store"},
+                    )
+                if (
+                    db.execute(
+                        "SELECT count(*) FROM active_downloads WHERE owner=?", (owner_id,)
+                    ).fetchone()[0]
+                    >= 4096
+                ):
+                    # Crashed readers of current heads cannot rely on retention
+                    # GC for cleanup. Reap at most one owner quota independently.
+                    liveness = {}
+                    for old_lease, pid, created in db.execute(
+                        "SELECT id,pid,created FROM active_downloads WHERE owner=? ORDER BY rowid LIMIT 4096",
+                        (owner_id,),
+                    ).fetchall():
+                        identity = (pid, created)
+                        if identity not in liveness:
+                            try:
+                                liveness[identity] = (
+                                    abs(psutil.Process(pid).create_time() - created) < 0.01
+                                )
+                            except psutil.NoSuchProcess:
+                                liveness[identity] = False
+                            except (psutil.Error, OSError):
+                                liveness[identity] = True
+                        if not liveness[identity]:
+                            db.execute("DELETE FROM active_downloads WHERE id=?", (old_lease,))
+                    if (
+                        db.execute(
+                            "SELECT count(*) FROM active_downloads WHERE owner=?", (owner_id,)
+                        ).fetchone()[0]
+                        >= 4096
+                    ):
+                        raise HTTPException(429, _ERROR)
+                process = psutil.Process()
+                db.execute(
+                    "INSERT INTO active_downloads VALUES(?,?,?,?,?)",
+                    (lease, owner_id, revision_id, process.pid, process.create_time()),
+                )
+            path = store.blob_path(owner_id, revision_id)
+            verify_private_path(path)
+            info = path.lstat()
+            if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_size != row[0]:
+                raise HTTPException(400, _ERROR)
+            return _LimitedFileResponse(
+                path,
+                slots=downloads,
+                cleanup=cleanup,
+                media_type="application/octet-stream",
+                headers={"X-Sync-Body-SHA256": row[1], "Cache-Control": "no-store"},
+            )
+        except BaseException:
+            cleanup()
+            raise
 
     return app
