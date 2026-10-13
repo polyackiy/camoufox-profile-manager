@@ -152,3 +152,24 @@ def test_unavailable_windows_security_fails_before_credentials(tmp_path, monkeyp
         with pytest.raises(PermissionProtectionError, match="unsupported"):
             create_private_file(path)
     assert not path.exists()
+
+
+def test_windows_display_aliases_use_actual_binary_owner_and_trustees():
+    from camoufox_pm.core.update_permissions import _canonical_sddl
+
+    displayed = "O:LAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;LA)"
+    canonical = _canonical_sddl(displayed, USER, ["S-1-5-18", USER])
+    _verify_sddl(canonical, USER, require_protected=True, require_inheritance=True)
+    wrong_owner = _canonical_sddl(displayed, "S-1-5-21-999", ["S-1-5-18", USER])
+    with pytest.raises(PermissionProtectionError, match="owner"):
+        _verify_sddl(wrong_owner, USER, require_protected=True)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX executable modes")
+def test_private_executable_keeps_owner_execute(tmp_path):
+    path = tmp_path / "executable"
+    path.write_bytes(b"#!/bin/sh\nexit 0\n")
+    path.chmod(0o755)
+    protect_path(path)
+    assert path.stat().st_mode & 0o777 == 0o700
+    verify_private_path(path)

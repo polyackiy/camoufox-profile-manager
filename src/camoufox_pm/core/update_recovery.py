@@ -7,8 +7,10 @@ import re
 import sqlite3
 import uuid
 from contextlib import closing
+from importlib.metadata import version
 from pathlib import Path
 
+from camoufox_pm import __version__
 from camoufox_pm.config import get_settings
 
 from .maintenance import MaintenanceBlocked, configured_gate
@@ -116,7 +118,15 @@ def offline_checkpoint() -> str:
             reference = root / "key-reference.json"
             with os.fdopen(create_private_file(reference), "w", encoding="utf-8") as stream:
                 json.dump(
-                    {"secret_key_sha256": key_reference, "local_key": paths["secret_key"].exists()},
+                    {
+                        "secret_key_sha256": key_reference,
+                        "local_key": paths["secret_key"].exists(),
+                        "manager_version": __version__,
+                        "wrapper_version": version("camoufox"),
+                        "browser_active": json.loads(
+                            (paths["browser"] / "config.json").read_text()
+                        ).get("active"),
+                    },
                     stream,
                 )
                 stream.flush()
@@ -140,6 +150,10 @@ def offline_restore(checkpoint_id: str, confirmed_timestamp: str):
             "Confirm the checkpoint timestamp exactly; restoration loses changes since that time"
         )
     key_metadata = json.loads((root / "key-reference.json").read_text())
+    if key_metadata.get("manager_version") != __version__:
+        raise ValueError(
+            f"Checkpoint requires manager {key_metadata.get('manager_version', 'unknown')}; install that matching manager before restoring with {__version__}"
+        )
     if not key_metadata.get("local_key") and key_metadata["secret_key_sha256"] != reference:
         raise ValueError(
             "The encryption key configuration changed; restore requires the original key"
@@ -154,7 +168,9 @@ def offline_restore(checkpoint_id: str, confirmed_timestamp: str):
                 return gate.blocked and gate.managers_stopped() and _legacy_processes_stopped()
 
             if not check() or (database.exists() and not _profiles_stopped(database)):
-                raise MaintenanceBlocked("Close all manager instances and browsers before restoring")
+                raise MaintenanceBlocked(
+                    "Close all manager instances and browsers before restoring"
+                )
         except BaseException:
             # A refused initial restore has not changed data. Let ordinary CLI
             # lease inspection/unlock remain possible. Interrupted restoration

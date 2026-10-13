@@ -257,3 +257,25 @@ def test_private_checkpoint_and_restore_symlink_rejected(tmp_path):
     paths["key"].symlink_to(db)
     with pytest.raises(CheckpointError, match="Symlinks"):
         restore_checkpoint(root, db_path=db, paths=paths, maintenance_check=lambda: True)
+
+
+@pytest.mark.skipif(__import__("os").name == "nt", reason="POSIX executable modes")
+def test_browser_executable_round_trip_and_private_copy(tmp_path):
+    db, paths = setup_state(tmp_path)
+    browser = tmp_path / "browser"
+    browser.mkdir()
+    executable = browser / "camoufox"
+    executable.write_bytes(b"#!/bin/sh\nexit 0\n")
+    executable.chmod(0o755)
+    paths["browser"] = browser
+    root = tmp_path / "checkpoint"
+    create_checkpoint(root, db_path=db, paths=paths, maintenance_check=lambda: True)
+    executable.write_bytes(b"failed browser")
+    restore_checkpoint(root, db_path=db, paths=paths, maintenance_check=lambda: True)
+    assert executable.read_bytes() == b"#!/bin/sh\nexit 0\n"
+    assert executable.stat().st_mode & 0o777 == 0o700
+    assert (tmp_path / "browser.failed-checkpoint" / "camoufox").stat().st_mode & 0o777 == 0o700
+    journal = json.loads((root / "journal.json").read_text())
+    entry = next(entry for entry in journal["entries"] if entry["label"] == "browser")
+    assert entry["inventory"]["camoufox"]["executable"] is True
+    assert (root / entry["payload"] / "camoufox").stat().st_mode & 0o777 == 0o700

@@ -72,6 +72,24 @@ def _verify_sddl(
         raise PermissionProtectionError("Private Windows DACL lacks required trustees")
 
 
+def _canonical_sddl(value: str, owner_sid: str, trustees: list[str]) -> str:
+    """Replace display aliases with identities read from the binary descriptor."""
+    value = re.sub(r"^O:[^:]+(?=D:)", f"O:{owner_sid}", value)
+    aces = re.findall(r"\(([^()]*)\)", value)
+    if len(aces) != len(trustees):
+        raise PermissionProtectionError("Private Windows DACL identity count differs")
+    identities = iter(trustees)
+
+    def canonical(match):
+        parts = match[1].split(";")
+        if len(parts) != 6:
+            raise PermissionProtectionError("Private Windows DACL has unsupported ACEs")
+        parts[5] = next(identities)
+        return "(" + ";".join(parts) + ")"
+
+    return re.sub(r"\(([^()]*)\)", canonical, value)
+
+
 class _WindowsSecurity:
     """Lazy ctypes bindings; never loaded on POSIX."""
 
@@ -135,6 +153,32 @@ class _WindowsSecurity:
                 ctypes.POINTER(wintypes.DWORD),
             ],
             wintypes.BOOL,
+        )
+        self._bind(
+            self.advapi,
+            "GetSecurityDescriptorOwner",
+            [pointer, ctypes.POINTER(pointer), ctypes.POINTER(wintypes.BOOL)],
+            wintypes.BOOL,
+        )
+        self._bind(
+            self.advapi,
+            "GetSecurityDescriptorDacl",
+            [
+                pointer,
+                ctypes.POINTER(wintypes.BOOL),
+                ctypes.POINTER(pointer),
+                ctypes.POINTER(wintypes.BOOL),
+            ],
+            wintypes.BOOL,
+        )
+        self._bind(
+            self.advapi,
+            "GetAclInformation",
+            [pointer, pointer, wintypes.DWORD, ctypes.c_int],
+            wintypes.BOOL,
+        )
+        self._bind(
+            self.advapi, "GetAce", [pointer, wintypes.DWORD, ctypes.POINTER(pointer)], wintypes.BOOL
         )
         self._bind(self.kernel, "CreateDirectoryW", [wintypes.LPCWSTR, pointer], wintypes.BOOL)
         self._bind(
@@ -204,6 +248,56 @@ class _WindowsSecurity:
         )
         return descriptor
 
+    def _sid_text(self, sid) -> str:
+        text = ctypes.c_void_p()
+        self._check(self.advapi.ConvertSidToStringSidW(sid, ctypes.byref(text)))
+        try:
+            return ctypes.wstring_at(text)
+        finally:
+            self.kernel.LocalFree(text)
+
+    def _descriptor_identities(self, descriptor) -> tuple[str, list[str]]:
+        # SDDL aliases such as LA encode a local administrator SID. Resolve the
+        # actual owner and every trustee from the binary descriptor, rather than
+        # assuming display aliases equal the process token SID.
+        owner = ctypes.c_void_p()
+        defaulted = self.w.BOOL()
+        self._check(
+            self.advapi.GetSecurityDescriptorOwner(
+                descriptor, ctypes.byref(owner), ctypes.byref(defaulted)
+            )
+        )
+        if not owner.value:
+            raise PermissionProtectionError("Private Windows descriptor has no owner")
+        owner_sid = self._sid_text(owner)
+        present = self.w.BOOL()
+        dacl = ctypes.c_void_p()
+        self._check(
+            self.advapi.GetSecurityDescriptorDacl(
+                descriptor, ctypes.byref(present), ctypes.byref(dacl), ctypes.byref(defaulted)
+            )
+        )
+        if not present.value or not dacl.value:
+            raise PermissionProtectionError("Private Windows descriptor has a NULL DACL")
+
+        class AclSizeInformation(ctypes.Structure):
+            _fields_ = [("count", self.w.DWORD), ("used", self.w.DWORD), ("free", self.w.DWORD)]
+
+        info = AclSizeInformation()
+        self._check(self.advapi.GetAclInformation(dacl, ctypes.byref(info), ctypes.sizeof(info), 2))
+        trustees = []
+        for index in range(info.count):
+            ace = ctypes.c_void_p()
+            self._check(self.advapi.GetAce(dacl, index, ctypes.byref(ace)))
+            if not ace.value:
+                raise PermissionProtectionError("Private Windows DACL has no ACE")
+            # ACCESS_ALLOWED_ACE = four-byte ACE_HEADER + DWORD Mask + SID.
+            header = ctypes.string_at(ace, 4)
+            if header[0] != 0 or int.from_bytes(header[2:4], "little") < 16:
+                raise PermissionProtectionError("Private Windows DACL has unsupported ACEs")
+            trustees.append(self._sid_text(ctypes.c_void_p(ace.value + 8)))
+        return owner_sid, trustees
+
     def read_sddl(self, path: Path) -> str:
         size = self.w.DWORD()
         self.advapi.GetFileSecurityW(str(path), 0x5, None, 0, ctypes.byref(size))
@@ -213,6 +307,7 @@ class _WindowsSecurity:
         self._check(
             self.advapi.GetFileSecurityW(str(path), 0x5, descriptor, size, ctypes.byref(size))
         )
+        owner_sid, trustees = self._descriptor_identities(descriptor)
         text = ctypes.c_void_p()
         self._check(
             self.advapi.ConvertSecurityDescriptorToStringSecurityDescriptorW(
@@ -220,7 +315,7 @@ class _WindowsSecurity:
             )
         )
         try:
-            return ctypes.wstring_at(text)
+            return _canonical_sddl(ctypes.wstring_at(text), owner_sid, trustees)
         finally:
             self.kernel.LocalFree(text)
 
@@ -284,7 +379,7 @@ def protect_path(path: Path) -> None:
     if os.name == "nt":
         _WindowsSecurity().protect(path)
     else:
-        os.chmod(path, 0o700 if path.is_dir() else 0o600)
+        os.chmod(path, 0o700 if path.is_dir() or path.stat().st_mode & stat.S_IXUSR else 0o600)
         verify_private_path(path)
 
 

@@ -13,6 +13,7 @@ import json
 import os
 import shutil
 import sqlite3
+import stat
 from collections.abc import Callable, Mapping
 from contextlib import closing
 from datetime import datetime, timezone
@@ -100,6 +101,7 @@ def _inventory(path: Path) -> dict:
                 "kind": "file",
                 "size": entry.stat().st_size,
                 "sha256": digest.hexdigest(),
+                "executable": os.name != "nt" and bool(entry.stat().st_mode & stat.S_IXUSR),
             }
     return result
 
@@ -113,6 +115,8 @@ def _copy(source: Path, target: Path) -> None:
     else:
         descriptor = create_private_file(target)
         with os.fdopen(descriptor, "wb") as output, source.open("rb") as input_file:
+            if os.name != "nt" and source.stat().st_mode & stat.S_IXUSR:
+                os.fchmod(output.fileno(), 0o700)
             shutil.copyfileobj(input_file, output, length=1024 * 1024)
             output.flush()
             os.fsync(output.fileno())
