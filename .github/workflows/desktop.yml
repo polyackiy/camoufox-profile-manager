@@ -70,6 +70,8 @@ jobs:
         run: choco install nsis --no-progress -y
       - name: Build desktop app
         run: uv run --no-sync python scripts/build_desktop.py
+      - name: Smoke frozen recovery dispatcher
+        run: uv run --no-sync python scripts/smoke_desktop_recovery.py
 
       - name: Import macOS certificate
         if: runner.os == 'macOS' && env.MACOS_CERT_P12 != ''
