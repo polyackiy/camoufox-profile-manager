@@ -249,6 +249,9 @@ and interruptions before/after each durable publication boundary.
 A new native installed-manager acceptance workflow builds ordinary installers and
 runs two isolated installed manager processes with their bundled UI and a real
 HTTPS relay. Its ephemeral test CA is added only to disposable installed copies;
-release artifacts and TLS validation are not weakened. Until recorded successful
-CI results exist, the harness itself is not proof that installed-platform behavior
-passes. Same-runner testing also does not prove every physical GPU/font environment.
+release artifacts and TLS validation are not weakened.
+[Run 38471961607](https://github.com/polyackiy/camoufox-profile-manager/actions/runs/38471961607)
+passed on Linux, Windows and macOS ARM/Intel at `5bd37f6`, including four real
+browser launches, UI Trash/restore and retention schedule/cancel. See the
+[support matrix](sync-support-matrix.md) for exact coverage and limits. Same-runner
+testing does not prove every physical GPU/font environment.

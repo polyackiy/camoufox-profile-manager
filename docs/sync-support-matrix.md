@@ -1,7 +1,7 @@
 # Synchronization support and validation matrix
 
 Synchronization is an experimental implementation. This matrix distinguishes
-completed checks from behavior that still needs native end-to-end evidence.
+completed checks from environments and guarantees that remain unverified.
 Passing cryptographic tests does not prove that every browser session migrates
 correctly, and does not constitute an external human cryptographic audit.
 
@@ -28,8 +28,8 @@ or headless credential store.
 
 ## Integrated native crypto and vault evidence
 
-The [integrated security matrix](https://github.com/polyackiy/camoufox-profile-manager/actions/runs/38463363361)
-passes at `0e89885a92342e2e508742b7f71925e901c2d4dd` on Ubuntu, Windows,
+The [integrated security matrix](https://github.com/polyackiy/camoufox-profile-manager/actions/runs/38471961634)
+passes at `5bd37f6256599523de411e0ee6ffd4178ba7c143` on Ubuntu, Windows,
 macOS Apple Silicon and macOS Intel. This run includes the full sync unit/negative
 suite, source and frozen-codec/recovery checks, and the independent CIRCL HPKE
 comparison. Native credential-store checks pass for Windows Credential Manager
@@ -40,18 +40,16 @@ establishes.
 
 ## Integrated application evidence
 
-The [application CI run](https://github.com/polyackiy/camoufox-profile-manager/actions/runs/38463364451)
-for `0e89885a92342e2e508742b7f71925e901c2d4dd` passes on Python 3.10–3.13,
+The [application CI run](https://github.com/polyackiy/camoufox-profile-manager/actions/runs/38471961663)
+for `5bd37f6256599523de411e0ee6ffd4178ba7c143` passes on Python 3.10–3.13,
 including lint/type checks, frontend production/static builds, and all desktop,
-access-control and synchronization UI contract suites. One Python 3.12 proxy
-concurrency fixture initially raced its wall-clock sleeps; the failed job passed
-on retry. The follow-up fixture uses explicit events and retains the original
-assertions; production proxy behavior was unchanged.
+access-control and synchronization UI contract suites. Proxy concurrency tests
+use explicit events rather than wall-clock sleeps.
 
-The [update recovery matrix](https://github.com/polyackiy/camoufox-profile-manager/actions/runs/38463364405)
+The [update recovery matrix](https://github.com/polyackiy/camoufox-profile-manager/actions/runs/38471961581)
 passes on Ubuntu, Windows, macOS Apple Silicon and macOS Intel at that commit.
-Local final implementation validation passed 1,934 tests with 8 environment skips;
-the subsequent canvas-setting fixture adds two passing cases.
+Local implementation validation passed 2,007 tests with 8 environment skips
+before the final installed-harness and UI-only follow-ups.
 
 ## Integrated browser evidence
 
@@ -67,8 +65,38 @@ session randomization is not silently disabled.
 
 This establishes same-runner transfer behavior under the listed native platforms.
 It does not establish identical rendering across every physical GPU, font stack or
-managed desktop, cross-OS/architecture compatibility, or an installed manager GUI
-roundtrip. Native-vault and frozen-codec validation remain separate evidence.
+managed desktop or cross-OS/architecture compatibility. Installed-manager GUI
+acceptance is recorded separately below.
+
+## Installed desktop acceptance
+
+The [installed-manager run](https://github.com/polyackiy/camoufox-profile-manager/actions/runs/38471961607)
+passed at `5bd37f6256599523de411e0ee6ffd4178ba7c143` on all four targets:
+
+| Platform | Normal installer / frozen manager with bundled UI | Actual Camoufox workflow |
+| --- | --- | --- |
+| Ubuntu 22.04 x86-64 | Passed | Passed |
+| Windows Server 2022 x86-64 | Passed | Passed |
+| macOS 15 Apple Silicon | Passed | Passed |
+| macOS 15 Intel | Passed | Passed |
+
+Each runner creates two independent installed-manager processes and data
+folders, an authenticated HTTPS relay, and an explicit encrypted-file key vault.
+The bundled UI enables synchronization, pairs devices, imports the profile,
+hands it over and retrieves it. Four real Camoufox launches verify HttpOnly
+session cookies, localStorage updates, pinned fingerprint/browser settings and
+exact stable-canvas output. The UI also publishes Trash, restores the profile,
+schedules historical cleanup and cancels that signed decision. No permanent
+historical collection is performed in this UI trial; grace and crash-safe
+collection have separate deterministic relay tests.
+
+Administrator bootstrap uses the real local API, so this run is not evidence
+for every onboarding wizard interaction. Same-host, independent-installation
+coverage does not prove behavior across every physical GPU, network or managed
+OS configuration. Native-vault checks remain separate. The test's ephemeral CA
+is provisioned only into disposable installed copies, never release artifacts;
+TLS verification remains enabled. The extra cross-device restoration button
+and its pending/unchanged-Trash regressions are covered by PR #98's frontend CI.
 
 ## Browser and runtime coverage
 
@@ -78,7 +106,7 @@ roundtrip. Native-vault and frozen-codec validation remain separate evidence.
 | Encrypted two-device handoff, immutable ciphertext and received snapshot validation | Runtime integration tests using real relay/client code and synthetic profile data |
 | Crash recovery, local pointer activation, lease/maintenance fencing and stale rows | Fault-injection tests; native filesystem/lock behavior also requires the platform matrix on the final commit |
 | Actual Camoufox cookie, localStorage, fingerprint and canvas transfer | Passed on Linux, Windows and macOS Apple Silicon in the dedicated run above; same runner, separate manager data directories |
-| Browser compatibility workflow unrelated to the new sync roundtrip | Must not be counted as proof of successful sync handoff |
+| Installed manager transfer, Trash/restore and retention cancellation | Four native targets in the installed run above; encrypted-file vault, same runner |
 | Historical recovery | Real cryptographic/archive negative tests and fresh local profile import tests; explicitly historical, with no recovered-current-checkout claim |
 | Browser closed upload queue | Requires a running manager and accessible native vault; encrypted-file vault waits for explicit password entry |
 
