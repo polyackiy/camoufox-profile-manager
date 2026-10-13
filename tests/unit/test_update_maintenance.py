@@ -1,3 +1,4 @@
+from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -194,14 +195,14 @@ def test_operation_cleanup_proves_dead_local_identity_only(tmp_path: Path):
 
     gate = MaintenanceGate(tmp_path / "gate.db")
     # The same PID with a different birth time is an interrupted prior process.
-    with sqlite3.connect(gate.path) as db:
+    with closing(sqlite3.connect(gate.path)) as db, db:
         db.execute(
             "INSERT INTO operations VALUES (?,?,?,?)",
             ("dead", os.getpid(), psutil.Process().create_time() - 100, socket.gethostname()),
         )
     gate.acquire("update")
     gate.release("update")
-    with sqlite3.connect(gate.path) as db:
+    with closing(sqlite3.connect(gate.path)) as db, db:
         db.execute(
             "INSERT INTO operations VALUES (?,?,?,?)", ("remote", os.getpid(), 0, "other-machine")
         )
@@ -237,7 +238,7 @@ def test_access_denied_process_is_not_pruned(tmp_path: Path, monkeypatch):
     import psutil
 
     gate = MaintenanceGate(tmp_path / "gate.db")
-    with sqlite3.connect(gate.path) as db:
+    with closing(sqlite3.connect(gate.path)) as db, db:
         db.execute(
             "INSERT INTO operations VALUES (?,?,?,?)",
             ("uncertain", os.getpid(), 0, socket.gethostname()),
@@ -250,3 +251,16 @@ def test_access_denied_process_is_not_pruned(tmp_path: Path, monkeypatch):
     with pytest.raises(MaintenanceBlocked):
         gate.acquire("update")
     gate.release("update")
+
+
+def test_cancel_cannot_bypass_helper_replacement_journal(tmp_path: Path):
+    from camoufox_pm.core.update_service import UpdateService
+
+    gate = MaintenanceGate(tmp_path / "control" / "maintenance.sqlite3")
+    service = UpdateService(gate.path.parent, gate)
+    service._save({"transaction_id": "update", "state": "prepared"})
+    (service.root / "replacement.json").write_text('{"state":"moving_old"}')
+    gate.acquire("update")
+    with pytest.raises(MaintenanceBlocked, match="helper journal"):
+        service.cancel_preparation()
+    assert gate.blocked

@@ -141,7 +141,16 @@ def main() -> None:
             checkpoint_id = offline_checkpoint()
             checkpoint_journal = service.root / "checkpoints" / checkpoint_id / "journal.json"
             timestamp = json.loads(checkpoint_journal.read_text())["created_at"]
-            print(json.dumps({"checkpoint_id": checkpoint_id, "created_at": timestamp}, indent=2))
+            metadata = json.loads((checkpoint_journal.parent / "key-reference.json").read_text())
+            versions = {
+                key: metadata.get(key)
+                for key in ("manager_version", "wrapper_version", "browser_active")
+            }
+            print(
+                json.dumps(
+                    {"checkpoint_id": checkpoint_id, "created_at": timestamp, **versions}, indent=2
+                )
+            )
             return
         if args.action == "restore":
             from camoufox_pm.core.update_recovery import offline_restore
@@ -158,11 +167,17 @@ def main() -> None:
         for journal_path in sorted((service.root / "checkpoints").glob("*/journal.json")):
             try:
                 journal = json.loads(journal_path.read_text())
+                metadata = json.loads((journal_path.parent / "key-reference.json").read_text())
+                versions = {
+                    key: metadata.get(key)
+                    for key in ("manager_version", "wrapper_version", "browser_active")
+                }
                 status["checkpoints"].append(
                     {
                         "checkpoint_id": journal_path.parent.name,
                         "created_at": journal.get("created_at"),
                         "state": journal.get("state"),
+                        **versions,
                     }
                 )
             except (OSError, ValueError):

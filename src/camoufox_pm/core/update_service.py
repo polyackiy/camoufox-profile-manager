@@ -131,6 +131,10 @@ class UpdateService:
     @_serialized
     def cancel_preparation(self):
         transaction = self.status()
+        if (self.root / "replacement.json").exists():
+            raise MaintenanceBlocked(
+                "A replacement helper journal exists; complete offline recovery before resuming writes"
+            )
         if transaction["state"] not in ("preparing", "prepared"):
             raise MaintenanceBlocked("Replacement/recovery cannot be cancelled")
         if self.gate.blocked:

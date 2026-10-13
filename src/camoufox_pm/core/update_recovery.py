@@ -47,7 +47,8 @@ def configured_layout(*, require_existing: bool = True):
             )
     if Path.cwd().joinpath(".env").exists():
         required.append("environment")
-    reference = hashlib.sha256((settings.secret_key or "").encode()).hexdigest()
+    effective_key = settings.secret_key or (key.read_text().strip() if key.exists() else "")
+    reference = hashlib.sha256(effective_key.encode()).hexdigest()
     return database, paths, tuple(required), reference
 
 
@@ -59,6 +60,49 @@ def _profiles_stopped(database: Path):
         ).fetchone()
 
 
+def _validate_encrypted_credentials(database: Path, effective_key: str):
+    from cryptography.fernet import Fernet, InvalidToken
+
+    tokens: list[str] = []
+    with closing(sqlite3.connect(f"{database.as_uri()}?mode=ro", uri=True)) as db:
+        columns = {row[1] for row in db.execute("PRAGMA table_info(profiles)")}
+        if "proxy_config" in columns:
+            for (raw,) in db.execute(
+                "SELECT proxy_config FROM profiles WHERE proxy_config IS NOT NULL"
+            ):
+                try:
+                    config = json.loads(raw)
+                except (ValueError, TypeError) as exc:
+                    raise ValueError(
+                        "Stored proxy configuration is unreadable; recovery checkpoint refused"
+                    ) from exc
+                if isinstance(config, dict):
+                    tokens.extend(
+                        value
+                        for value in config.values()
+                        if isinstance(value, str) and value.startswith("enc:")
+                    )
+        columns = {row[1] for row in db.execute("PRAGMA table_info(proxy_inventory)")}
+        if "password" in columns:
+            tokens.extend(
+                value
+                for (value,) in db.execute(
+                    "SELECT password FROM proxy_inventory WHERE password IS NOT NULL"
+                )
+                if isinstance(value, str) and value.startswith("enc:")
+            )
+    if not tokens:
+        return
+    if not effective_key:
+        raise ValueError("The original encryption key is required for encrypted proxy credentials")
+    try:
+        cipher = Fernet(effective_key.encode())
+        for token in tokens:
+            cipher.decrypt(token[4:].encode())
+    except (ValueError, InvalidToken) as exc:
+        raise ValueError("The encryption key cannot read all stored proxy credentials") from exc
+
+
 def _legacy_processes_stopped() -> bool:
     import psutil
 
@@ -66,8 +110,20 @@ def _legacy_processes_stopped() -> bool:
     # same-user manager/browser processes in addition to the durable registry.
     current = psutil.Process()
     user = current.username()
+    launcher_ancestors = set()
+    try:
+        for ancestor in current.parents():
+            name = ancestor.name().lower()
+            command = " ".join(ancestor.cmdline()).lower()
+            known_launcher = name in ("uv", "uv.exe", "pipx", "pipx.exe", "zsh", "bash", "sh") or (
+                name.startswith("python") and "pipx" in command
+            )
+            if known_launcher and "update-recovery" in command:
+                launcher_ancestors.add(ancestor.pid)
+    except (psutil.NoSuchProcess, psutil.AccessDenied):
+        return False
     for process in psutil.process_iter():
-        if process.pid == os.getpid():
+        if process.pid == os.getpid() or process.pid in launcher_ancestors:
             continue
         try:
             if process.username() != user:
@@ -77,7 +133,14 @@ def _legacy_processes_stopped() -> bool:
             if any(
                 marker in command
                 for marker in ("camoufox_pm", "camoufox-pm", "camoufox profile manager")
-            ) or name in ("camoufox", "firefox", "firefox.exe"):
+            ) or name in (
+                "camoufox",
+                "camoufox.exe",
+                "camoufox-bin",
+                "firefox",
+                "firefox.exe",
+                "firefox-bin",
+            ):
                 return False
         except psutil.NoSuchProcess:
             continue
@@ -107,6 +170,10 @@ def offline_checkpoint() -> str:
                 raise MaintenanceBlocked(
                     "Close all manager instances and browsers before checkpointing"
                 )
+            effective_key = get_settings().secret_key or (
+                paths["secret_key"].read_text().strip() if paths["secret_key"].exists() else ""
+            )
+            _validate_encrypted_credentials(database, effective_key)
             root = service.root / "checkpoints" / checkpoint_id
             create_checkpoint(
                 root,
@@ -125,7 +192,7 @@ def offline_checkpoint() -> str:
                         "wrapper_version": version("camoufox"),
                         "browser_active": json.loads(
                             (paths["browser"] / "config.json").read_text()
-                        ).get("active"),
+                        ).get("active_version"),
                     },
                     stream,
                 )
@@ -154,10 +221,25 @@ def offline_restore(checkpoint_id: str, confirmed_timestamp: str):
         raise ValueError(
             f"Checkpoint requires manager {key_metadata.get('manager_version', 'unknown')}; install that matching manager before restoring with {__version__}"
         )
-    if not key_metadata.get("local_key") and key_metadata["secret_key_sha256"] != reference:
+    external_key_present = bool(get_settings().secret_key)
+    if (external_key_present or not key_metadata.get("local_key")) and key_metadata[
+        "secret_key_sha256"
+    ] != reference:
         raise ValueError(
             "The encryption key configuration changed; restore requires the original key"
         )
+    effective_key = get_settings().secret_key or ""
+    if not effective_key and key_metadata.get("local_key"):
+        key_entry = next(
+            (entry for entry in journal["entries"] if entry["label"] == "secret_key"), None
+        )
+        if not key_entry or not re.fullmatch(r"[0-9]+", key_entry["payload"]):
+            raise ValueError("Checkpoint encryption key payload is invalid")
+        key_payload = root / key_entry["payload"]
+        if key_payload.is_symlink():
+            raise ValueError("Checkpoint encryption key payload is invalid")
+        effective_key = key_payload.read_text().strip()
+    _validate_encrypted_credentials(root / "0", effective_key)
     owner = f"restore-{checkpoint_id}"
     with service._control():
         resuming = gate.owner == owner

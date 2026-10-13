@@ -193,7 +193,7 @@ def create_checkpoint(
                         live.backup(backup)
                         backup.execute("PRAGMA journal_mode=DELETE")
                 protect_path(payload)
-                with payload.open("rb") as handle:
+                with payload.open("r+b") as handle:
                     os.fsync(handle.fileno())
                 _integrity(payload)
             else:

@@ -279,3 +279,25 @@ def test_browser_executable_round_trip_and_private_copy(tmp_path):
     entry = next(entry for entry in journal["entries"] if entry["label"] == "browser")
     assert entry["inventory"]["camoufox"]["executable"] is True
     assert (root / entry["payload"] / "camoufox").stat().st_mode & 0o777 == 0o700
+
+
+def test_regular_file_fsync_uses_writable_handles_for_windows(tmp_path, monkeypatch):
+    import os
+    import stat
+
+    from camoufox_pm.core import update_checkpoint as module
+
+    db, paths = setup_state(tmp_path)
+    root = tmp_path / "checkpoint"
+    original_fsync = module.os.fsync
+
+    def writable_fsync(descriptor):
+        # Windows _commit rejects read-only regular file descriptors. A zero-byte
+        # write detects that same access error on POSIX without changing content.
+        if stat.S_ISREG(os.fstat(descriptor).st_mode):
+            os.write(descriptor, b"")
+        original_fsync(descriptor)
+
+    monkeypatch.setattr(module.os, "fsync", writable_fsync)
+    create_checkpoint(root, db_path=db, paths=paths, maintenance_check=lambda: True)
+    restore_checkpoint(root, db_path=db, paths=paths, maintenance_check=lambda: True)

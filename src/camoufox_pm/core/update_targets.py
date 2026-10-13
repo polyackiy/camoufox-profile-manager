@@ -191,7 +191,9 @@ class VerifiedTargetClient:
             )
         try:
             root_stat = self.trusted_root.lstat()
-            if not stat.S_ISREG(root_stat.st_mode) or root_stat.st_mode & 0o022:
+            if not stat.S_ISREG(root_stat.st_mode) or (
+                os.name != "nt" and root_stat.st_mode & 0o022
+            ):
                 raise UpdateVerificationError(
                     "Trusted root must be a regular file without group/world write access"
                 )
@@ -247,7 +249,7 @@ class VerifiedTargetClient:
             os.close(create_private_file(staged))
             updater.download_target(target, filepath=str(staged))
             protect_path(staged)
-            with staged.open("rb") as downloaded:
+            with staged.open("r+b") as downloaded:
                 os.fsync(downloaded.fileno())
             return VerifiedTarget(staged, manifest, target.length, dict(target.hashes))
         except Exception as exc:

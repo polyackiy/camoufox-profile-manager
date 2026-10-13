@@ -29,6 +29,11 @@ installer available and acknowledge the loss of changes since the checkpoint:
 camoufox-pm update-recovery restore --checkpoint-id ID --confirm-timestamp TIMESTAMP
 ```
 
+The checkpoint records manager/wrapper versions and the configured browser identifier.
+Restore requires the exact recorded manager version; use its matching installer
+before running recovery. Stored encrypted proxy credentials must be readable with
+the original local or external key before either checkpoint or restore proceeds.
+
 Restoration retains the newer failed directories and restores matching profiles,
 database, key/config and browser together. It never switches only the browser after
 profile migrations. Restore retry resumes the checkpoint journal if live database
