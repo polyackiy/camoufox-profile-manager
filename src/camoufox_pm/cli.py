@@ -20,13 +20,32 @@ import uvicorn
 from camoufox_pm.config import get_settings
 from camoufox_pm.core.database import StorageManager
 from camoufox_pm.core.leases import lease_expired
+from camoufox_pm.core.maintenance import configured_gate
+
+
+def _admitted_command(function):
+    async def admitted(*args, **kwargs):
+        with configured_gate().operation():
+            return await function(*args, **kwargs)
+
+    return admitted
 
 
 def main() -> None:
     if "--desktop" in sys.argv[1:]:
         from camoufox_pm.config import bootstrap_desktop
 
-        bootstrap_desktop()
+        if "update-recovery" in sys.argv[1:]:
+            # Recovery must not generate a key if a restore temporarily renamed
+            # both the database and original key. Resolve desktop defaults only.
+            from camoufox_pm.config import Settings, desktop_data_dir
+
+            configured = Settings()
+            if "db_path" not in configured.model_fields_set:
+                os.environ["CPM_DB_PATH"] = str(desktop_data_dir() / "profiles.db")
+            get_settings.cache_clear()
+        else:
+            bootstrap_desktop()
     settings = get_settings()
     parser = argparse.ArgumentParser(
         prog="camoufox-pm",
@@ -95,7 +114,61 @@ def main() -> None:
         help="List the profiles currently leased, and by whom",
     )
 
+    recovery = subcommands.add_parser(
+        "update-recovery",
+        help="Inspect or cancel interrupted update preparation without opening application data",
+    )
+    recovery.add_argument("action", choices=("status", "cancel", "checkpoint", "restore"))
+
+    recovery.add_argument("--checkpoint-id")
+    recovery.add_argument(
+        "--confirm-timestamp",
+        help="Exact UTC checkpoint timestamp; acknowledges loss of later changes",
+    )
+
     args = parser.parse_args()
+
+    if args.command == "update-recovery":
+        import json
+
+        from camoufox_pm.core.update_service import UpdateService
+
+        gate = configured_gate()
+        service = UpdateService(gate.path.parent, gate)
+        if args.action == "checkpoint":
+            from camoufox_pm.core.update_recovery import offline_checkpoint
+
+            checkpoint_id = offline_checkpoint()
+            checkpoint_journal = service.root / "checkpoints" / checkpoint_id / "journal.json"
+            timestamp = json.loads(checkpoint_journal.read_text())["created_at"]
+            print(json.dumps({"checkpoint_id": checkpoint_id, "created_at": timestamp}, indent=2))
+            return
+        if args.action == "restore":
+            from camoufox_pm.core.update_recovery import offline_restore
+
+            if not args.checkpoint_id or not args.confirm_timestamp:
+                parser.error("restore requires --checkpoint-id and --confirm-timestamp")
+            offline_restore(args.checkpoint_id, args.confirm_timestamp)
+            print("Complete data and browser checkpoint restored; newer copies were retained.")
+            return
+        if args.action == "cancel":
+            service.cancel_preparation()
+        status = service.status()
+        status["checkpoints"] = []
+        for journal_path in sorted((service.root / "checkpoints").glob("*/journal.json")):
+            try:
+                journal = json.loads(journal_path.read_text())
+                status["checkpoints"].append(
+                    {
+                        "checkpoint_id": journal_path.parent.name,
+                        "created_at": journal.get("created_at"),
+                        "state": journal.get("state"),
+                    }
+                )
+            except (OSError, ValueError):
+                continue
+        print(json.dumps(status, indent=2))
+        return
 
     if args.command == "user":
         asyncio.run(_run_user_command(args))
@@ -153,6 +226,7 @@ def _read_password(args: argparse.Namespace) -> str:
     return password
 
 
+@_admitted_command
 async def _run_unlock_command(args: argparse.Namespace) -> None:
     """Force-release one profile's lease; shell-only (see the parser)."""
     storage = StorageManager(get_settings().db_path)
@@ -182,6 +256,7 @@ async def _run_unlock_command(args: argparse.Namespace) -> None:
         await storage.close()
 
 
+@_admitted_command
 async def _run_leases_command() -> None:
     """Show who holds what, so `unlock` is a decision and not a guess."""
     storage = StorageManager(get_settings().db_path)
@@ -201,6 +276,7 @@ async def _run_leases_command() -> None:
         await storage.close()
 
 
+@_admitted_command
 async def _run_user_command(args: argparse.Namespace) -> None:
     # Imported here so plain `camoufox-pm` startup does not pay for them.
     from camoufox_pm.core import auth

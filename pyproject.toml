@@ -44,6 +44,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+updates = ["tuf>=7,<8"]
 chrome-migration = [
     "pycryptodome>=3.19",
     "pyyaml>=6.0",

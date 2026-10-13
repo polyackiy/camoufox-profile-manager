@@ -65,6 +65,7 @@ class TaskScheduler:
         now: Callable[[], datetime] = datetime.now,
         poll_seconds: float = 5.0,
     ) -> None:
+        self.maintenance_gate: object | None = None
         self.storage = storage
         self.profiles = profile_manager
         self._now = now
@@ -147,6 +148,18 @@ class TaskScheduler:
                 pass
 
     async def tick(self) -> None:
+        gate = getattr(self, "maintenance_gate", None)
+        if gate is None:
+            return await self._tick_admitted()
+        from .maintenance import MaintenanceBlocked
+
+        try:
+            with gate.operation():
+                await self._tick_admitted()
+        except MaintenanceBlocked:
+            return
+
+    async def _tick_admitted(self) -> None:
         """One pass: close timed-out sessions, then fire everything due.
 
         Due schedules run sequentially, each with its own error handling — one

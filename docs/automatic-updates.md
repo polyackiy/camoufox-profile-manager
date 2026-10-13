@@ -1,8 +1,10 @@
 # Verified automatic updates: proposed design
 
 Status: proposal for [#63](https://github.com/polyackiy/camoufox-profile-manager/issues/63).
-This document specifies future work; none of the automatic replacement or
-rollback behavior below is implemented. The current release check and manual
+This document specifies the complete target design. Recovery, trust verification
+and transaction primitives are now implemented as described in
+[implementation status](update-recovery.md); automatic executable replacement is
+not enabled. The current release check and manual
 installer flow remain described in [getting started](getting-started.md).
 
 ## Current boundaries
