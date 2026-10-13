@@ -185,11 +185,9 @@ class SyncUI(StageThreeUI):
     def test_operator_cannot_start_owner_setup(self):
         self.role = "operator"
         self.page.goto(self.origin + "/settings/")
-        expect(
-            self.page.get_by_text(
-                "Log in with an administrator account to set up synchronization.", exact=False
-            )
-        ).to_be_visible()
+        # The application shell blocks the settings route before mounting any
+        # administrator component or requesting synchronization state.
+        expect(self.page.get_by_text("Access denied", exact=True)).to_be_visible()
         expect(
             self.page.get_by_role("button", name="Create owner and recovery setup")
         ).to_have_count(0)

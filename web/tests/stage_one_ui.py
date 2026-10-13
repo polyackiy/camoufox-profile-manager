@@ -5,14 +5,14 @@ Run after `NEXT_EXPORT=1 npm run build:static`:
 Requires Playwright Chromium (`playwright install chromium`).
 """
 import ast
+import json
+import unittest
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from threading import Thread
-import json
-import unittest
 
-from playwright.sync_api import sync_playwright, expect
+from playwright.sync_api import expect, sync_playwright
 
 
 class QuietHandler(SimpleHTTPRequestHandler):
@@ -76,6 +76,18 @@ class DesktopUI(unittest.TestCase):
         self.calls.append((request.method, path, request.post_data))
         data = {}
         envelope = False
+        # New sync UI performs a best-effort profile-state read on the profile
+        # page. These legacy workflows deliberately have no sync enrollment.
+        # Match the cookie-only API boundary rather than silently enabling sync.
+        if path in {"/sync/profiles", "/sync/status", "/sync/pairing/draft"} and request.method == "GET":
+            sync_headers = {"Cache-Control": "no-store"}
+            if getattr(self, "role", None) != "administrator":
+                return route.fulfill(status=401, json={"detail": "Administrator cookie required"}, headers=sync_headers)
+            if path == "/sync/profiles":
+                return route.fulfill(status=409, json={"detail": "Synchronization is not enrolled"}, headers=sync_headers)
+            if path == "/sync/status":
+                return route.fulfill(json={"phase": "not_enrolled"}, headers=sync_headers)
+            return route.fulfill(body="null", content_type="application/json", headers=sync_headers)
         if path == "/auth/session":
             data = {"user_auth_enabled": self.auth_required, "authenticated": not self.auth_required, "username": None, "role": "administrator", "actor_kind": "anonymous_local", "can_manage_access": True}
         elif path == "/system/config":
@@ -151,7 +163,8 @@ class DesktopUI(unittest.TestCase):
                 body = request.post_data_json
                 password = body.get("password", "preserve")
                 self.library[0] = {**self.library[0], **{key: value for key, value in body.items() if key not in {"password", "row_version"}}, "row_version": self.library[0]["row_version"] + 1}
-                if password != "preserve": self.library[0]["has_password"] = bool(password)
+                if password != "preserve":
+                    self.library[0]["has_password"] = bool(password)
                 data, envelope = self.library[0], True
         elif path == "/proxies/library-one/check":
             self.library[0] = {**self.library[0], "last_check": {"reachable": True, "error": None, "latency_ms": 18, "ip": "203.0.113.4", "country": "DE", "timezone": "Europe/Berlin", "findings": [], "checked_at": "2026-10-12T10:00:00Z"}}

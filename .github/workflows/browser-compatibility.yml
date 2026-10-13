@@ -42,7 +42,8 @@ jobs:
       matrix:
         os: ${{ fromJSON(inputs.platform == 'ubuntu-latest' && '["ubuntu-latest"]' || inputs.platform == 'windows-latest' && '["windows-latest"]' || inputs.platform == 'macos-latest' && '["macos-latest"]' || '["ubuntu-latest", "windows-latest", "macos-latest"]') }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 35
+    # The full native suite includes a three-launch encrypted sync roundtrip.
+    timeout-minutes: 50
     env:
       # Bound a stuck SDK launch/close while allowing multi-launch workflows.
       # Pytest 9.1 emits the current test and thread stacks before exiting.
