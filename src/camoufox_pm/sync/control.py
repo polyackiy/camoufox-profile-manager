@@ -144,13 +144,17 @@ class ControlStore:
                 raise ControlError(_ERROR)
             self.path = self.directory / "control.sqlite3"
             created = False
-            try:
-                fd = create_private_file(self.path)
-            except FileExistsError:
-                pass
-            else:
-                os.close(fd)
-                created = True
+            # Avoid CREATE_NEW against an existing Windows credential file:
+            # native wrappers may surface that as a generic protection failure.
+            # Existing files still undergo all ownership/ACL/schema checks.
+            if not self.path.exists():
+                try:
+                    fd = create_private_file(self.path)
+                except FileExistsError:
+                    pass
+                else:
+                    os.close(fd)
+                    created = True
             self._paths()
             with closing(self._connect(validate=False)) as db:
                 db.execute("BEGIN IMMEDIATE")

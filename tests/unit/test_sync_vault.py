@@ -54,7 +54,11 @@ def test_recovery_ciphertext_tamper():
         vault.open_recovery(json.dumps(obj).encode(), secret)
 
 
-@pytest.mark.parametrize("payload", [b"", b"x" * (vault.MAX_PAYLOAD + 1), "not bytes"])
+@pytest.mark.parametrize(
+    "payload",
+    [b"", b"x" * (vault.MAX_PAYLOAD + 1), "not bytes"],
+    ids=["empty", "oversize", "wrong-type"],
+)
 def test_payload_bounds(payload):
     with pytest.raises(vault.VaultError):
         vault.seal_recovery(payload)

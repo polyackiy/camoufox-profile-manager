@@ -328,7 +328,12 @@ def _build_snapshot(
                         raise SnapshotError("Profile directory changed during capture")
                 for path, file_checkpoint in captured.items():
                     reject_reparse_paths(path)
-                    current = path.stat()
+                    # Windows pathname stat and descriptor fstat can expose
+                    # different timestamp precision/semantics. Compare through
+                    # the same descriptor API, retaining inode/size/time checks
+                    # and _regular_open's replacement/special-file protections.
+                    with _regular_open(path) as verification:
+                        current = os.fstat(verification.fileno())
                     if (
                         current.st_ino,
                         current.st_size,

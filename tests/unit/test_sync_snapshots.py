@@ -414,3 +414,42 @@ def test_zip64_cannot_override_bounded_ordinary_directory(area, compat, monkeypa
     with pytest.raises(s.SnapshotError, match="ZIP64"):
         s.validate_snapshot(archive, target, compat)
     assert not target.exists()
+
+
+def test_descriptor_recheck_does_not_compare_path_timestamp_precision(area, compat, monkeypatch):
+    from pathlib import Path
+    from types import SimpleNamespace
+
+    root, data = area
+    original = Path.stat
+    target = data / "cookies.sqlite"
+
+    def different_precision(path, *args, **kwargs):
+        result = original(path, *args, **kwargs)
+        if path == target:
+            values = {name: getattr(result, name) for name in dir(result) if name.startswith("st_")}
+            values["st_mtime_ns"] += 37
+            values["st_ctime_ns"] += 53
+            return SimpleNamespace(**values)
+        return result
+
+    monkeypatch.setattr(Path, "stat", different_precision)
+    s.build_snapshot(Profile(name="Closed"), data, root / "snapshot.zip", compat)
+
+
+def test_reopened_descriptor_still_rejects_post_capture_change(area, compat, monkeypatch):
+    root, data = area
+    original = s._regular_open
+    count = 0
+
+    def changed(path):
+        nonlocal count
+        count += 1
+        if count == 2:
+            path.write_bytes(b"changed after capture")
+        return original(path)
+
+    monkeypatch.setattr(s, "_regular_open", changed)
+    with pytest.raises(s.SnapshotError, match="changed"):
+        s.build_snapshot(Profile(name="Closed"), data, root / "bad.zip", compat)
+    assert not (root / "bad.zip").exists()

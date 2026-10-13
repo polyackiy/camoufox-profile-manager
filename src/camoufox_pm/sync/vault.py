@@ -13,6 +13,7 @@ import json
 import os
 import stat
 import sys
+import threading
 import uuid
 from contextlib import suppress
 from pathlib import Path
@@ -184,6 +185,7 @@ class EncryptedFileVault:
             if type(password) is not str or not 12 <= len(password) <= 1024:
                 raise VaultError(_ERROR)
             self._password = password.encode("utf-8")
+            self._lock = threading.RLock()
             self.directory = directory.absolute()
             reject_reparse_paths(self.directory)
             if not self.directory.exists():
@@ -215,6 +217,10 @@ class EncryptedFileVault:
                 os.close(fd)
 
     def put(self, slot: str, payload: bytes) -> None:
+        with self._lock:
+            return self._put(slot, payload)
+
+    def _put(self, slot: str, payload: bytes) -> None:
         temporary = None
         try:
             _payload(payload)
@@ -253,6 +259,10 @@ class EncryptedFileVault:
                     temporary.unlink(missing_ok=True)
 
     def get(self, slot: str) -> bytes | None:
+        with self._lock:
+            return self._get(slot)
+
+    def _get(self, slot: str) -> bytes | None:
         try:
             path = self._path(slot)
             reject_reparse_paths(path)
@@ -285,6 +295,10 @@ class EncryptedFileVault:
             raise VaultError(_ERROR) from None
 
     def delete(self, slot: str) -> None:
+        with self._lock:
+            return self._delete(slot)
+
+    def _delete(self, slot: str) -> None:
         try:
             path = self._path(slot)
             reject_reparse_paths(path)
