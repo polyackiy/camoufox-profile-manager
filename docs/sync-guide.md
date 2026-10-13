@@ -159,7 +159,10 @@ A receiving computer displays **Synchronized profile is in Trash** and blocks
 opening. **Apply deletion on this device** requires confirmation and retains local
 browser data in Trash. To recover, open **Trash → Device synchronization → Restore
 synchronized profile**. Restore verifies the retained snapshot, backs up local
-unsent data and publishes a new active version. Other devices must retrieve it.
+unsent data and publishes a new active version. Send that version to the other
+device using the normal handoff. On a device whose copy remains in Trash, choose
+**Check for restoration** to verify and install the active successor. If the latest
+version is still deleted, local data remains in Trash.
 If interrupted, use **Resume pending transfer** to finish the same confirmed
 operation. Ordinary local restore and permanent deletion cannot bypass sync fences.
 

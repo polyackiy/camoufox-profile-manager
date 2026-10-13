@@ -20,7 +20,8 @@ manager databases. See [the trust contract](sync-trust-contract.md).
 1. An administrator explicitly creates an owner, chooses protected key storage,
    saves the offline recovery package and separate secret, and verifies recovery.
 2. A second computer creates its own keys. The owner compares the full fingerprint
-   through a trusted channel and approves a short-lived, single-use invitation.
+   through a trusted channel and signs a single-use approval of that device request.
+   Pairing request and approval travel through the trusted channel, not the relay.
 3. The user chooses a closed profile and sees which trusted devices will receive
    its secrets. The initial complete encrypted snapshot is published atomically.
 4. The current holder closes the browser and hands it over. The second computer

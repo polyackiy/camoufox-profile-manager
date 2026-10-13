@@ -229,6 +229,10 @@ Fixed findings and regression coverage:
 - **Cancellation acknowledgement:** an original valid schedule is not evidence
   of successful cancellation. Require the exact root-signed cancellation in the
   reply; retain uncertain cancellation intent and display it as pending.
+- **Cross-device restoration UI:** a locally trashed copy must retain an explicit
+  authenticated way to retrieve an active successor restored elsewhere. The
+  restoration check leaves launch blocked until verified installation; UI tests
+  cover an active successor, an unchanged tombstone and pending-operation fences.
 - **Crashed download leases:** reap confirmed-dead PID/birth identities independently
   of old-version collection, including current heads. Live or uncertain readers
   remain protected and cannot be evicted by a heartbeat timeout.

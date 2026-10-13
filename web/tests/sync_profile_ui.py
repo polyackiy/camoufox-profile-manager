@@ -114,9 +114,10 @@ class SyncProfileUI(StageThreeUI):
             elif path.endswith("/handoff"):
                 self.bindings = [self.binding("released")]
             elif path.endswith("/acquire") and self.remote_trash:
+                local_trashed = bool(self.bindings and self.bindings[0].get("local_trashed"))
                 item = self.binding("released")
                 item["lifecycle"] = {"state": "trashed", "revision_id": "revision-trash"}
-                item["local_trashed"] = False
+                item["local_trashed"] = local_trashed
                 self.bindings = [item]
                 return route.fulfill(
                     status=409, json={"detail": "Explicit lifecycle choice required"}
@@ -338,6 +339,49 @@ class SyncProfileUI(StageThreeUI):
             dialog.get_by_role("button", name="Restore synchronized profile", exact=True)
         ).to_be_visible()
         expect(dialog.get_by_role("button", name="Get latest profile")).to_have_count(0)
+
+    def test_local_trash_can_receive_restoration_from_another_device(self):
+        item = self.binding("released")
+        item["lifecycle"] = {"state": "trashed", "revision_id": "revision-trash"}
+        item["local_trashed"] = True
+        self.bindings = [item]
+        dialog = self.open_profile_sync()
+        expect(dialog.get_by_role("button", name="Send to another device")).to_have_count(0)
+        dialog.get_by_role("button", name="Check for restoration", exact=True).click()
+        expect(dialog.get_by_text("Ready on this device", exact=True)).to_be_visible()
+        self.assertTrue(any(path.endswith("/acquire") for _, path, _ in self.calls))
+        self.assertFalse(any(path.endswith("/restore") for _, path, _ in self.calls))
+        expect(dialog.get_by_role("button", name="Check for restoration")).to_have_count(0)
+
+    def test_restoration_check_retains_trash_when_no_active_successor_exists(self):
+        item = self.binding("released")
+        item["lifecycle"] = {"state": "trashed", "revision_id": "revision-trash"}
+        item["local_trashed"] = True
+        self.bindings = [item]
+        self.remote_trash = True
+        dialog = self.open_profile_sync()
+        dialog.get_by_role("button", name="Check for restoration", exact=True).click()
+        expect(dialog.get_by_role("alert")).to_contain_text("Your existing profile is preserved")
+        expect(dialog.get_by_text("Synchronized profile is in Trash", exact=True)).to_be_visible()
+        expect(dialog.get_by_role("button", name="Send to another device")).to_have_count(0)
+        expect(dialog.get_by_role("button", name="Apply deletion on this device")).to_have_count(0)
+        self.assertTrue(self.bindings[0]["local_trashed"])
+        self.assertFalse(any(path.endswith("/restore") for _, path, _ in self.calls))
+
+    def test_pending_lifecycle_offers_resume_without_restoration_check(self):
+        item = self.binding("released")
+        item["lifecycle"] = {
+            "state": "trashed",
+            "revision_id": "revision-trash",
+            "pending": True,
+            "operation": "restore",
+        }
+        item["local_trashed"] = True
+        self.bindings = [item]
+        dialog = self.open_profile_sync()
+        expect(dialog.get_by_role("button", name="Check for restoration")).to_have_count(0)
+        expect(dialog.get_by_role("button", name="Restore synchronized profile")).to_have_count(0)
+        expect(dialog.get_by_role("button", name="Resume pending transfer")).to_be_visible()
 
 
 if __name__ == "__main__":
