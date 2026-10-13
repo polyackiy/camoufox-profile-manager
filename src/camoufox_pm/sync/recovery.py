@@ -179,7 +179,8 @@ def _windows_pipe(input_pipe: bool) -> BinaryIO:
         raise RecoveryError(_ERROR)
     try:
         fd = msvcrt.__dict__["open_osfhandle"](
-            duplicate.value, getattr(os, "O_BINARY", 0) | (os.O_RDONLY if input_pipe else os.O_WRONLY)
+            duplicate.value,
+            getattr(os, "O_BINARY", 0) | (os.O_RDONLY if input_pipe else os.O_WRONLY),
         )
     except BaseException:
         kernel.CloseHandle(duplicate)
