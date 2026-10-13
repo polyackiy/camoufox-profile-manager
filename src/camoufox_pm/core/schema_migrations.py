@@ -7,7 +7,7 @@ New versions must add an explicit numbered migration before increasing CURRENT.
 
 import sqlite3
 
-CURRENT_SCHEMA = 2
+CURRENT_SCHEMA = 3
 
 
 def check_schema(connection: sqlite3.Connection) -> int:
@@ -58,3 +58,16 @@ def complete_migration(connection: sqlite3.Connection) -> None:
             if "actor_user_id" not in columns:
                 connection.execute("ALTER TABLE schedules ADD COLUMN actor_user_id TEXT")
             connection.execute("PRAGMA user_version = 2")
+
+    if current < 3:
+        # Older schema-aware managers must refuse this database before touching
+        # profile paths: they do not enforce distributed checkout or apply fences.
+        with connection:
+            connection.execute("BEGIN IMMEDIATE")
+            connection.execute(
+                "CREATE TABLE IF NOT EXISTS manager_features (feature TEXT PRIMARY KEY, version INTEGER NOT NULL CHECK(version > 0))"
+            )
+            connection.execute(
+                "INSERT OR REPLACE INTO manager_features(feature, version) VALUES ('sync-admission', 1)"
+            )
+            connection.execute("PRAGMA user_version = 3")

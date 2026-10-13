@@ -217,3 +217,32 @@ def test_retained_binary_tamper_blocks_rollback(tmp_path):
         engine.rollback(result["checkpoint_timestamp"])
     assert engine.service.gate.blocked
     assert (installation / "manager").is_file()
+
+
+def test_rollback_invalidates_sync_before_database_restore(tmp_path, monkeypatch):
+    from camoufox_pm.core import update_transaction
+    from camoufox_pm.sync.control import ControlStore
+
+    engine, database, _ = transaction(tmp_path)
+    result = engine.run()
+    control = ControlStore(database.parent / "sync-control")
+    control.create(
+        "profile/local",
+        {
+            "phase": "held",
+            "installed_generation": 7,
+            "checkpoint": {"revision_id": "kept-high-water"},
+        },
+    )
+    actual_restore = update_transaction.restore_checkpoint
+
+    def guarded_restore(*args, **kwargs):
+        binding = control.get("profile/local").payload
+        assert binding["phase"] == "unknown"
+        assert binding["installed_generation"] is None
+        assert binding["checkpoint"]["revision_id"] == "kept-high-water"
+        return actual_restore(*args, **kwargs)
+
+    monkeypatch.setattr(update_transaction, "restore_checkpoint", guarded_restore)
+    engine.rollback(result["checkpoint_timestamp"])
+    assert values(database) == ["original"]

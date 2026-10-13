@@ -55,7 +55,7 @@ async def test_stage_two_existing_accounts_become_administrators(tmp_path):
     assert (await storage.get_user_by_username("host-owner"))["role"] == "administrator"
     await storage.close()
     with closing(sqlite3.connect(path)) as db:
-        assert db.execute("PRAGMA user_version").fetchone()[0] == 2
+        assert db.execute("PRAGMA user_version").fetchone()[0] == CURRENT_SCHEMA
 
 
 @pytest.mark.asyncio
@@ -75,3 +75,23 @@ async def test_partial_schedule_actor_migration_resumes(tmp_path):
     with closing(sqlite3.connect(path)) as db:
         columns = {row[1] for row in db.execute("PRAGMA table_info(schedules)")}
         assert {"actor_username", "actor_user_id"} <= columns
+
+
+@pytest.mark.asyncio
+async def test_sync_schema_refuses_pre_sync_manager(tmp_path, monkeypatch):
+    from camoufox_pm.core import schema_migrations
+
+    path = tmp_path / "sync.sqlite"
+    storage = StorageManager(str(path))
+    await storage.initialize()
+    await storage.close()
+    with closing(sqlite3.connect(path)) as db:
+        assert (
+            db.execute(
+                "SELECT version FROM manager_features WHERE feature='sync-admission'"
+            ).fetchone()[0]
+            == 1
+        )
+        monkeypatch.setattr(schema_migrations, "CURRENT_SCHEMA", 2)
+        with pytest.raises(ValueError, match="newer manager"):
+            schema_migrations.check_schema(db)

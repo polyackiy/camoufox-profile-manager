@@ -129,7 +129,7 @@ def test_unsafe_lock_entries_are_not_followed_or_removed(profile, kind):
 @pytest.mark.skipif(os.name == "nt", reason="POSIX symlink fixture")
 def test_legacy_symlink_lock_fails_closed_even_if_stale(profile):
     old = profile / "lock"
-    old.symlink_to("127.0.0.1:+99999999")
+    old.symlink_to("127.0.0.1:99999999")
     with pytest.raises(q.QuiescenceError):
         with q.browser_profile_lock(profile):
             pass
@@ -229,3 +229,101 @@ def test_replaced_lock_inode_fails_closed_after_operation(profile):
             lock.write_bytes(b"replacement")
     # Never delete a replacement inode belonging to someone else.
     assert lock.read_bytes() == b"replacement"
+
+
+@pytest.fixture
+def linux_profile(profile, monkeypatch):
+    if os.name == "nt":
+        pytest.skip("POSIX native locking required")
+    monkeypatch.setattr(q.sys, "platform", "linux")
+    return profile
+
+
+def test_linux_fcntl_marker_preserved_with_native_lock(linux_profile):
+    marker = linux_profile / "lock"
+    marker.symlink_to(f"127.0.0.1:+{os.getpid()}")
+    before = marker.lstat()
+    with q.browser_profile_lock(linux_profile):
+        assert native_probe(linux_profile) == "blocked"
+    assert marker.lstat().st_ino == before.st_ino
+    assert os.readlink(marker) == f"127.0.0.1:+{os.getpid()}"
+
+
+@pytest.mark.parametrize(
+    "target",
+    [
+        "/etc/passwd",
+        "../outside",
+        "127.0.0.1:123",
+        "127.0.0.1:+0",
+        "127.0.0.1:+-1",
+        "127.0.0.1:+2147483648",
+        "999.0.0.1:+123",
+        "127.0.0.1:+123/../../outside",
+        "127.0.0.1:+123\n",
+    ],
+)
+def test_linux_legacy_marker_rejects_unproven_targets(linux_profile, target):
+    marker = linux_profile / "lock"
+    marker.symlink_to(target)
+    before = marker.lstat()
+    with pytest.raises(q.QuiescenceError) as error:
+        with q.browser_profile_lock(linux_profile):
+            pytest.fail("Unproven marker accepted")
+    assert target not in str(error.value)
+    assert marker.lstat().st_ino == before.st_ino
+    assert os.readlink(marker) == target
+
+
+def test_linux_marker_foreign_owner_rejected(linux_profile, monkeypatch):
+    marker = linux_profile / "lock"
+    marker.symlink_to("127.0.0.1:+123")
+    original = type(marker).lstat
+
+    def foreign(path, *args, **kwargs):
+        info = original(path, *args, **kwargs)
+        if path == marker:
+            return SimpleNamespace(st_mode=info.st_mode, st_uid=os.geteuid() + 1, st_nlink=1)
+        return info
+
+    monkeypatch.setattr(type(marker), "lstat", foreign)
+    with pytest.raises(q.QuiescenceError):
+        with q.browser_profile_lock(linux_profile):
+            pytest.fail("Foreign marker accepted")
+
+
+def test_linux_marker_cannot_override_live_browser(linux_profile, monkeypatch):
+    (linux_profile / "lock").symlink_to(f"127.0.0.1:+{os.getpid()}")
+    candidate = process("camoufox", ["camoufox", "-profile", str(linux_profile)])
+    monkeypatch.setattr(q.psutil, "process_iter", lambda: iter([candidate]))
+    with pytest.raises(q.QuiescenceError):
+        with q.browser_profile_lock(linux_profile):
+            pytest.fail("Live browser accepted")
+
+
+def test_linux_marker_change_during_capture_rejected(linux_profile):
+    marker = linux_profile / "lock"
+    marker.symlink_to("127.0.0.1:+123")
+    with pytest.raises(q.QuiescenceError):
+        with q.browser_profile_lock(linux_profile):
+            marker.unlink()
+            marker.symlink_to("127.0.0.1:+456")
+    assert os.readlink(marker) == "127.0.0.1:+456"
+
+
+def test_linux_marker_does_not_override_native_contention(linux_profile):
+    (linux_profile / "lock").symlink_to("127.0.0.1:+123")
+    test_native_child_lock_blocks_capture(linux_profile)
+
+
+def test_linux_marker_recheck_os_error_is_sanitized(linux_profile, monkeypatch):
+    marker = linux_profile / "lock"
+    marker.symlink_to("127.0.0.1:+123")
+
+    def denied(_):
+        raise PermissionError("private-profile-path")
+
+    with pytest.raises(q.QuiescenceError, match="legacy-marker-recheck: PermissionError") as error:
+        with q.browser_profile_lock(linux_profile):
+            monkeypatch.setattr(q.os, "readlink", denied)
+    assert "private-profile-path" not in str(error.value)

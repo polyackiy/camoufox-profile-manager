@@ -453,3 +453,61 @@ def test_reopened_descriptor_still_rejects_post_capture_change(area, compat, mon
     with pytest.raises(s.SnapshotError, match="changed"):
         s.build_snapshot(Profile(name="Closed"), data, root / "bad.zip", compat)
     assert not (root / "bad.zip").exists()
+
+
+def test_local_sync_marker_excluded_but_nested_names_preserved(area, compat):
+    root, data = area
+    (data / ".camoufox-pm-sync.json").write_text("local authority")
+    (data / "nested").mkdir()
+    (data / "nested" / ".camoufox-pm-sync.json").write_text("ordinary nested file")
+    archive, stage = sample(area, compat)
+    with zipfile.ZipFile(archive) as source:
+        assert "data/.camoufox-pm-sync.json" not in source.namelist()
+        assert "data/nested/.camoufox-pm-sync.json" in source.namelist()
+
+
+@pytest.mark.parametrize("name", [".camoufox-pm-sync.json", "data/.camoufox-pm-sync.json"])
+def test_archive_cannot_supply_local_sync_marker(area, compat, name):
+    archive, stage = sample(area, compat)
+    rewrite(archive, lambda entries: entries + [(zipfile.ZipInfo(name), b"copied authority")])
+    with pytest.raises(s.SnapshotError, match="local synchronization marker"):
+        s.validate_snapshot(archive, stage, compat)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Linux legacy marker fixture")
+def test_closed_snapshot_excludes_reserved_linux_marker_without_following(
+    area, compat, monkeypatch
+):
+    from camoufox_pm.sync import quiescence as q
+
+    root, data = area
+    marker = data / "lock"
+    marker.symlink_to(f"127.0.0.1:+{os.getpid()}")
+    before = marker.lstat()
+    monkeypatch.setattr(q.sys, "platform", "linux")
+    monkeypatch.setattr(q.psutil, "process_iter", lambda: iter(()))
+    archive = root / "snapshot.zip"
+    with q.browser_profile_lock(data):
+        s.build_snapshot(Profile(name="Closed"), data, archive, compat)
+    with zipfile.ZipFile(archive) as snapshot:
+        assert "data/lock" not in snapshot.namelist()
+        assert "data/.parentlock" not in snapshot.namelist()
+        assert snapshot.read("data/cookies.sqlite") == b"opaque browser cookies"
+    assert marker.lstat().st_ino == before.st_ino
+    assert os.readlink(marker) == f"127.0.0.1:+{os.getpid()}"
+
+
+@pytest.mark.parametrize("stable", [False, True])
+def test_snapshot_preserves_explicit_canvas_privacy_choice(area, compat, stable):
+    from camoufox_pm.core.models import BrowserSettings
+
+    root, data = area
+    profile = Profile(name="Canvas choice", browser_settings=BrowserSettings(stable_canvas=stable))
+    archive = root / "snapshot.zip"
+    s.build_snapshot(profile, data, archive, compat)
+    decoded = s.validate_snapshot(archive, root / "stage", compat)
+    restored = Profile(**decoded.profile.apply_fields())
+    assert restored.browser_settings.stable_canvas is stable
+    assert restored.browser_settings == profile.browser_settings
+    prefs = restored.to_camoufox_launch_options().get("firefox_user_prefs", {})
+    assert (prefs.get("privacy.baselineFingerprintingProtection") is False) is stable

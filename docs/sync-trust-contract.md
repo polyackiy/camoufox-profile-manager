@@ -1,8 +1,8 @@
 # Owner trust bootstrap and compatibility contract
 
-Status: normative target for S2/S3 and their S5/S6 integration; **not shipped
-behavior**. This supplements [the architecture](stage-four-sync.md) and does not enable sync.
-“MUST” identifies a release requirement, not an implemented guarantee.
+Status: normative contract for the experimental S2–S7 implementation. This supplements
+[the architecture](stage-four-sync.md). “MUST” identifies a release requirement;
+platform evidence and remaining production gates are recorded separately.
 
 ## Initial owner bootstrap
 

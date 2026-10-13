@@ -27,6 +27,8 @@ import {
 
 import { useI18n } from '@/components/i18n-provider'
 import { useAuth } from '@/components/login-gate'
+import { ProfileSyncPanel, syncPhaseLabel } from '@/components/profile-sync-panel'
+import { profileSyncAPI, type ProfileSyncBinding } from '@/lib/sync-api'
 import { BrowserSetup } from '@/components/browser-setup'
 import { EmptyState } from '@/components/empty-state'
 import { ConfirmDialog, Modal } from '@/components/modal'
@@ -68,6 +70,8 @@ export default function ProfilesPage() {
   const { t, locale } = useI18n()
   const { canManageAccess, role } = useAuth()
   const can = (profile: Profile, permission: 'view' | 'edit' | 'launch' | 'export') => canManageAccess || profile.permissions?.[permission] === true
+  const [syncFor, setSyncFor] = useState<Profile | 'available' | null>(null)
+  const [syncBindings, setSyncBindings] = useState<ProfileSyncBinding[]>([])
   const [profiles, setProfiles] = useState<Profile[]>([])
   const [groups, setGroups] = useState<Group[]>([])
   const [running, setRunning] = useState<Set<string>>(new Set())
@@ -119,6 +123,10 @@ export default function ProfilesPage() {
         if (pageNumber === 200) throw new Error('The profile collection is too large to load completely. No partial filter results are shown.')
       }
       setProfiles(collected)
+      if (canManageAccess) {
+        try { const result = await profileSyncAPI.list(); if (!Array.isArray(result.profiles)) throw new Error('Invalid sync status'); setSyncBindings(result.profiles) }
+        catch { setSyncBindings(current => current.map(binding => ({ ...binding, phase: 'unknown' }))) }
+      }
     } catch (err) {
       setProfiles([])
       setSelected(new Set())
@@ -128,7 +136,7 @@ export default function ProfilesPage() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [canManageAccess])
 
   const loadRunning = useCallback(async () => {
     try {
@@ -601,6 +609,7 @@ export default function ProfilesPage() {
         </select>
 
         <div className="ml-auto flex items-center gap-2">
+          {canManageAccess && <button className="btn btn-default" onClick={() => setSyncFor('available')}>{t('Profiles from trusted devices')}</button>}
           {running.size > 0 && (canManageAccess || role === 'operator') && (
             <button className="btn btn-default" onClick={askCloseAll}>
               <Square size={12} fill="currentColor" />
@@ -787,6 +796,8 @@ export default function ProfilesPage() {
           </thead>
           <tbody>
             {pageRows.map((profile, index) => {
+              const syncBinding = syncBindings.find(binding => binding.local_id === profile.id)
+              const syncBlocked = !!syncBinding && syncBinding.phase !== 'held'
               const isRunning = running.has(profile.id)
               const isBusy = busy.has(profile.id)
               return (
@@ -827,6 +838,7 @@ export default function ProfilesPage() {
                   </td>
                   <td className="py-2.5 pr-4">
                     <StatusCell status={profile.status} running={isRunning} />
+                    {syncBinding && <button className="mt-1 block text-left text-xs text-ink-dim underline underline-offset-2" onClick={() => setSyncFor(profile)}>{t(syncPhaseLabel(syncBinding.phase))}</button>}
                   </td>
                   <td className="py-2.5 pr-4 text-ink-dim">{formatLastUsed(profile.last_used, locale)}</td>
                   <td className="py-2.5 pr-4">
@@ -840,7 +852,7 @@ export default function ProfilesPage() {
                     <div className="flex items-center justify-end gap-1">
                       <button
                         className="btn btn-default h-7"
-                        disabled={isBusy || !can(profile, 'launch')}
+                        disabled={isBusy || !can(profile, 'launch') || (!isRunning && syncBlocked)}
                         onClick={() => (isRunning ? stop(profile) : launch(profile))}
                       >
                         {isRunning ? (
@@ -924,6 +936,7 @@ export default function ProfilesPage() {
                                 closeMenu(profile.id)
                               }}
                             />
+                            <MenuItem icon={<Globe size={13} />} allowed={canManageAccess} label={t('Device synchronization')} onClick={() => { setSyncFor(profile); closeMenu(profile.id) }} />
                             <MenuItem icon={<Cookie size={13} />} allowed={can(profile, 'edit') || can(profile, 'export')} label={t('Cookies')} onClick={() => { setCookiesFor(profile); closeMenu(profile.id) }} />
                             <MenuItem icon={<Bookmark size={13} />} allowed={canManageAccess} label={t('Save as template')} onClick={() => { setTemplateFor(profile); closeMenu(profile.id) }} />
                             <MenuItem icon={<Puzzle size={13} />} allowed={can(profile, 'edit')} label={t('Extensions')} onClick={() => { setExtensionsFor(profile); closeMenu(profile.id) }} />
@@ -987,6 +1000,7 @@ export default function ProfilesPage() {
 
       {cookiesFor && <CookieTransfer profile={cookiesFor} onClose={() => setCookiesFor(null)} onChanged={loadProfiles} />}
       {templateFor && <TemplateFromProfileModal profile={templateFor} onClose={() => setTemplateFor(null)} onSaved={loadProfiles} />}
+      {syncFor && <ProfileSyncPanel profile={syncFor === 'available' ? null : syncFor} running={syncFor !== 'available' && running.has(syncFor.id)} onClose={() => setSyncFor(null)} onSaved={loadProfiles} />}
       {extensionsFor && <ProfileExtensionsModal profile={extensionsFor} onClose={() => setExtensionsFor(null)} onSaved={loadProfiles} />}
       {tagsFor && <ProfileTagsDialog profiles={tagsFor} onClose={() => setTagsFor(null)} onUpdated={updated => { setProfiles(current => current.map(profile => updated.find(item => item.id === profile.id) ?? profile)); setSelected(new Set()) }} />}
 

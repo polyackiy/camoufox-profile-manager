@@ -376,3 +376,128 @@ async def test_cancellation_drains_worker_before_releasing_busy_guard(enrollment
         await pending
     assert not sync._operation_in_progress
     assert len(fake.calls) == 1
+
+
+@pytest.mark.parametrize(
+    "endpoint,body,operation",
+    [
+        (
+            "share",
+            {
+                "target_device_id": "11111111-1111-4111-8111-111111111111",
+                "password": "private-unlock",
+            },
+            "create_profile_code",
+        ),
+        (
+            "accept-code",
+            {"pack": {"body": {"sequence": 2}, "signature": "signed"}},
+            "accept_profile_code",
+        ),
+    ],
+)
+async def test_profile_codes_use_live_cookie_and_private_worker(
+    enrollment_api, storage, monkeypatch, endpoint, body, operation
+):
+    from camoufox_pm.sync import profile_invitation
+
+    client, fake = enrollment_api
+    headers, user_id, _ = await session(storage)
+    called = []
+
+    def action(service, actor, value, *, authorize, **kwargs):
+        authorize()
+        called.append((service, actor, value))
+        return {"accepted": True}
+
+    monkeypatch.setattr(profile_invitation, operation, action)
+    response = await client.post("/api/v1/sync/profiles/" + endpoint, headers=headers, json=body)
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"
+    assert called[0][0] is fake and called[0][1] == user_id
+    assert "private-unlock" not in response.text
+    denied = await client.post(
+        "/api/v1/sync/profiles/" + endpoint,
+        headers={**headers, "Origin": "https://foreign.example"},
+        json=body,
+    )
+    assert denied.status_code == 403
+    assert len(called) == 1
+
+
+@pytest.mark.parametrize("role", ["operator", "viewer"])
+@pytest.mark.parametrize(
+    "endpoint,body",
+    [
+        ("share", {"target_device_id": "11111111-1111-4111-8111-111111111111"}),
+        ("accept-code", {"pack": {}}),
+    ],
+)
+async def test_profile_code_routes_reject_nonadministrators(
+    enrollment_api, storage, role, endpoint, body
+):
+    client, _ = enrollment_api
+    headers, _, _ = await session(storage, role=role)
+    response = await client.post("/api/v1/sync/profiles/" + endpoint, headers=headers, json=body)
+    assert response.status_code == 403
+
+
+async def test_profile_code_body_bounds_and_api_key_not_enough(
+    enrollment_api, storage, monkeypatch
+):
+    client, _ = enrollment_api
+    monkeypatch.setenv("CPM_API_KEY", "legacy-key")
+    get_settings.cache_clear()
+    denied = await client.post(
+        "/api/v1/sync/profiles/accept-code", headers={"X-API-Key": "legacy-key"}, json={"pack": {}}
+    )
+    assert denied.status_code == 401
+    headers, _, _ = await session(storage)
+    headers["X-API-Key"] = "legacy-key"
+    invalid = await client.post(
+        "/api/v1/sync/profiles/accept-code",
+        headers=headers,
+        json={"pack": {}, "password": "MUST-NOT-ECHO"},
+    )
+    assert invalid.status_code == 422 and "MUST-NOT-ECHO" not in invalid.text
+    oversized = await client.post(
+        "/api/v1/sync/profiles/accept-code",
+        headers=headers,
+        json={"pack": {"text": "x" * (128 * 1024)}},
+    )
+    assert oversized.status_code == 413
+
+
+@pytest.mark.parametrize(
+    "endpoint,operation,body",
+    [
+        (
+            "share",
+            "create_profile_code",
+            {"target_device_id": "11111111-1111-4111-8111-111111111111"},
+        ),
+        ("accept-code", "accept_profile_code", {"pack": {}}),
+    ],
+)
+async def test_profile_code_worker_rechecks_logout_before_mutation(
+    enrollment_api, storage, monkeypatch, endpoint, operation, body
+):
+    from camoufox_pm.sync import profile_invitation
+
+    client, fake = enrollment_api
+    headers, _, token = await session(storage)
+    fake.pause = True
+
+    def paused(service, user_id, value, *, authorize, **kwargs):
+        return fake._action(operation, user_id, (value,), authorize)
+
+    monkeypatch.setattr(profile_invitation, operation, paused)
+    task = asyncio.create_task(
+        client.post("/api/v1/sync/profiles/" + endpoint, headers=headers, json=body)
+    )
+    assert await asyncio.to_thread(fake.started.wait, 2)
+    await storage.delete_session(auth.hash_token(token))
+    fake.resume.set()
+    response = await task
+    assert response.status_code == 401
+    assert fake.calls == []

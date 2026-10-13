@@ -188,6 +188,7 @@ class BrowserSession:
         self.started_at = datetime.now()
         self.monitor_task: asyncio.Task | None = None
         self.on_exit: ExitHandler | None = None
+        self.on_stopped: ExitHandler | None = None
         self._terminated = False
         self.socks_relay = socks_relay
         self._termination_task: asyncio.Task[None] | None = None
@@ -262,6 +263,7 @@ class BrowserSessionManager:
         # no-op and this class behaves exactly as it did before leases existed.
         self._storage = storage
         self._holder = holder
+        self.on_stopped: ExitHandler | None = None
         self._heartbeat_task: asyncio.Task[None] | None = None
 
     def start_heartbeat(self, interval: float = 30.0) -> None:
@@ -400,6 +402,7 @@ class BrowserSessionManager:
             process_id = _resolve_process_id(browser) or _resolve_process_id(camoufox)
             session = BrowserSession(profile_id, camoufox, process_id, socks_relay=relay)
             session.on_exit = on_exit
+            session.on_stopped = self.on_stopped
             self.active_sessions[profile_id] = session
         except (Exception, asyncio.CancelledError):
             # Keep the starting marker until both browser and relay teardown
@@ -468,6 +471,9 @@ class BrowserSessionManager:
             async def finish() -> bool:
                 try:
                     await session.terminate()
+                    stopped = getattr(session, "on_stopped", self.on_stopped)
+                    if stopped is not None:
+                        await stopped(profile_id)
                     if profile_id in self._release_after_close:
                         await self._release_lease(profile_id)
                     if self.active_sessions.get(profile_id) is session:

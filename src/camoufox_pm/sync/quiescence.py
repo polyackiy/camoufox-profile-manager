@@ -2,16 +2,20 @@
 
 Matches Mozilla toolkit/profile/nsProfileLock.cpp: whole-file POSIX fcntl write
 lock on .parentlock; Windows exclusive CreateFile on parent.lock. No symlink/NFS
-fallback and no stale-lock deletion. The manager still needs its local lease and
-maintenance/checkout gate. Raw launches by a hostile local OS account are outside
+fallback and no stale-lock deletion. Linux obsolete IPv4:+PID legacy symlinks
+are inspected without following them only after the native fcntl lock is held.
+The manager still needs its local lease and maintenance/checkout gate. Raw launches by a hostile local OS account are outside
 this cooperative boundary. Directory replacement must retain/reacquire protection
 of the activated directory: holding an old renamed inode cannot lock a new one.
 """
 
 from __future__ import annotations
 
+import ipaddress
 import os
+import re
 import stat
+import sys
 import threading
 from contextlib import contextmanager
 from pathlib import Path
@@ -148,6 +152,40 @@ def _posix_lock(path: Path):
         os.close(fd)
 
 
+def _linux_legacy_marker(path: Path):
+    """Inspect Mozilla's obsolete fcntl-backed marker without following/removing it.
+
+    nsProfileLock.cpp IsSymlinkStaleLock treats a +PID signature as obsolete once
+    fcntl succeeds. Plain PID legacy/NFS locks are NOT covered by this proof.
+    This helper may be called only while holding this profile's .parentlock.
+    """
+    try:
+        info = path.lstat()
+    except FileNotFoundError:
+        return None
+    if not stat.S_ISLNK(info.st_mode):
+        regular = _regular(path)
+        return None if regular is None else (regular.st_dev, regular.st_ino, regular.st_ctime_ns)
+    if info.st_uid != os.geteuid() or info.st_nlink != 1:
+        raise QuiescenceError(_ERROR)
+    target = os.readlink(path)
+    match = re.fullmatch(r"([0-9.]{7,15}):\+([1-9][0-9]{0,9})", target)
+    if match is None or not 0 < int(match[2]) < 2**31:
+        raise QuiescenceError(_ERROR)
+    try:
+        ipaddress.IPv4Address(match[1])
+    except ValueError:
+        raise QuiescenceError(_ERROR) from None
+    after = path.lstat()
+    if (after.st_dev, after.st_ino, after.st_ctime_ns) != (
+        info.st_dev,
+        info.st_ino,
+        info.st_ctime_ns,
+    ):
+        raise QuiescenceError(_ERROR)
+    return info.st_dev, info.st_ino, info.st_ctime_ns, target
+
+
 @contextmanager
 def _windows_lock(path: Path):
     import ctypes
@@ -209,8 +247,8 @@ def _windows_lock(path: Path):
 def browser_profile_lock(profile: Path):
     """Fail-fast context manager; retain the exact lock inode on every exit.
 
-    Works only on local filesystems supporting Firefox's native lock. A stale
-    symlink must be resolved through browser recovery, never silently unlinked.
+    Works only on local filesystems supporting Firefox's native lock. Legacy
+    non-fcntl symlinks fail closed; obsolete Linux +PID markers are never unlinked.
     The same-process guard is required because POSIX fcntl locks are process scoped.
     """
     try:
@@ -224,27 +262,41 @@ def browser_profile_lock(profile: Path):
             raise QuiescenceError(_ERROR)
         _held.add(key)
     body_exception = False
+    stage = "profile-check"
     try:
         reject_reparse_paths(profile)
         if not profile.is_dir():
             raise QuiescenceError(_ERROR)
-        # Refuse unsupported legacy/symlink locks as well as the active OS path.
+        # Linux Firefox also writes an obsolete symlink marker alongside its
+        # fcntl lock. Inspect it only AFTER the actual OS lock has been acquired.
+        legacy = profile / "lock" if sys.platform.startswith("linux") else None
+        stage = "lock-entry-check"
         for name in ("lock", "parent.lock", ".parentlock"):
+            if legacy is not None and name == "lock":
+                continue
             _regular(profile / name)
         lock = profile / ("parent.lock" if os.name == "nt" else ".parentlock")
+        stage = "native-lock"
         with _windows_lock(lock) if os.name == "nt" else _posix_lock(lock):
+            stage = "legacy-marker"
+            marker = _linux_legacy_marker(legacy) if legacy is not None else None
+            stage = "process-check"
             assert_no_browser_process(profile)
             try:
                 yield
             except BaseException:
                 body_exception = True
                 raise
+            stage = "legacy-marker-recheck"
+            if legacy is not None and _linux_legacy_marker(legacy) != marker:
+                raise QuiescenceError(_ERROR)
     except QuiescenceError:
         raise
-    except Exception:
+    except Exception as exc:
         if body_exception:
             raise
-        raise QuiescenceError(_ERROR) from None
+        # Fixed stages and exception class only; never emit paths or commands.
+        raise QuiescenceError(f"{_ERROR} ({stage}: {type(exc).__name__})") from None
     finally:
         with _registry_guard:
             _held.discard(key)

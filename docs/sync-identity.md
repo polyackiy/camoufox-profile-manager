@@ -83,3 +83,26 @@ records even if a caller bypassed normal Pydantic construction.
 signed forks, gaps, revocation, expiry, authority misuse, secret projection,
 malformed wire input and checkpoint signature tampering. Full one-use, key-store,
 clean-machine recovery and crash behavior require owner-service integration tests.
+
+## Sharing profiles with an already paired device
+
+A profile created after device pairing needs a separate owner-signed profile code.
+The relay cannot introduce a previously unknown profile as an independently trusted
+checkpoint. The owner generates the code from reconciled protected local bindings,
+selects an existing member device, and transfers it through the trusted channel.
+No device keys or local accounts are re-created.
+
+The code binds the pinned owner-root digest, target device UUID, a monotonically
+increasing per-recipient sequence, invitation UUID, exact signed membership and at
+most 64 profile checkpoints under a separate signature domain. Recipient acceptance
+atomically retains the code, exact signed membership epoch, sequence high-water mark
+and only previously unknown profile anchors. Existing local mappings, anchors and
+checkpoints from initial pairing are never overwritten. Identical latest-code
+replay is idempotent; older or different equal-sequence codes are rejected. Known
+revocation, membership forks, wrong local administrator/device and a membership
+observation newer than the code fail closed.
+
+The exact membership is pinned so a relay cannot substitute a sibling authority-
+signed membership with the same epoch. Imported profile heads remain historical
+lower bounds; engine reconciliation must validate the full signed history before
+claiming or activating a profile. A code does not confer launch permission.

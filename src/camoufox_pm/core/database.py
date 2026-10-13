@@ -346,6 +346,32 @@ class DatabaseManager:
             self._profile_columns(profile),
         )
 
+    async def insert_profile_if_absent(self, profile: Profile) -> bool:
+        """Reserve a new local identity without overwriting an existing/trash row."""
+        connection = self._connection
+        if connection.in_transaction:
+            raise ValueError("Profile insertion requires an idle transaction")
+        previous = int(connection.execute("PRAGMA synchronous").fetchone()[0])
+        connection.execute("PRAGMA synchronous=FULL")
+        try:
+            cursor = connection.execute(
+                """INSERT INTO profiles (
+                    id, name, group_id, status, browser_settings, proxy_config,
+                    extensions, storage_path, notes, created_at, updated_at, last_used,
+                    fingerprint, proxy_check, tags
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO NOTHING""",
+                self._profile_columns(profile),
+            )
+            inserted = cursor.rowcount == 1
+            connection.commit()
+            return inserted
+        except BaseException:
+            connection.rollback()
+            raise
+        finally:
+            connection.execute(f"PRAGMA synchronous={previous}")
+
     async def save_profile(self, profile: Profile, expected_row_version: int | None = None):
         """Save a profile.
 
@@ -406,6 +432,32 @@ class DatabaseManager:
         """Update a profile, optionally guarded against a concurrent save."""
         await self.save_profile(profile, expected_row_version)
         logger.debug(f"Profile {profile.name} updated")
+
+    async def durable_update_profile(self, profile: Profile, expected_row_version: int) -> None:
+        """Publish a journalled profile pointer with a FULL-synchronous CAS commit.
+
+        This coroutine contains no suspension points: another event-loop task
+        cannot use the shared connection while its durability setting is changed.
+        Existing users/grants/schedules and lease columns remain untouched.
+        """
+        if type(expected_row_version) is not int or expected_row_version < 0:
+            raise ValueError("A current profile version is required")
+        connection = self._connection
+        if connection.in_transaction:
+            raise ValueError("Durable profile publication requires an idle transaction")
+        previous = int(connection.execute("PRAGMA synchronous").fetchone()[0])
+        original_version = profile.row_version
+        connection.execute("PRAGMA synchronous=FULL")
+        try:
+            profile.updated_at = datetime.now()
+            self._save_profile_if_unchanged(profile, expected_row_version)
+            connection.commit()
+        except BaseException:
+            connection.rollback()
+            profile.row_version = original_version
+            raise
+        finally:
+            connection.execute(f"PRAGMA synchronous={previous}")
 
     async def set_proxy_check(self, profile_id: str, record: ProxyCheckRecord | None) -> None:
         """Write only the proxy check, leaving every other column alone.
@@ -826,7 +878,7 @@ class DatabaseManager:
     async def list_users(self) -> list[dict]:
         """Usernames and creation times only — hashes stay in the table."""
         cursor = self._connection.execute(
-            "SELECT username, created_at, role FROM users ORDER BY created_at"
+            "SELECT id, username, created_at, role FROM users ORDER BY created_at"
         )
         return [dict(row) for row in cursor.fetchall()]
 
@@ -1217,6 +1269,9 @@ class StorageManager:
         await self.db.initialize()
 
     # Profile methods
+    async def insert_profile_if_absent(self, profile: Profile) -> bool:
+        return await self.db.insert_profile_if_absent(profile)
+
     async def save_profile(self, profile: Profile, expected_row_version: int | None = None):
         await self.db.save_profile(profile, expected_row_version)
 
@@ -1225,6 +1280,9 @@ class StorageManager:
 
     async def update_profile(self, profile: Profile, expected_row_version: int | None = None):
         await self.db.update_profile(profile, expected_row_version)
+
+    async def durable_update_profile(self, profile: Profile, expected_row_version: int) -> None:
+        await self.db.durable_update_profile(profile, expected_row_version)
 
     async def set_proxy_check(self, profile_id: str, record: ProxyCheckRecord | None) -> None:
         await self.db.set_proxy_check(profile_id, record)

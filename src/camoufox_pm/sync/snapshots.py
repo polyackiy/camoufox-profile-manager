@@ -147,6 +147,8 @@ class SnapshotMetadata(_Strict):
 
 def _name(name: str) -> tuple[str, ...]:
     parts = name.split("/")
+    if parts in ([".camoufox-pm-sync.json"], ["data", ".camoufox-pm-sync.json"]):
+        raise SnapshotError("Snapshot contains a local synchronization marker")
     if (
         len(name.encode("utf-8")) > 1024
         or len(parts) > 32
@@ -261,6 +263,8 @@ def _build_snapshot(
         for child in list(subdirs) + filenames:
             path = Path(directory) / child
             relative = path.relative_to(data_dir)
+            if relative.parts == (".camoufox-pm-sync.json",):
+                continue
             if len(relative.parts) == 1 and child in _PROFILE_LOCKS:
                 # Quiescence callback, not absence of this marker, authorizes capture.
                 if child in subdirs:

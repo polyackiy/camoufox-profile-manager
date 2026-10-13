@@ -274,3 +274,12 @@ def test_parser_strictness_bounds_and_construct_revalidation():
         parse_record(b"[" * 1000 + b"]" * 1000, OwnerRoot)
     with pytest.raises(ValueError):
         canonical_bytes(root.model_copy(update={"version": True}))
+
+
+def test_retained_device_uuid_cannot_replace_its_keys():
+    root, keys, previous = bootstrap("https://relay.example")
+    replacement = generate_device().certificate(
+        root.owner_id, previous.membership.devices[0].device_id
+    )
+    with pytest.raises(ValueError, match="cannot change keys"):
+        approve_membership(root, keys.authority_key, (replacement,), previous=previous)
