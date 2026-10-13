@@ -2,8 +2,8 @@
 
 Tracking: [stage-four epic #82](https://github.com/polyackiy/camoufox-profile-manager/issues/82).
 
-Status: architecture proposal and implementation plan, 2026-10-13. No synchronization
-service or client is shipped by this document. Stage three's local authorization
+Status: architecture and experimental S1 foundation, 2026-10-13. No synchronization
+service or client is enabled. Stage three's local authorization
 contract remains in [stage-three.md](stage-three.md).
 
 ## Product decision
@@ -273,7 +273,9 @@ are separate follow-up stages, not implicit extensions of local stage-three role
 ## S1 implementation references
 
 The experimental foundation is specified in [sync-protocol.md](sync-protocol.md)
-and [sync-state-machine.md](sync-state-machine.md). See the
+and [sync-state-machine.md](sync-state-machine.md). The
+[owner bootstrap and compatibility contract](sync-trust-contract.md) defines the
+required S2/S3 behavior; it is not yet implemented. See the
 [security review and threat-to-test record](sync-security-review.md) for library
 choices, native proof, findings and remaining gates. This implements protocol
 primitives only; it does not enable profile synchronization.

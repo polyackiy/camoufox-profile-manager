@@ -97,3 +97,13 @@ callers must reconcile it rather than overwrite or assume no output exists.
   without an independently trusted checkpoint remains blocked. Revocation cannot
   recall downloaded data or stop an unreachable browser. No timeout steals a
   checkout. See [the complete threat model](stage-four-sync.md).
+
+## CI evidence
+
+[Native codec and independent interoperability run](https://github.com/polyackiy/camoufox-profile-manager/actions/runs/38447336253)
+passed on Linux, Windows, macOS ARM and Intel. This includes source and frozen
+execution, committed CIRCL-vector regeneration and wrong-context rejection.
+[Update/recovery checks](https://github.com/polyackiy/camoufox-profile-manager/actions/runs/38447336218)
+also passed on all four targets with the updated dependency lock. The
+[owner bootstrap contract](sync-trust-contract.md) is a reviewed target for S2/S3,
+not an implemented key-management guarantee.
