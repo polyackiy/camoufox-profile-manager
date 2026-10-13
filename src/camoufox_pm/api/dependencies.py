@@ -93,7 +93,7 @@ async def require_auth(request: Request, x_api_key: str | None = Header(default=
     recovery_control = request.url.path in {
         f"{prefix}/system/update-recovery{suffix}"
         for prefix in ("/api", "/api/v1")
-        for suffix in ("", "/cancel")
+        for suffix in ("", "/cancel", "/apply", "/resume", "/rollback")
     }
     if token:
         username = (

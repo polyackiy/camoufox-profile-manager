@@ -98,7 +98,25 @@ def main() -> None:
             raise RuntimeError("Frozen recovery reported unexpected installation state")
         if database.exists() or (database.parent / "secret.key").exists():
             raise RuntimeError("Frozen recovery created application data or an encryption key")
-        print("Frozen desktop recovery status passed without creating application data or a key")
+        # These must dispatch before GUI/bootstrap even in a windowed frozen app.
+        # No trust policy or receipt is supplied: refusal is the expected outcome.
+        for arguments in (
+            ["--update-helper", "apply"],
+            ["--update-validate", str(work / "missing-receipt.json")],
+        ):
+            refused = subprocess.run(
+                [str(executable), *arguments],
+                cwd=work,
+                env=environment,
+                capture_output=True,
+                timeout=60,
+                check=False,
+            )
+            if refused.returncode == 0:
+                raise RuntimeError("Frozen internal update command accepted absent trust/receipt")
+            if database.exists() or (database.parent / "secret.key").exists():
+                raise RuntimeError("Frozen internal update command initialized application data")
+        print("Frozen status/helper/validation dispatch passed without creating data or a key")
 
 
 if __name__ == "__main__":

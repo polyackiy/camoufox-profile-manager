@@ -134,6 +134,17 @@ def run_desktop(
                 )
                 if window is None:
                     raise RuntimeError("The native window could not be created.")
+
+                def monitor_updates():
+                    from camoufox_pm.core.update_runtime import _record
+
+                    while thread.is_alive():
+                        if (_record() or {}).get("action"):
+                            window.destroy()
+                            return
+                        time.sleep(0.5)
+
+                threading.Thread(target=monitor_updates, daemon=True).start()
                 if sys.platform == "darwin":
                     # Cocoa Cmd+Q may terminate NSApplication without returning
                     # from webview.start(). Its synchronous closing event must
@@ -150,6 +161,10 @@ def run_desktop(
                 # Lifespan closes running browser sessions and the database.
                 if not _stop_server(server, thread):
                     raise RuntimeError("The local server did not finish shutting down.")
+                from camoufox_pm.core.update_runtime import _record, spawn_helper
+
+                if (_record() or {}).get("action"):
+                    spawn_helper()
 
 
 def finish_packaged_desktop() -> None:
@@ -204,7 +219,9 @@ def _run_packaged_recovery() -> None:
         if "db_path" not in configured.model_fields_set:
             os.environ["CPM_DB_PATH"] = str(desktop_data_dir() / "profiles.db")
         get_settings.cache_clear()
-        if "--desktop" not in sys.argv[1:]:
+        if "--desktop" not in sys.argv[1:] and not any(
+            flag in sys.argv[1:] for flag in ("--update-helper", "--update-validate")
+        ):
             sys.argv.insert(1, "--desktop")
         if sys.stdout is None or sys.stderr is None:
             control = Path(get_settings().db_path).expanduser().resolve().parent / "update-control"
@@ -267,12 +284,45 @@ def _run_packaged_recovery() -> None:
 
 def main() -> None:
     """Double-click entry point; ordinary ``camoufox-pm`` keeps its CLI behavior."""
-    if "update-recovery" in sys.argv[1:]:
+    if "update-recovery" in sys.argv[1:] or any(
+        flag in sys.argv[1:] for flag in ("--update-helper", "--update-validate")
+    ):
         _run_packaged_recovery()
         return
     try:
-        from camoufox_pm.config import bootstrap_desktop, get_settings
+        # Locate recovery state before bootstrap can create an encryption key.
+        from camoufox_pm.config import Settings, bootstrap_desktop, desktop_data_dir, get_settings
 
+        configured = Settings()
+        if "db_path" not in configured.model_fields_set:
+            os.environ["CPM_DB_PATH"] = str(desktop_data_dir() / "profiles.db")
+        get_settings.cache_clear()
+        from camoufox_pm.core.maintenance import configured_gate
+        from camoufox_pm.core.update_runtime import _record, request, spawn_helper, status
+
+        if (
+            configured_gate().blocked
+            or (_record() or {}).get("action")
+            or "--update-recovery-window" in sys.argv
+        ):
+            from camoufox_pm.desktop_recovery import show_recovery
+
+            def dispatch(action, transaction_id, timestamp):
+                if action == "cancel":
+                    from camoufox_pm.core.update_runtime import cancel
+
+                    return cancel()
+                result = request(action, transaction_id, timestamp)
+                spawn_helper()
+                return result
+
+            if not show_recovery(status, dispatch):
+                return
+            if "--update-recovery-window" in sys.argv:
+                from camoufox_pm.core.update_runtime import reopen_desktop
+
+                reopen_desktop()
+                return
         bootstrap_desktop()
         # PyInstaller windowed apps have no stdout/stderr. Keep logs writable
         # outside the immutable .app / installation directory.

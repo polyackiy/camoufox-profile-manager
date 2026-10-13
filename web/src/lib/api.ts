@@ -622,6 +622,17 @@ export interface UpdateRecovery {
   maintenance_active: boolean
   automatic_install_available: boolean
   can_cancel: boolean
+  disabled_reason?: string | null
+  phase?: string | null
+  error?: string | null
+  can_download?: boolean
+  can_apply?: boolean
+  can_resume?: boolean
+  can_rollback?: boolean
+  checkpoint_timestamp?: string | null
+  request_pending?: boolean
+  rollback_transaction_id?: string | null
+  installed_version?: string
 }
 
 export interface BackupInfo {
@@ -726,6 +737,12 @@ export const systemAPI = {
   async prepareUpdate(preview = false): Promise<{ release_url: string; backup_count: number; message: string }> {
     const body = await request<{ data: { release_url: string; backup_count: number; message: string } }>(`${API_PREFIX}/system/updates/prepare${preview ? '?channel=preview' : ''}`, { method: 'POST' })
     return body.data
+  },
+  downloadVerifiedUpdate(preview = false): Promise<UpdateRecovery> {
+    return request<UpdateRecovery>(`${API_PREFIX}/system/update-recovery/download`, { method: 'POST', body: JSON.stringify({ channel: preview ? 'preview' : 'stable' }) })
+  },
+  requestUpdateAction(action: 'apply' | 'rollback' | 'resume', transactionId: string, timestamp?: string | null): Promise<UpdateRecovery> {
+    return request<UpdateRecovery>(`${API_PREFIX}/system/update-recovery/${action}`, { method: 'POST', body: JSON.stringify({ transaction_id: transactionId, ...(action === 'rollback' ? { confirm_timestamp: timestamp } : {}) }) })
   },
   updateRecovery(): Promise<UpdateRecovery> {
     return request<UpdateRecovery>(`${API_PREFIX}/system/update-recovery`)

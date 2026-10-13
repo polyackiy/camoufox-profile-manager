@@ -6,6 +6,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- Integrate verified manager/browser downloads with complete checkpoints, offline
+  application replacement, numbered migrations and fresh-process browser validation (#63).
+- Offer timestamp-confirmed binary/data rollback and a standalone recovery window
+  that remains available before opening the database, including interrupted swaps.
+- Bind authenticated archives and retained installations to complete file inventories;
+  refuse cancellation after browser-cache changes and preserve retryable journals.
+
+Automatic installation remains unavailable in unsigned public previews. Production
+TUF provisioning, platform certificates and real signed upgrade trials are still required.
+
 ## [0.6.0-rc.3] - 2026-10-13
 
 Unsigned desktop preview with offline recovery; automatic installation remains disabled.

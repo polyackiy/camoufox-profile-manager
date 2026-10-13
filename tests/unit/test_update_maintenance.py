@@ -311,3 +311,27 @@ def test_checkpoint_cancel_refuses_active_control_and_helper_journal(tmp_path: P
     with pytest.raises(MaintenanceBlocked, match="helper journal"):
         service.cancel_abandoned_checkpoint()
     assert gate.blocked
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("suffix", ["/apply", "/resume", "/rollback", "/download", "/other"])
+async def test_exact_update_controls_pass_maintenance_but_download_does_not(tmp_path, suffix):
+    from camoufox_pm.api.middleware.maintenance import MaintenanceMiddleware
+
+    gate = MaintenanceGate(tmp_path / "gate.db")
+    gate.acquire("update")
+    messages = []
+
+    async def application(scope, receive, send):
+        await send({"type": "http.response.start", "status": 401, "headers": []})
+        await send({"type": "http.response.body", "body": b"auth remains required"})
+
+    async def send(message):
+        messages.append(message)
+
+    await MaintenanceMiddleware(application, gate)(
+        {"type": "http", "path": "/api/v1/system/update-recovery" + suffix, "method": "POST"},
+        None,
+        send,
+    )
+    assert messages[0]["status"] == (401 if suffix in ("/apply", "/resume", "/rollback") else 503)

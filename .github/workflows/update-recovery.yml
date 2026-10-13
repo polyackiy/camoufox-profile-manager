@@ -5,7 +5,13 @@ on:
     paths:
       - 'src/camoufox_pm/core/update_*.py'
       - 'src/camoufox_pm/core/maintenance.py'
+      - 'src/camoufox_pm/core/schema_migrations.py'
+      - 'src/camoufox_pm/core/database.py'
+      - 'src/camoufox_pm/cli.py'
+      - 'src/camoufox_pm/desktop*.py'
       - 'tests/unit/test_update_*.py'
+      - 'tests/unit/test_schema_migrations.py'
+      - 'tests/unit/test_desktop_recovery.py'
       - '.github/workflows/update-recovery.yml'
       - 'pyproject.toml'
       - 'uv.lock'
@@ -26,14 +32,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: [ubuntu-latest, windows-latest, macos-15, macos-15-intel]
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v7
       - run: uv sync --extra dev --extra updates --python 3.12
       - name: Test trust, interruption and local recovery
         shell: bash
-        run: uv run pytest tests/unit/test_update_*.py -v --junitxml=update-recovery.xml
+        run: uv run pytest tests/unit/test_update_*.py tests/unit/test_schema_migrations.py tests/unit/test_desktop_recovery.py -v --junitxml=update-recovery.xml
       - uses: actions/upload-artifact@v7
         if: always()
         with:

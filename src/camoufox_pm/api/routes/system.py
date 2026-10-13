@@ -2,10 +2,12 @@
 
 import time
 from pathlib import Path
+from typing import Literal
 
 import psutil
 from fastapi import APIRouter, HTTPException
 from loguru import logger
+from pydantic import BaseModel, ConfigDict
 
 from camoufox_pm import __version__
 from camoufox_pm.api.dependencies import get_profile_manager, get_storage_manager
@@ -248,33 +250,67 @@ async def get_system_info():
 @router.get("/system/update-recovery", operation_id="update_recovery_status")
 async def update_recovery_status():
     """Expose transaction progress without credential-bearing local paths."""
-    from camoufox_pm.core.maintenance import configured_gate
-    from camoufox_pm.core.update_service import UpdateService
+    from camoufox_pm.core.update_runtime import status
 
-    gate = configured_gate()
-    service = UpdateService(gate.path.parent, gate)
     try:
-        status = service.status()
+        return status()
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
-    allowed = ("state", "transaction_id", "created_at", "target_version", "browser_version")
-    return {
-        **{key: status[key] for key in allowed if key in status},
-        "maintenance_active": gate.blocked,
-        "automatic_install_available": False,
-        "can_cancel": status["state"] in ("preparing", "prepared"),
-    }
 
 
 @router.post("/system/update-recovery/cancel", operation_id="cancel_update_preparation")
 async def cancel_update_preparation():
     """Resume normal operation only before any executable replacement."""
-    from camoufox_pm.core.maintenance import configured_gate
-    from camoufox_pm.core.update_service import UpdateService
+    from camoufox_pm.core.update_runtime import cancel
 
-    gate = configured_gate()
     try:
-        UpdateService(gate.path.parent, gate).cancel_preparation()
+        return cancel()
     except RuntimeError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-    return await update_recovery_status()
+
+
+class UpdateDownloadRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    channel: Literal["stable", "preview"] = "stable"
+
+
+class UpdateActionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    transaction_id: str
+    confirm_timestamp: str | None = None
+
+
+@router.post("/system/update-recovery/download", operation_id="download_verified_update")
+async def download_verified_update(body: UpdateDownloadRequest):
+    import asyncio
+
+    from camoufox_pm.core.update_runtime import download
+
+    try:
+        return await asyncio.to_thread(download, body.channel)
+    except (ValueError, RuntimeError, OSError) as exc:
+        raise HTTPException(status_code=409, detail="Verified update download unavailable") from exc
+
+
+async def _request_update_action(action, body):
+    from camoufox_pm.core.update_runtime import request
+
+    try:
+        return request(action, body.transaction_id, body.confirm_timestamp)
+    except (ValueError, RuntimeError, OSError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.post("/system/update-recovery/apply", operation_id="apply_verified_update")
+async def apply_verified_update(body: UpdateActionRequest):
+    return await _request_update_action("apply", body)
+
+
+@router.post("/system/update-recovery/resume", operation_id="resume_verified_update")
+async def resume_verified_update(body: UpdateActionRequest):
+    return await _request_update_action("resume", body)
+
+
+@router.post("/system/update-recovery/rollback", operation_id="rollback_verified_update")
+async def rollback_verified_update(body: UpdateActionRequest):
+    return await _request_update_action("rollback", body)

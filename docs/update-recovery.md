@@ -2,8 +2,10 @@
 
 Automatic executable replacement remains disabled pending trusted TUF root,
 publisher policy and signed package-to-package acceptance on supported platforms.
-Issue #63 remains open. These commands provide a complete local recovery point
-around the existing manual installer flow; they do not downgrade the manager app.
+Issue #63 remains open for production trust provisioning and signed platform trials.
+The manual commands below remain usable without certificates. The integrated
+desktop transaction is described after them; it stays unavailable in unsigned
+previews and source installations.
 
 Close every manager instance and browser before running:
 
@@ -92,24 +94,59 @@ inventories. It never follows or deletes the link; rollback retains the original
 marker with the failed state. Other symlinks, malformed lock signatures and lock
 links elsewhere remain rejected. The marker alone does not prove a browser stopped.
 
-## Settings and implementation boundaries
+## Integrated desktop transaction
 
-Settings uses stable releases by default. **Include preview releases** opts into
-preview discovery for checking/preparation; changing it clears the previous offer.
-The existing profile-backup/download flow remains manual. **Update recovery**
-shows sanitized transaction status and permits cancellation only before replacement.
+Settings exposes only capabilities approved by the local runtime: download a
+verified stable/preview pair, restart to install, retry an interrupted transaction,
+and restore the previous version. Installation and rollback require confirmation;
+rollback shows the checkpoint timestamp and explains that later changes will no
+longer be active. The newer files are retained for recovery. Checkpoints and retained installation
+trees are not automatically pruned; keep them until recovery acceptance is complete. With no trusted
+policy or publisher credentials, Settings explains why automatic installation is
+unavailable and keeps the manual backup/download flow.
 
-The implementation also includes TUF target verification with persistent metadata,
-exact manager/browser compatibility manifests, native publisher checks and an
-internal journalled directory replacement helper. See [the signing contract](update-signing.md).
-The helper retains the previous package and calls restartable data restoration on
-rollback, but is not an exposed installer or an API for running arbitrary packages.
+The desktop closes profiles and the API before a helper proceeds. A private copy
+of the current installation runs the helper outside the directory being replaced,
+so Windows DLL locks do not require overwriting a running program. The helper
+waits for the original process identity to exit, reauthenticates retained archives
+against cached signed metadata without network access, and rechecks publisher and
+complete file-tree integrity. HTTP requests can select a channel or action; they
+cannot supply an executable, filesystem path, trust root or publisher identity.
 
-Before one-click automatic installation is enabled, production root/key ownership,
-signed metadata publication, platform publisher credentials and key rotation must
-be provisioned. The verified archive-to-installed-tree binding, platform extraction
-helpers, numbered schema migrations and validation-mode startup must be integrated
-and tested with real signed package-to-package upgrades on every enabled platform.
-Linux system installations stay under the package manager. A successful unsigned
-build or mocked signature check does not satisfy these gates. #63 remains open;
-#61/#62 track signing and real installation acceptance.
+A complete checkpoint precedes any browser-cache or application replacement.
+The paired browser archive is fetched directly from upstream under separately
+signed target metadata, safely extracted, and installed without modifying the
+Camoufox engine. Once browser installation begins, cancellation cannot release
+maintenance. Retry or matching-data rollback is required.
+
+The installed manager runs a fixed validation command in a fresh process. It
+checks the declared manager/schema version, verifies stored credentials remain
+readable, applies numbered schema migrations, selects the exact browser pair,
+and launches an isolated disposable profile. User profiles are not used for this
+smoke test. Failed validation restores both the previous executable tree and the
+matching data/browser checkpoint. Unknown future schema versions fail before
+migration writes.
+
+If startup encounters an incomplete transaction, a local recovery window opens
+before database initialization or key generation. It does not start an API server
+or require a readable application database. Only actions permitted by the durable
+journal are offered. The offline CLI also remains available.
+
+## Production enablement
+
+The integrated path requires a frozen macOS/Windows installation with a locally
+provisioned policy, trusted TUF root and native publisher identity. Linux system
+installations remain under their package manager/manual installer. See
+[the deployment and signing contract](update-signing.md).
+
+Certificate-independent tests cover archive authentication and extraction,
+full-tree tampering, real subprocess acceptance, failed migrations, journal
+interruption recovery, browser pairing and timestamp-confirmed binary/data
+rollback. They use synthetic packages and isolated temporary data. They do not
+establish that an unsigned public preview can safely self-replace.
+
+Remaining release gates are production root/key ownership, authenticated metadata
+publication/rotation, Apple Developer ID/notarization and Windows code signing,
+and real signed package-to-package acceptance on each enabled OS/architecture.
+A successful unsigned build or mocked publisher check cannot satisfy these gates.
+#63 stays open for these gates; #61/#62 track signing and installation acceptance.

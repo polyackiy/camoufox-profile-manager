@@ -96,6 +96,7 @@ class UpdateService:
         browser_version: str,
         target_version: str,
         required_paths: tuple[str, ...] = (),
+        metadata: dict | None = None,
     ) -> dict:
         """Require authenticated package and a caller's complete configured data map.
 
@@ -105,7 +106,7 @@ class UpdateService:
         if not browser_version or not target_version:
             raise ValueError("A tested manager/browser pair is required")
         current = self.status()
-        if current["state"] not in ("idle", "cancelled", "committed"):
+        if current["state"] not in ("idle", "cancelled", "committed", "rolled_back"):
             raise MaintenanceBlocked("An existing update must be resolved first")
         verify_package(verified_package)
         transaction = {
@@ -119,6 +120,8 @@ class UpdateService:
             "paths": {key: str(Path(path).resolve()) for key, path in paths.items()},
             "automatic_install_available": False,
         }
+        if metadata:
+            transaction.update(metadata)
         self._save(transaction)  # Persist ownership before closing admission.
         owner = str(transaction["transaction_id"])
         try:
@@ -134,7 +137,12 @@ class UpdateService:
                 required_paths=required_paths,
                 maintenance_check=lambda: self.gate.blocked and offline_check(),
             )
-            transaction.update(state="prepared", checkpoint=str(checkpoint))
+            checkpoint_record = json.loads((checkpoint / "journal.json").read_text())
+            transaction.update(
+                state="prepared",
+                checkpoint=str(checkpoint),
+                checkpoint_timestamp=checkpoint_record["created_at"],
+            )
             self._save(transaction)
             return transaction
         except BaseException:
@@ -145,6 +153,10 @@ class UpdateService:
     @_serialized
     def cancel_preparation(self):
         transaction = self.status()
+        if transaction.get("browser_install_started"):
+            raise MaintenanceBlocked(
+                "Browser installation has begun; resume or restore the checkpoint"
+            )
         if (self.root / "replacement.json").exists():
             raise MaintenanceBlocked(
                 "A replacement helper journal exists; complete offline recovery before resuming writes"

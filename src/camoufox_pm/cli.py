@@ -32,6 +32,53 @@ def _admitted_command(function):
 
 
 def main() -> None:
+    # These fixed internal commands run before desktop bootstrap and DB startup.
+    if len(sys.argv) >= 2 and sys.argv[1] == "--update-validate":
+        if len(sys.argv) != 3:
+            raise SystemExit("Validation requires exactly one helper receipt")
+        from camoufox_pm.core.update_validation import validate_installed_process
+
+        validate_installed_process(sys.argv[2])
+        return
+    if len(sys.argv) >= 2 and sys.argv[1] == "--update-helper":
+        helper = argparse.ArgumentParser(prog="camoufox-pm --update-helper")
+        helper.add_argument("action", choices=("apply", "resume", "rollback"))
+        helper.add_argument("--confirm-timestamp")
+        helper.add_argument("--wait-pid", type=int)
+        helper.add_argument("--wait-created", type=float)
+        args = helper.parse_args(sys.argv[2:])
+        if args.wait_pid is not None:
+            if args.wait_created is None or args.wait_pid <= 0:
+                helper.error("wait requires a process identity")
+            import psutil
+
+            try:
+                parent = psutil.Process(args.wait_pid)
+                if abs(parent.create_time() - args.wait_created) < 0.01:
+                    parent.wait(timeout=60)
+            except psutil.NoSuchProcess:
+                pass
+            except (psutil.TimeoutExpired, psutil.AccessDenied) as exc:
+                raise SystemExit("The manager did not exit; offline update refused") from exc
+        from camoufox_pm.config import Settings, desktop_data_dir
+        from camoufox_pm.core.update_runtime import execute_request, reopen_desktop
+
+        configured = Settings()
+        if "db_path" not in configured.model_fields_set:
+            os.environ["CPM_DB_PATH"] = str(desktop_data_dir() / "profiles.db")
+        get_settings.cache_clear()
+        if args.action == "rollback" and not args.confirm_timestamp:
+            helper.error("rollback requires --confirm-timestamp")
+        try:
+            if args.action == "rollback":
+                execute_request("rollback", confirmed_timestamp=args.confirm_timestamp)
+            else:
+                execute_request(args.action)
+        except Exception:
+            reopen_desktop()
+            raise
+        reopen_desktop()
+        return
     if "--desktop" in sys.argv[1:]:
         from camoufox_pm.config import bootstrap_desktop
 

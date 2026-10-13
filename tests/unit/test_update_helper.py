@@ -127,3 +127,25 @@ def test_offline_lock_loss_prevents_replacement(replacement):
     with pytest.raises(ReplacementError, match="writer"):
         helper.apply(verify_package=verify)
     assert (app / "version").read_text() == "old"
+
+
+def test_standard_user_installation_parent_is_allowed(tmp_path):
+    import os
+
+    from camoufox_pm.core.update_helper import validate_installation_parent
+
+    if os.name != "nt":
+        tmp_path.chmod(0o755)
+    assert validate_installation_parent(tmp_path) == tmp_path.resolve()
+
+
+def test_world_writable_installation_parent_refused(tmp_path):
+    import os
+
+    from camoufox_pm.core.update_helper import validate_installation_parent
+
+    if os.name == "nt":
+        pytest.skip("POSIX mode boundary; Windows ACL checks are separate")
+    tmp_path.chmod(0o777)
+    with pytest.raises(ReplacementError, match="trusted"):
+        validate_installation_parent(tmp_path)
