@@ -16,7 +16,7 @@ from urllib.parse import urlsplit
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, ConfigDict, Field, SecretStr
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 
 from camoufox_pm.api.access import request_principal, request_session_hash
 from camoufox_pm.api.dependencies import get_storage_manager
@@ -97,6 +97,17 @@ class EnrollmentBody(_Body):
 
 class PasswordBody(_Body):
     password: SecretStr | None = Field(default=None, min_length=1, max_length=1024)
+
+
+class TakeoverBody(PasswordBody):
+    acknowledge_lost_device: Literal[True]
+
+    @field_validator("acknowledge_lost_device", mode="before")
+    @classmethod
+    def explicit_confirmation(cls, value):
+        if value is not True:
+            raise ValueError("Explicit confirmation is required")
+        return value
 
 
 class PrepareBody(PasswordBody):
@@ -654,6 +665,18 @@ async def sync_profile_action(request: Request, local_id: str, action: str):
     user_id = await _live_owner(request)
     if len(local_id) != 8 or not local_id.isascii() or not local_id.isalnum():
         raise _error(422, "Invalid local profile identifier")
+    if action == "takeover":
+        takeover_body = await _body(request, TakeoverBody)
+        return _response(
+            await _runtime_call(
+                request,
+                user_id,
+                "takeover",
+                local_id,
+                acknowledge_lost_device=takeover_body.acknowledge_lost_device,
+                password=_password(takeover_body),
+            )
+        )
     if action == "preserve-copy":
         copy_body = await _body(request, PreserveCopyBody)
         return _response(

@@ -3,13 +3,27 @@
 
 import pytest
 
+from camoufox_pm.core.update_permissions import create_private_directory, verify_private_path
 from camoufox_pm.sync.engine import EngineError
 from camoufox_pm.sync.identity import generate_device
 from camoufox_pm.sync.transfer import SnapshotTransfer
 from tests.unit.test_sync_engine import held, system  # noqa: F401
 
 
-def test_encrypted_snapshot_is_selected_from_verified_history(system, monkeypatch):
+@pytest.fixture
+def transfer_area(system):
+    engine, server, authority, temporary = system
+    # pytest tmp_path has a private POSIX mode but does not establish the
+    # protected Windows DACL required by the production crypto staging contract.
+    # Runtime transfers always create an explicit private directory first.
+    private = temporary / "transfers"
+    create_private_directory(private)
+    verify_private_path(private)
+    return engine, server, authority, private
+
+
+def test_encrypted_snapshot_is_selected_from_verified_history(transfer_area, monkeypatch):
+    system = transfer_area
     engine, server, _, path = system
     held(system)
     source = path / "private.zip"
@@ -40,7 +54,8 @@ def test_wrong_device_keys_rejected(system):
         SnapshotTransfer(engine, generate_device())
 
 
-def test_relay_truncated_history_cannot_select_old_snapshot(system):
+def test_relay_truncated_history_cannot_select_old_snapshot(transfer_area):
+    system = transfer_area
     engine, server, _, path = system
     held(system)
     transfer = SnapshotTransfer(engine, engine.client.keys)

@@ -58,7 +58,9 @@ def test_signed_exact_body_and_origin(identity):
 
 
 @pytest.mark.parametrize(
-    "raw", [b"[]", b'{"a":1,"a":2}', b'{"a":NaN}', b"x", b" " * (MAX_RESPONSE + 1)]
+    "raw",
+    [b"[]", b'{"a":1,"a":2}', b'{"a":NaN}', b"x", b" " * (MAX_RESPONSE + 1)],
+    ids=["array", "duplicate-key", "nonfinite", "invalid-json", "oversized"],
 )
 def test_bad_json_is_bounded_and_sanitized(identity, raw):
     with client(identity, lambda _: response(raw)) as relay, pytest.raises(RelayError) as error:

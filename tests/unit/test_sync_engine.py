@@ -781,3 +781,88 @@ def test_invitation_newer_membership_anchor_rejects_relay_signed_sibling(system)
         engine.reconcile("invited1")
     assert not engine.may_launch("invited1")
     assert engine.control.get("sync/membership-conflict") is not None
+
+
+def revoked_holder_history(system, *, refresh_profile=True):
+    engine, server, authority, _ = system
+    profile = engine.enable("profile1")
+    other_keys = generate_device()
+    other_id = str(uuid4())
+    second = approve_membership(
+        engine.root,
+        authority.authority_key,
+        server.memberships[0].membership.devices
+        + (other_keys.certificate(engine.root.owner_id, other_id),),
+        previous=server.memberships[0],
+    )
+    server.memberships.append(second)
+    revoked = Client(server, other_id, other_keys)
+    revoked.rpc(
+        {"operation": "claim", "profile_id": profile, "expected": server.checkpoint(profile)}
+    )
+    assert engine.reconcile("profile1").phase == "held_elsewhere"
+    third = approve_membership(
+        engine.root,
+        authority.authority_key,
+        server.memberships[0].membership.devices,
+        previous=second,
+    )
+    server.memberships.append(third)
+    if refresh_profile:
+        assert engine.reconcile("profile1").checkpoint.membership_epoch == 3
+    else:
+        engine.refresh_membership()
+        assert engine.status("profile1").checkpoint.membership_epoch == 2
+    return revoked, profile
+
+
+@pytest.mark.parametrize("operation", ["release", "commit"])
+@pytest.mark.parametrize("refresh_profile", [False, True])
+def test_revoked_old_epoch_advanced_history_cannot_be_projected_to_current_membership(
+    system, operation, refresh_profile
+):
+    engine, server, _, _ = system
+    revoked, profile = revoked_holder_history(system, refresh_profile=refresh_profile)
+    anchor = engine.status("profile1").checkpoint
+    latest = server.memberships.pop()  # Malicious relay accepts old-epoch device requests.
+    body = {"operation": operation, "profile_id": profile, "expected": server.checkpoint(profile)}
+    if operation == "commit":
+        manifest, _, _ = snapshot(system)
+        manifest = manifest.model_copy(
+            update={"writer_device_id": revoked.device_id, "membership_epoch": 2}
+        )
+        body.update(
+            manifest=manifest.model_dump(mode="json"),
+            signature=encode_key(revoked.keys.signing_key.sign(signing_bytes(manifest))),
+        )
+        server.blobs[manifest.revision_id] = {"state": "ready"}
+    revoked.rpc(body)
+    server.memberships.append(latest)
+    for attempt in range(3):
+        if attempt == 2:
+            engine = SyncEngine(engine.service, engine.user_id, engine.client)
+        with pytest.raises(EngineError):
+            engine.reconcile("profile1")
+        assert engine.status("profile1").checkpoint == anchor
+        assert not engine.may_launch("profile1")
+
+
+def test_unchanged_historical_head_survives_revocation_and_current_successor_can_endorse_extension(
+    system,
+):
+    engine, server, _, _ = system
+    revoked, profile = revoked_holder_history(system)
+    assert engine.reconcile("profile1").phase == "held_elsewhere"
+    latest = server.memberships.pop()
+    revoked.rpc(
+        {"operation": "release", "profile_id": profile, "expected": server.checkpoint(profile)}
+    )
+    server.memberships.append(latest)
+    # A trusted current member can independently endorse a historical predecessor;
+    # the old-epoch intermediate is not itself treated as a current head.
+    engine.client.rpc(
+        {"operation": "claim", "profile_id": profile, "expected": server.checkpoint(profile)}
+    )
+    result = engine.reconcile("profile1")
+    assert result.phase == "apply_required"
+    assert result.checkpoint.membership_epoch == 3

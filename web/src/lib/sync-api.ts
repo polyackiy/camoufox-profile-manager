@@ -56,7 +56,7 @@ export const deviceSyncAPI = {
   resume: (password?: string) => syncRequest<{ request: PairingRequest; fingerprint: string; phase: string }>('/pairing/resume', { password }),
   abandon: (password?: string) => syncRequest<unknown>('/pairing/abandon', { password }),
   pendingMembership: () => syncRequest<{ kind: string; phase: string } | null>('/membership/pending'),
-  resumeMembership: (password?: string) => syncRequest<unknown>('/membership/resume', { password }),
+  resumeMembership: (password?: string) => syncRequest<{ warning?: string }>('/membership/resume', { password }),
   ownerCode: () => syncRequest<OwnerCode>('/pairing/owner-code'),
   prepare: (body: { root: OwnerCode; device_label: string; vault_kind: VaultChoice; password?: string }) =>
     syncRequest<{ request: PairingRequest; fingerprint: string; phase: string }>('/pairing/prepare', body),
@@ -65,7 +65,7 @@ export const deviceSyncAPI = {
   accept: (body: { approval: PairingApproval; confirmed_fingerprint: string; password?: string }) =>
     syncRequest<SyncEnrollment>('/pairing/accept', body),
   devices: () => syncRequest<{ devices: SyncDevice[] }>('/devices'),
-  revoke: (device_id: string, password?: string) => syncRequest<unknown>('/devices/revoke', { device_id, password }),
+  revoke: (device_id: string, password?: string) => syncRequest<{ membership_epoch: number; revoked_device_id: string; checkpoint_scan?: { attempted: number; anchored: number; unavailable: number }; warning?: string }>('/devices/revoke', { device_id, password }),
   connect: (registration_token: string, password?: string) => syncRequest<unknown>('/relay/connect', { registration_token, password }),
 }
 
@@ -97,6 +97,7 @@ export type ProfileSyncBinding = { local_id: string; name?: string; phase: 'held
 export type ProfileSyncListing = { profiles: ProfileSyncBinding[]; available: { profile_id: string; checkpoint: SyncCheckpoint }[] }
 export type ProfileSyncAction = 'enable' | 'handoff' | 'acquire' | 'retry' | 'recover'
 export const profileSyncAPI = {
+  takeover: (id: string, password?: string) => syncRequest<ProfileSyncBinding>(`/profiles/${encodeURIComponent(id)}/takeover`, { acknowledge_lost_device: true, password }),
   share: (target_device_id: string, password?: string) => syncRequest<Record<string, unknown>>('/profiles/share', { target_device_id, password }),
   acceptCode: (pack: Record<string, unknown>) => syncRequest<unknown>('/profiles/accept-code', { pack }),
   preserveCopy: (id: string) => syncRequest<{local_id: string; name: string}>(`/profiles/${encodeURIComponent(id)}/preserve-copy`, { acknowledge_fork: true }),

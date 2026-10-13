@@ -16,6 +16,7 @@ class SyncProfileUI(StageThreeUI):
         self.available = []
         self.sync_fail = False
         self.vault_kind = "native"
+        self.authority = True
         self.checkpoint = {
             "profile_id": "remote-profile",
             "holder_device_id": "this-device",
@@ -42,7 +43,11 @@ class SyncProfileUI(StageThreeUI):
             self.assertNotIn("x-api-key", request.headers)
             if path == "/sync/status":
                 return route.fulfill(
-                    json={"phase": "ready", "authority": True, "vault_kind": self.vault_kind}
+                    json={
+                        "phase": "ready",
+                        "authority": self.authority,
+                        "vault_kind": self.vault_kind,
+                    }
                 )
             if path == "/sync/profiles" and request.method == "GET":
                 return route.fulfill(json={"profiles": self.bindings, "available": self.available})
@@ -55,7 +60,10 @@ class SyncProfileUI(StageThreeUI):
                 self.assertEqual(json.loads(request.post_data)["pack"]["signature"], "owner-signed")
                 self.available = [{"profile_id": "remote-profile", "checkpoint": self.checkpoint}]
                 return route.fulfill(json={"accepted": True, "added": 1, "sequence": 2})
-            if path.endswith("/enable"):
+            if path.endswith("/takeover"):
+                self.assertTrue(json.loads(request.post_data)["acknowledge_lost_device"])
+                self.bindings = [self.binding("held")]
+            elif path.endswith("/enable"):
                 self.bindings = [self.binding("held")]
             elif path.endswith("/handoff"):
                 self.bindings = [self.binding("released")]
@@ -138,6 +146,30 @@ class SyncProfileUI(StageThreeUI):
             dialog.get_by_role("button", name="Add trusted profile to this device")
         ).to_be_visible()
         self.assertFalse(any("pairing" in path for _, path, _ in self.calls))
+
+    def test_lost_device_recovery_requires_explicit_warning(self):
+        self.bindings = [self.binding("held_elsewhere")]
+        dialog = self.open_profile_sync()
+        expect(dialog).to_contain_text("first revoke it in Settings")
+        dialog.get_by_role("button", name="Recover from lost device", exact=True).click()
+        confirm = self.page.get_by_role(
+            "dialog", name="Recover this profile from a lost device?", exact=True
+        )
+        expect(confirm).to_contain_text("Its browser may still run offline")
+        expect(confirm).to_contain_text("existing website sessions cannot be recalled")
+        expect(confirm).to_contain_text("retains a backup")
+        self.assertFalse(any(path.endswith("/takeover") for _, path, _ in self.calls))
+        confirm.get_by_role("button", name="Recover revoked device profile", exact=True).click()
+        expect(dialog.get_by_text("Ready on this device", exact=True)).to_be_visible()
+        self.assertTrue(any(path.endswith("/takeover") for _, path, _ in self.calls))
+
+    def test_paired_nonowner_cannot_take_over_lost_device(self):
+        self.authority = False
+        self.bindings = [self.binding("held_elsewhere")]
+        dialog = self.open_profile_sync()
+        expect(
+            dialog.get_by_role("button", name="Recover from lost device", exact=True)
+        ).to_have_count(0)
 
     def test_failed_transfer_clears_unlock_password_and_hides_diagnostic(self):
         self.bindings = [self.binding("released")]

@@ -117,8 +117,9 @@ async def test_authorization_callback_rechecked_before_publication(runtime, area
 
 @pytest.mark.parametrize("pair_after_release", [False, True])
 @pytest.mark.parametrize("wrong_build", [False, True])
+@pytest.mark.parametrize("lost_device", [False, True])
 async def test_two_devices_real_relay_encrypted_handoff(
-    runtime, area, tmp_path, monkeypatch, pair_after_release, wrong_build
+    runtime, area, tmp_path, monkeypatch, pair_after_release, wrong_build, lost_device
 ):
     import time
     from types import SimpleNamespace
@@ -150,7 +151,12 @@ async def test_two_devices_real_relay_encrypted_handoff(
     runtime.client_factory = factory
     authority, keys = runtime.service._keys(owner, None)
     client = factory(owner.root, owner.device_id, keys)
-    client.register(authority, owner.membership, "operator-registration-token-for-runtime-test")
+    from camoufox_pm.sync.ceremonies import DeviceCeremonies
+
+    ceremonies = DeviceCeremonies(runtime.service, checkpoints=lambda: (), client_factory=factory)
+    ceremonies.connect_relay(
+        "owner-user", "operator-registration-token-for-runtime-test", authorize=lambda: None
+    )
     state = await runtime.enable("owner-user", area.profile.id)
     if pair_after_release:
         await runtime.handoff("owner-user", area.profile.id)
@@ -238,8 +244,74 @@ async def test_two_devices_real_relay_encrypted_handoff(
         assert (Path(profile.storage_path) / "cookies.sqlite").read_bytes() == b"old local cookies"
         assert not list(second.cache.glob("*/snapshot.zip"))
         assert not list(runtime.cache.glob("*/snapshot.zip"))
-        await second.handoff("second-user", imported["local_id"])
-        returned = await runtime.acquire("owner-user", area.profile.id)
+        if lost_device:
+            from camoufox_pm.sync.snapshots import SnapshotError
+
+            with pytest.raises(EngineError, match="Confirm"):
+                await runtime.takeover("owner-user", area.profile.id, acknowledge_lost_device=False)
+            with pytest.raises(EngineError, match="owner authority"):
+                await second.takeover(
+                    "second-user", imported["local_id"], acknowledge_lost_device=True
+                )
+            with pytest.raises(EngineError, match="Revoke"):
+                await runtime.takeover("owner-user", area.profile.id, acknowledge_lost_device=True)
+            # The lost device publishes another head after the owner's last view.
+            # A normal UI revocation must anchor it itself, without a prior takeover.
+            await second.handoff("second-user", imported["local_id"])
+            acquired = await second.acquire("second-user", imported["local_id"])
+            before_revoke = runtime.service.control.get("profile/" + area.profile.id).payload
+            assert (
+                before_revoke["checkpoint"]["revision_id"] != acquired["checkpoint"]["revision_id"]
+            )
+            revoked = ceremonies.revoke_device(
+                "owner-user", request.device.device_id, authorize=lambda: None
+            )
+            assert revoked["checkpoint_scan"] == {"attempted": 1, "anchored": 1, "unavailable": 0}
+            runtime.compatibility = lambda: area.compatibility.model_copy(
+                update={"browser_build": "incompatible-build"}
+            )
+            with pytest.raises(SnapshotError):
+                await runtime.takeover("owner-user", area.profile.id, acknowledge_lost_device=True)
+            assert (await runtime.list_profiles("owner-user"))["profiles"][0]["checkpoint"][
+                "holder_device_id"
+            ] == request.device.device_id
+            runtime.compatibility = lambda: area.compatibility
+            if not pair_after_release and not wrong_build:
+                from camoufox_pm.sync.client import RelayError
+
+                original_rpc = RelayClient.rpc
+                failed = False
+
+                def lost_ack(instance, payload):
+                    nonlocal failed
+                    reply = original_rpc(instance, payload)
+                    if payload.get("operation") == "takeover" and not failed:
+                        failed = True
+                        raise RelayError("lost takeover acknowledgement")
+                    return reply
+
+                monkeypatch.setattr(RelayClient, "rpc", lost_ack)
+                with pytest.raises(RelayError):
+                    await runtime.takeover(
+                        "owner-user", area.profile.id, acknowledge_lost_device=True
+                    )
+                pending = runtime.service.control.get("profile/" + area.profile.id).payload[
+                    "pending"
+                ]
+                assert pending["kind"] == "takeover"
+                assert (
+                    await area.manager.storage.get_profile(area.profile.id)
+                ).storage_path == area.profile.storage_path
+            returned = await runtime.takeover(
+                "owner-user", area.profile.id, acknowledge_lost_device=True
+            )
+            assert (
+                returned["checkpoint"]["checkout_generation"]
+                == acquired["checkpoint"]["checkout_generation"] + 1
+            )
+        else:
+            await second.handoff("second-user", imported["local_id"])
+            returned = await runtime.acquire("owner-user", area.profile.id)
         assert returned["phase"] == "held"
     finally:
         await storage.close()
@@ -401,3 +473,22 @@ async def test_background_transfer_rechecks_live_admin_after_upload(runtime, are
         runtime.service.control.get("profile/" + area.profile.id).payload["pending"]["kind"]
         == "commit"
     )
+
+
+async def test_preserve_copy_does_not_delete_existing_target_on_collision(
+    runtime, area, monkeypatch
+):
+    from camoufox_pm.sync import runtime as module
+    from camoufox_pm.sync.snapshots import SnapshotError
+
+    runtime, _ = runtime
+    await runtime.enable("owner-user", area.profile.id)
+    identity = "00000000-0000-4000-8000-000000000001"
+    target = area.manager.profiles_dir / ("recovered-" + identity)
+    target.mkdir()
+    sentinel = target / "keep"
+    sentinel.write_text("existing unrelated data")
+    monkeypatch.setattr(module, "uuid4", lambda: identity)
+    with pytest.raises(SnapshotError):
+        await runtime.preserve_local_copy("owner-user", area.profile.id, acknowledge_fork=True)
+    assert sentinel.read_text() == "existing unrelated data"

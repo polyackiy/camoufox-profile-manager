@@ -401,3 +401,60 @@ def test_session_revoked_during_membership_read_blocks_publication(pair, monkeyp
         pair.owner.approve_request(USER, request, fingerprint, now=NOW, authorize=check_session)
     assert not mutations
     assert pair.owner_service.control.get("ceremony/membership").payload["phase"] == "pending"
+
+
+def test_revocation_unavailable_head_scan_warns_but_still_revokes(pair, monkeypatch):
+    from camoufox_pm.sync.engine import SyncEngine
+
+    request, _, _ = enroll_peer(pair)
+    _, owner = pair.owner_service._read(USER)
+    keys = pair.owner_service.device_keys(USER)
+    with pair.factory(owner.root, owner.device_id, keys) as client:
+        engine = SyncEngine(pair.owner_service, USER, client)
+        engine.enable("profile1")
+    original = RelayClient.rpc
+
+    def missing_history(client, payload):
+        if payload.get("operation") == "history":
+            raise RelayError("private relay diagnostic must not leak")
+        return original(client, payload)
+
+    monkeypatch.setattr(RelayClient, "rpc", missing_history)
+    result = pair.owner.revoke_device(USER, request.device.device_id, authorize=authorize)
+    assert result["membership_epoch"] == 3
+    assert result["checkpoint_scan"] == {"attempted": 1, "anchored": 0, "unavailable": 1}
+    assert "historical-copy recovery" in result["warning"]
+    assert "private relay diagnostic" not in str(result)
+    assert pair.owner_service.control.get("profile/profile1").payload["phase"] in {
+        "unknown",
+        "conflict",
+    }
+    resumed = pair.owner.resume_membership(USER, authorize=authorize)
+    assert resumed["warning"] == result["warning"]
+
+
+def test_scan_authorization_loss_prevents_revocation(pair, monkeypatch):
+    from camoufox_pm.sync.engine import SyncEngine
+
+    request, _, _ = enroll_peer(pair)
+    _, owner = pair.owner_service._read(USER)
+    with pair.factory(owner.root, owner.device_id, pair.owner_service.device_keys(USER)) as client:
+        SyncEngine(pair.owner_service, USER, client).enable("profile1")
+    original = RelayClient.rpc
+    revoked = False
+
+    def delayed_scan(client, payload):
+        nonlocal revoked
+        result = original(client, payload)
+        if payload.get("operation") == "history":
+            revoked = True
+        return result
+
+    def live():
+        if revoked:
+            raise PermissionError("owner cookie revoked")
+
+    monkeypatch.setattr(RelayClient, "rpc", delayed_scan)
+    with pytest.raises(CeremonyError):
+        pair.owner.revoke_device(USER, request.device.device_id, authorize=live)
+    assert pair.owner_service._read(USER)[1].membership.membership.epoch == 2

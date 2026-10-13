@@ -375,6 +375,26 @@ class SyncRuntime:
 
     @authorized
     async def acquire(self, user_id: str, local_id: str, *, password: str | None = None):
+        return await self._acquire(user_id, local_id, password=password)
+
+    @authorized
+    async def takeover(
+        self,
+        user_id: str,
+        local_id: str,
+        *,
+        acknowledge_lost_device: bool,
+        password: str | None = None,
+    ):
+        if acknowledge_lost_device is not True:
+            raise EngineError(
+                "Confirm that the lost browser may still run and existing website sessions cannot be recalled"
+            )
+        return await self._acquire(user_id, local_id, password=password, lost_device=True)
+
+    async def _acquire(
+        self, user_id: str, local_id: str, *, password: str | None = None, lost_device: bool = False
+    ):
         engine, keys, client = await self._session(user_id, password)
         directory = None
         try:
@@ -384,8 +404,33 @@ class SyncRuntime:
                 ) as profile:
                     from .snapshots import validate_snapshot
 
+                    if profile.extensions:
+                        raise EngineError(
+                            "This profile has unsupported local extensions; preserve a local copy before recovery"
+                        )
                     state = await run_file_operation(engine.reconcile, local_id)
-                    if state.pending or state.checkpoint.holder_device_id not in {
+                    authority = None
+                    if lost_device:
+                        _, owner = self.service._read(user_id)
+                        if not owner.authority or owner.phase != "ready":
+                            raise EngineError(
+                                "Only the verified owner authority can recover a lost device"
+                            )
+                        if state.pending is not None and state.pending.kind != "takeover":
+                            raise EngineError(
+                                "Preserve or resolve the existing transfer before lost-device recovery"
+                            )
+                        if state.checkpoint.holder_device_id != engine.device_id and (
+                            state.checkpoint.holder_device_id is None
+                            or state.checkpoint.holder_device_id
+                            in {device.device_id for device in owner.membership.membership.devices}
+                        ):
+                            raise EngineError(
+                                "Revoke the lost holder in Trusted devices before recovery"
+                            )
+                        authority, _ = await run_file_operation(self.service._keys, owner, password)
+                        await self._authorize(user_id)
+                    elif state.pending or state.checkpoint.holder_device_id not in {
                         None,
                         engine.device_id,
                     }:
@@ -421,7 +466,18 @@ class SyncRuntime:
                     )
                     if revision != selected.revision_id:
                         raise EngineError("Remote snapshot changed during preflight; retry")
-                    if selected.holder_device_id is None:
+                    if lost_device and (
+                        selected.holder_device_id != engine.device_id or state.pending is not None
+                    ):
+                        await self._authorize(user_id)
+                        state = await run_file_operation(
+                            engine.takeover,
+                            local_id,
+                            authority,
+                            warning_ack=True,
+                            expected_checkpoint=selected,
+                        )
+                    elif selected.holder_device_id is None:
                         await self._authorize(user_id)
                         state = await run_file_operation(
                             engine.claim, local_id, expected_checkpoint=selected
@@ -656,6 +712,7 @@ class SyncRuntime:
         await self._authorize(user_id, allow_revoked=True)
         directory = target = None
         published = False
+        target_owned = False
         try:
             with self.maintenance.operation():
                 async with profile_operation(self.manager, local_id, sync_operation=True) as source:
@@ -676,6 +733,7 @@ class SyncRuntime:
                     metadata = await run_file_operation(
                         validate_snapshot, directory / "snapshot.zip", target, compatibility
                     )
+                    target_owned = True
                     values = metadata.profile.apply_fields()
                     values["name"] = "Recovered copy — " + (
                         name.strip() if name else source.name[:160]
@@ -693,5 +751,5 @@ class SyncRuntime:
                     }
         finally:
             self._cleanup(directory)
-            if target is not None and target.exists() and not published:
+            if target_owned and target is not None and not published:
                 await run_file_operation(shutil.rmtree, target)

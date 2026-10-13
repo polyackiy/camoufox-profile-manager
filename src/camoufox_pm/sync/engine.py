@@ -565,6 +565,18 @@ class SyncEngine:
                     )
                 raise EngineError("History does not descend from trusted checkpoint")
             current_epoch = max(chain)
+            # A relay cannot make a newly advanced old-epoch head current merely
+            # by projecting it onto newer membership. Once revocation is known,
+            # require a current-member signed transition endorsing any advancement
+            # beyond our independent anchor. Historical intermediate receipts are
+            # allowed when such a successor authenticates their resulting head.
+            # Compare positions, not remembered-event presence: candidates saved
+            # during a failed reconciliation must not bypass this gate on retry.
+            if (
+                not self._same_position(checkpoint, state.checkpoint)
+                and checkpoint.membership_epoch < current_epoch
+            ):
+                raise EngineError("Advanced history needs current-membership confirmation")
             checkpoint = checkpoint.model_copy(update={"membership_epoch": current_epoch})
             remote = self.client.rpc({"operation": "checkpoint", "profile_id": profile})
             if (
@@ -812,7 +824,14 @@ class SyncEngine:
         )
         return self._send_pending(local_id)
 
-    def takeover(self, local_id: str, authority: AuthoritySecrets, *, warning_ack: bool) -> Binding:
+    def takeover(
+        self,
+        local_id: str,
+        authority: AuthoritySecrets,
+        *,
+        warning_ack: bool,
+        expected_checkpoint: Checkpoint | None = None,
+    ) -> Binding:
         """Explicit lost-device recovery AFTER signed revocation, never a timer.
 
         The old browser may still run offline. The integrating owner UI must state
@@ -821,6 +840,10 @@ class SyncEngine:
         if warning_ack is not True:
             raise EngineError("Lost-device takeover warning must be acknowledged")
         state = self.reconcile(local_id)
+        if expected_checkpoint is not None and state.checkpoint != Checkpoint.model_validate(
+            expected_checkpoint.model_dump()
+        ):
+            raise EngineError("Profile changed after recovery preflight; retry")
         if state.pending:
             if state.pending.kind != "takeover":
                 raise EngineError("Another operation is pending")

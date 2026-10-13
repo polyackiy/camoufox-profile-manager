@@ -17,6 +17,8 @@ export function ProfileSyncPanel({ profile, running, onClose, onSaved }: { profi
   const { t } = useI18n()
   const mounted = useRef(true)
   const [listing, setListing] = useState<ProfileSyncListing | null>(null)
+  const [authority, setAuthority] = useState(false)
+  const [confirmTakeover, setConfirmTakeover] = useState(false)
   const [fileVault, setFileVault] = useState(false)
   const [ready, setReady] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -34,7 +36,7 @@ export function ProfileSyncPanel({ profile, running, onClose, onSaved }: { profi
   const load = useCallback(async () => {
     if (!allowed) return
     const status = await syncAPI.status()
-    if (mounted.current) { setFileVault(status.vault_kind === 'encrypted_file'); setReady(['ready', 'freshness_unknown'].includes(status.phase)) }
+    if (mounted.current) { setAuthority(status.authority === true); setFileVault(status.vault_kind === 'encrypted_file'); setReady(['ready', 'freshness_unknown'].includes(status.phase)) }
     if (['ready', 'freshness_unknown'].includes(status.phase)) {
       const result = await profileSyncAPI.list()
       if (mounted.current) setListing(result)
@@ -72,7 +74,9 @@ export function ProfileSyncPanel({ profile, running, onClose, onSaved }: { profi
             {['unknown', 'pending', 'handoff'].includes(binding.phase) && <p>{t('A connection interruption may have hidden the last confirmation. Resume the same operation to avoid publishing conflicting copies.')}</p>}
             {binding.phase === 'conflict' && <p>{t('History verification detected a conflict. Keep both devices’ data and contact the owner; do not overwrite or delete either copy.')}</p>}
             {binding.phase === 'revoked' && <p>{t('The owner revoked this device. Ask the owner to review access; refreshing cannot restore revoked keys.')}</p>}
+            {authority && binding.phase === 'held_elsewhere' && <p className="text-ink-dim">{t('If that device is lost, first revoke it in Settings → Device synchronization → Trusted devices. Then recover the last published profile here. Unsent changes on the missing device are unavailable.')}</p>}
             <div className="flex flex-wrap gap-2">
+              {authority && binding.phase === 'held_elsewhere' && <button className="btn btn-danger min-h-11" disabled={busy || running || !unlocked} onClick={() => setConfirmTakeover(true)}>{t('Recover from lost device')}</button>}
               {['conflict', 'unknown', 'revoked'].includes(binding.phase) && <button className="btn btn-default min-h-11" disabled={busy || running} onClick={() => setConfirmCopy(true)}>{t('Preserve as a new local copy')}</button>}
               {binding.phase === 'held' && <button className="btn btn-primary min-h-11" disabled={busy || running || !unlocked} onClick={() => setConfirm('handoff')}><ArrowRightLeft size={14} aria-hidden="true" />{t('Send to another device')}</button>}
               {['released', 'apply_required', 'unknown'].includes(binding.phase) && <button className="btn btn-primary min-h-11" disabled={busy || running || !unlocked} onClick={() => perform('acquire')}>{t('Get latest profile')}</button>}
@@ -87,6 +91,7 @@ export function ProfileSyncPanel({ profile, running, onClose, onSaved }: { profi
         {notice && <p role="status">{notice}</p>}{error && <p role="alert" className="text-danger">{error}</p>}
       </div>
     </Modal>
+    <ConfirmDialog open={confirmTakeover} title={t('Recover this profile from a lost device?')} body={t('First revoke the missing device in Settings. Its browser may still run offline, and existing website sessions cannot be recalled. Recovery uses the last published compatible snapshot and retains a backup of this computer’s local unsent copy. Review website sessions before opening the recovered profile.')} destructive confirmLabel={t('Recover revoked device profile')} onCancel={() => setConfirmTakeover(false)} onConfirm={() => { setConfirmTakeover(false); void run(async () => { await profileSyncAPI.takeover(selectedId, password || undefined); if (mounted.current) setNotice(t('Lost-device recovery completed. Review the verified profile state and website sessions before opening it.')) }) }} />
     <ConfirmDialog open={confirmCopy} title={t('Create a separate local recovery copy?')} body={t('The original synchronized profile stays blocked and unchanged. Another device may still be running the same browser identity. The new copy has no synchronization or shared access permissions; review it before opening.')} confirmLabel={t('Create local copy')} onCancel={() => setConfirmCopy(false)} onConfirm={() => { setConfirmCopy(false); void run(async () => { await profileSyncAPI.preserveCopy(selectedId); setNotice(t('A separate local copy was created. The original sync state is preserved.')) }) }} />
     <ConfirmDialog open={confirm === 'handoff'} title={t('Send this profile to another device?')} body={t('The latest closed profile will be encrypted and uploaded, then released. This device will stop being allowed to open it until you get it back.')} confirmLabel={t('Send profile')} onCancel={() => setConfirm(null)} onConfirm={() => { setConfirm(null); void perform('handoff') }} />
   </>

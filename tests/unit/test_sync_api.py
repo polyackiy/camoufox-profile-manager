@@ -299,3 +299,28 @@ async def test_preserve_copy_requires_explicit_acknowledgement_and_cookie(runtim
         ("abcd1234",),
         {"acknowledge_fork": True, "name": None},
     )
+
+
+async def test_takeover_requires_strict_acknowledgement_and_live_cookie(runtime_api):
+    client, calls = runtime_api
+    url = "/sync/profiles/abcd1234/takeover"
+    assert (await client.post(url, json={"acknowledge_lost_device": True})).status_code == 401
+    for body in (
+        {},
+        {"acknowledge_lost_device": False},
+        {"acknowledge_lost_device": "true"},
+        {"acknowledge_lost_device": 1},
+    ):
+        assert (
+            await client.post(url, json=body, headers={"cookie": "test=owner"})
+        ).status_code == 422
+    result = await client.post(
+        url, json={"acknowledge_lost_device": True}, headers={"cookie": "test=owner"}
+    )
+    assert result.status_code == 200
+    assert calls[-1] == (
+        "takeover",
+        "owner",
+        ("abcd1234",),
+        {"acknowledge_lost_device": True, "password": None},
+    )

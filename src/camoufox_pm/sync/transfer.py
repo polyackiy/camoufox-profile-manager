@@ -70,7 +70,10 @@ class SnapshotTransfer:
     def selected(self, local_id: str, *, require_checkout: bool = True):
         """Select only a commit retained after successful signed-history reconciliation."""
         state = self.engine.reconcile(local_id)
-        if state.pending or (
+        # A pending authority takeover changes holder/generation only, never the
+        # selected encrypted head. Read-only preflight may validate that head again
+        # before retrying the exact durable takeover; ordinary activation cannot.
+        if (state.pending and (require_checkout or state.pending.kind != "takeover")) or (
             require_checkout and state.checkpoint.holder_device_id != self.engine.device_id
         ):
             raise EngineError("Snapshot activation requires a confirmed checkout")

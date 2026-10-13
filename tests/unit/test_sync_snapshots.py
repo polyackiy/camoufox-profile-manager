@@ -472,3 +472,26 @@ def test_archive_cannot_supply_local_sync_marker(area, compat, name):
     rewrite(archive, lambda entries: entries + [(zipfile.ZipInfo(name), b"copied authority")])
     with pytest.raises(s.SnapshotError, match="local synchronization marker"):
         s.validate_snapshot(archive, stage, compat)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Linux legacy marker fixture")
+def test_closed_snapshot_excludes_reserved_linux_marker_without_following(
+    area, compat, monkeypatch
+):
+    from camoufox_pm.sync import quiescence as q
+
+    root, data = area
+    marker = data / "lock"
+    marker.symlink_to(f"127.0.0.1:+{os.getpid()}")
+    before = marker.lstat()
+    monkeypatch.setattr(q.sys, "platform", "linux")
+    monkeypatch.setattr(q.psutil, "process_iter", lambda: iter(()))
+    archive = root / "snapshot.zip"
+    with q.browser_profile_lock(data):
+        s.build_snapshot(Profile(name="Closed"), data, archive, compat)
+    with zipfile.ZipFile(archive) as snapshot:
+        assert "data/lock" not in snapshot.namelist()
+        assert "data/.parentlock" not in snapshot.namelist()
+        assert snapshot.read("data/cookies.sqlite") == b"opaque browser cookies"
+    assert marker.lstat().st_ino == before.st_ino
+    assert os.readlink(marker) == f"127.0.0.1:+{os.getpid()}"

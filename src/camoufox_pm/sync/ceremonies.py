@@ -543,6 +543,70 @@ class DeviceCeremonies:
         except Exception:
             raise CeremonyError(_ERROR) from None
 
+    def _anchor_before_revocation(self, user_id, state, device, authorize):
+        """Observe signed heads before raising the epoch floor; never delay an
+        urgent revocation indefinitely or treat an unavailable head as verified.
+        """
+        from .engine import SyncEngine
+
+        records = self.control.list("profile/")
+        if not records:
+            return None
+        deadline = time.monotonic() + 15
+        attempted = anchored = 0
+        with self._client_factory(state.root, state.device_id, device) as client:
+            ceremony = self
+
+            class ReadOnlyClient:
+                root, device_id = client.root, client.device_id
+
+                def rpc(self, payload):
+                    ceremony._authorize(authorize)
+                    if time.monotonic() >= deadline:
+                        raise CeremonyError("Profile checkpoint scan budget exhausted")
+                    if payload.get("operation") not in {
+                        "membership",
+                        "memberships",
+                        "history",
+                        "checkpoint",
+                    }:
+                        raise CeremonyError(_ERROR)
+                    response = client.rpc(payload)
+                    ceremony._authorize(authorize)
+                    return response
+
+            engine = SyncEngine(self.service, user_id, ReadOnlyClient())
+            for record in records[:64]:
+                if time.monotonic() >= deadline:
+                    break
+                self._authorize(authorize)
+                attempted += 1
+                try:
+                    local_id = record.key.removeprefix("profile/")
+                    engine.reconcile(local_id)
+                    anchored += 1
+                except Exception:
+                    # Reconciliation itself retains uncertainty/fork evidence.
+                    # Revoking a lost device must remain possible nonetheless.
+                    pass
+                self._authorize(authorize)
+        return {
+            "attempted": attempted,
+            "anchored": anchored,
+            "unavailable": len(records) - anchored,
+        }
+
+    @staticmethod
+    def _revocation_result(epoch, device_id, scan=None):
+        result = {"membership_epoch": epoch, "revoked_device_id": device_id}
+        if scan is not None:
+            result["checkpoint_scan"] = scan
+            if scan.get("unavailable", 0):
+                result["warning"] = (
+                    "Some profile heads could not be verified before revocation; those profiles may require historical-copy recovery."
+                )
+        return result
+
     def revoke_device(
         self,
         user_id: str,
@@ -564,10 +628,11 @@ class DeviceCeremonies:
                 and pending.payload.get("membership") == state.membership.model_dump(mode="json")
             ):
                 self._authorize(authorize)
-                return {
-                    "membership_epoch": state.membership.membership.epoch,
-                    "revoked_device_id": device_id,
-                }
+                return self._revocation_result(
+                    state.membership.membership.epoch,
+                    device_id,
+                    pending.payload.get("checkpoint_scan"),
+                )
             if pending is not None and pending.payload.get("phase") == "pending":
                 if (
                     pending.payload.get("kind") != "revocation"
@@ -579,7 +644,13 @@ class DeviceCeremonies:
                     d.device_id for d in state.membership.membership.devices
                 }:
                     raise CeremonyError(_ERROR)
-                authority, _ = self.service._keys(state, password)
+                authority, device = self.service._keys(state, password)
+                scan = self._anchor_before_revocation(user_id, state, device, authorize)
+                installation, state = self._owner(user_id, authorize)
+                if device_id not in {d.device_id for d in state.membership.membership.devices}:
+                    return self._revocation_result(
+                        state.membership.membership.epoch, device_id, scan
+                    )
                 successor = approve_membership(
                     state.root,
                     authority.authority_key,
@@ -595,6 +666,7 @@ class DeviceCeremonies:
                     "previous_digest": state.membership_digest,
                     "membership": successor.model_dump(mode="json"),
                     "revoked_device_id": device_id,
+                    "checkpoint_scan": scan,
                 }
                 self._authorize(authorize)
                 self.control.batch(
@@ -608,7 +680,12 @@ class DeviceCeremonies:
                     )
                 )
             membership = self._publish_pending(user_id, password, authorize)
-            return {"membership_epoch": membership.membership.epoch, "revoked_device_id": device_id}
+            finished = self.control.get("ceremony/membership")
+            return self._revocation_result(
+                membership.membership.epoch,
+                device_id,
+                finished.payload.get("checkpoint_scan") if finished else None,
+            )
         except Exception:
             raise CeremonyError(_ERROR) from None
 
@@ -646,7 +723,24 @@ class DeviceCeremonies:
                 elif invitation.payload.get("phase") != "consumed":
                     raise CeremonyError(_ERROR)
             membership = self._publish_pending(user_id, password, authorize)
-            return {"membership_epoch": membership.membership.epoch, "phase": "published"}
+            result = {"membership_epoch": membership.membership.epoch, "phase": "published"}
+            if (
+                pending.payload.get("kind") == "revocation"
+                and pending.payload.get("checkpoint_scan") is not None
+            ):
+                detail = self._revocation_result(
+                    membership.membership.epoch,
+                    pending.payload["revoked_device_id"],
+                    pending.payload["checkpoint_scan"],
+                )
+                result.update(
+                    {
+                        key: value
+                        for key, value in detail.items()
+                        if key in {"checkpoint_scan", "warning"}
+                    }
+                )
+            return result
         except Exception:
             raise CeremonyError(_ERROR) from None
 

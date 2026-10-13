@@ -169,6 +169,10 @@ claim still requires the external gate above.
 | Completed/failing background work starved later profiles | Filter completed queue records and durably rotate bounded attempts |
 | Reconnecting an existing owner failed after membership advancement | Existing pinned owner conflict precedes genesis/capacity rules; exact membership reconciliation |
 | Membership mutation followed a delayed read without fresh authorization | Repeat authorization immediately before outbound membership mutation |
+| Recovery/copy failure could remove a pre-existing UUID-collision directory | Track exclusive staging ownership; collision sentinel regressions |
+| A new profile invitation could lose its exact signed membership anchor | Atomically retain the exact membership and reject signed sibling histories |
+| A relay could project newly received old-epoch receipts past an already trusted revocation | Require a current trusted epoch signature for an advanced head; release/commit rejection survives retries and new engine instances |
+| Lost-device recovery was available only in the engine | Explicit owner-only API/UI acknowledgement; revoked holder, exact checkpoint preflight, journalled activation and lost-ack retry tests |
 
 Synchronized profile markers exist in both the browser directory and a separate
 private registry. Application rollback invalidates installed-generation proof

@@ -107,3 +107,26 @@ membership, pending checkout/release, lost ACKs, immutable upload retries, histo
 truncation after observed progress, revoked holders, pairing trust and offline
 activation gates. Real relay, browser and packaged platform acceptance remain
 separate integration gates.
+
+## Known membership and historical-head boundaries
+
+A relay's unsigned checkpoint cannot project a newly advanced historical head onto
+a newer membership epoch. Reconciliation retains the independently known profile
+position (revision, generation and holder) and accepts advancement only when its
+final signed transition is authorized under the current trusted membership. Older
+intermediate transitions are permitted if a current-member signed successor
+endorses their resulting position. An unchanged anchored historical head remains
+readable after membership changes.
+
+Candidate receipts may be retained during a failed reconciliation, but their mere
+presence never promotes them to the profile's trusted head. The same gate applies
+on retry and after reopening the engine. This prevents a revoked device and a
+malicious relay from making a newly signed old-epoch commit or release appear
+current after the recipient already knows the revocation.
+
+For lost-device recovery, observe and independently retain the last desired profile
+head before publishing revocation whenever possible. If a previously unknown old-
+epoch head appears only after revocation, its creation time cannot be proven from
+the relay; automatic takeover/activation must remain blocked until a current trusted
+signature endorses it. Historical fork recovery remains a separate explicit path
+and makes no assertion that the recovered data is latest.

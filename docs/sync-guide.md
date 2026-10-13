@@ -107,3 +107,27 @@ Keep an encrypted offline snapshot bundle as well as the recovery package. See
 copy is not proof of the latest remote state. The relay's encrypted storage also
 needs operator backups; restoring an old relay backup must not erase clients'
 independent history.
+
+## Recover a profile held by a lost device
+
+Use the owner computer that still holds the owner-authority keys. An ordinary
+paired computer cannot perform this action.
+
+1. In **Settings → Device synchronization → Trusted devices**, select the missing
+   device and choose **Revoke device**. Wait for publication; use **Resume
+   membership update** if that step was interrupted.
+2. Open **Device synchronization** in the affected profile's actions menu. When
+   its state is **In use on another device**, choose **Recover from lost device**.
+   Enter the unlock password first if you use an encrypted-file vault.
+3. Read the warning and confirm **Recover revoked device profile**. The manager
+   verifies signatures, decryption and snapshot compatibility before taking over,
+   then installs the snapshot with a recovery journal.
+4. Wait for **Ready on this device**. Review active sessions on the websites and
+   revoke the missing device's website access as needed before reopening.
+
+Recovery uses the last published compatible snapshot. Unsent changes that existed
+only on the missing device are unavailable. A backup preserves this computer's
+local unsent copy. Revocation and takeover cannot stop an offline browser or recall
+existing website sessions. A history conflict, incompatible browser or unavailable
+key keeps recovery blocked; preserve the data and use a separate local copy or
+[historical recovery](sync-recovery-guide.md) instead of deleting either side.

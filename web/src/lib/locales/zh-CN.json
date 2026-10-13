@@ -820,6 +820,7 @@
   "Request from the other device": "来自另一台设备的请求",
   "Review device request": "检查设备请求",
   "Revocation published. Review website sessions and rotate exposed credentials if the device was lost.": "撤销已发布。如果设备丢失，请检查网站会话并更换可能泄露的凭据。",
+  "Some profile heads could not be verified before revocation. Those profiles may require historical-copy recovery.": "撤销前无法验证部分配置的最新快照。这些配置可能需要通过历史副本恢复。",
   "Revoke device": "撤销设备",
   "Revoke trusted device?": "撤销受信任设备？",
   "Select the saved recovery package": "选择已保存的恢复包",
@@ -899,5 +900,11 @@
   "Updated profile list code": "更新后的配置文件列表代码",
   "Updated profile list code from the owner": "所有者提供的更新配置文件列表代码",
   "Use a new signed code when the owner adds profiles after pairing this device. Existing device keys and profile access remain unchanged.": "所有者在配对此设备后添加配置文件时，请使用新的签名代码。现有设备密钥和配置文件访问权限保持不变。",
-  "Verify updated profile list": "验证更新后的配置文件列表"
+  "Verify updated profile list": "验证更新后的配置文件列表",
+  "If that device is lost, first revoke it in Settings → Device synchronization → Trusted devices. Then recover the last published profile here. Unsent changes on the missing device are unavailable.": "如果该设备已丢失，请先在“设置 → 设备同步 → 受信任设备”中撤销它，然后在此恢复最近发布的配置文件。丢失设备上尚未发送的更改无法恢复。",
+  "Recover from lost device": "从丢失的设备恢复",
+  "Recover this profile from a lost device?": "从丢失的设备恢复此配置文件？",
+  "First revoke the missing device in Settings. Its browser may still run offline, and existing website sessions cannot be recalled. Recovery uses the last published compatible snapshot and retains a backup of this computer’s local unsent copy. Review website sessions before opening the recovered profile.": "请先在设置中撤销丢失的设备。其浏览器可能仍在离线运行，且无法收回现有网站会话。恢复将使用最近发布的兼容快照，并保留此电脑上尚未发送的本地副本备份。打开恢复的配置文件前，请检查网站会话。",
+  "Recover revoked device profile": "恢复已撤销设备的配置文件",
+  "Lost-device recovery completed. Review the verified profile state and website sessions before opening it.": "丢失设备恢复已完成。打开前，请检查已验证的配置文件状态和网站会话。"
 }
