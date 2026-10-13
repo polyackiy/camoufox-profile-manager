@@ -64,6 +64,7 @@ async def test_expired_session_is_rejected_and_removed(storage):
 
 
 async def test_deleting_a_user_invalidates_their_sessions(storage):
+    await storage.create_user("u0", "remaining-admin", auth.hash_password("pw-123456"))
     await storage.create_user("u1", "alice", auth.hash_password("pw-123456"))
     token = await auth.create_session(storage, "u1")
 

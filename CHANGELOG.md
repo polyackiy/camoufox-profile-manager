@@ -7,8 +7,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
-- Begin stage three with a typed, secret-free request principal and an explicit
-  roles/profile-access/audit implementation plan (#77); authorization behavior is unchanged.
+- Add administrator/operator/viewer roles, explicit profile and export grants,
+  user administration and a bounded activity log (#77). Existing users retain
+  administrator access; the final administrator cannot be removed or demoted.
+- Enforce grants across collections, bulk actions, downloads and scheduled work;
+  redact credentials from nonadmin metadata and recheck authority during exports.
+- Bind scheduled authority to the original account ID and stop revoked work;
+  record interrupted downloads instead of successful exports.
 - Integrate verified manager/browser downloads with complete checkpoints, offline
   application replacement, numbered migrations and fresh-process browser validation (#63).
 - Offer timestamp-confirmed binary/data rollback and a standalone recovery window

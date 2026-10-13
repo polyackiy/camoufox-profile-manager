@@ -157,9 +157,10 @@ def test_user_add_refuses_a_duplicate(run_user):
 
 def test_user_remove_deletes_the_account(run_user, tmp_path):
     run_user("add", "alice", prompts=["hunter22-long", "hunter22-long"])
+    run_user("add", "backup", prompts=["hunter22-long", "hunter22-long"])
     run_user("remove", "alice")
 
-    assert asyncio.run(_usernames(tmp_path)) == []
+    assert asyncio.run(_usernames(tmp_path)) == ["backup"]
 
 
 def test_user_list_shows_names_and_never_hashes(run_user, capsys):
@@ -190,3 +191,10 @@ def test_user_passwd_changes_the_password(run_user, tmp_path):
             await storage.close()
 
     assert asyncio.run(check())
+
+
+def test_user_remove_refuses_last_administrator(run_user, tmp_path):
+    run_user("add", "alice", prompts=["hunter22-long", "hunter22-long"])
+    with pytest.raises(SystemExit):
+        run_user("remove", "alice")
+    assert asyncio.run(_usernames(tmp_path)) == ["alice"]

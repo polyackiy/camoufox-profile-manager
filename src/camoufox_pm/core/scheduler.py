@@ -75,7 +75,7 @@ class TaskScheduler:
         # Launch schedules with run_minutes: profile id -> when to close its
         # browser. In memory only — if the process dies, its child browsers die
         # with it, so there is nothing left to close after a restart.
-        self._timed_closes: dict[str, datetime] = {}
+        self._timed_closes: dict[str, tuple[datetime, Schedule]] = {}
 
     def clock(self) -> datetime:
         """The scheduler's idea of now, so callers plan with the clock tests inject."""
@@ -169,12 +169,24 @@ class TaskScheduler:
         """
         now = self._now()
 
-        for profile_id, close_at in list(self._timed_closes.items()):
+        for profile_id, (close_at, source) in list(self._timed_closes.items()):
             if close_at <= now:
                 del self._timed_closes[profile_id]
                 try:
+                    actor = await self._authorized_actor(source)
+                    if actor is None:
+                        from camoufox_pm.api.principal import Principal
+
+                        await self.storage.append_audit(
+                            Principal(source.actor_kind, source.actor_username),
+                            "schedule_close",
+                            profile_id,
+                            "denied",
+                        )
+                        continue
                     # A no-op if the user already closed the window themselves.
                     await self.profiles.close_browser(profile_id)
+                    await self.storage.append_audit(actor, "schedule_close", profile_id, "success")
                 except Exception as exc:  # noqa: BLE001
                     logger.warning(f"Timed close of {profile_id} failed: {exc}")
 
@@ -204,6 +216,12 @@ class TaskScheduler:
         message: str | None = None
 
         try:
+            actor = await self._authorized_actor(schedule)
+            if actor is None:
+                schedule.enabled = False
+                schedule.updated_at = started
+                await self.storage.save_schedule(schedule)
+                raise PermissionError("Schedule authority was revoked; schedule disabled")
             profile = await self.profiles.get_profile(schedule.profile_id)
             if profile is None:
                 # Deleting a profile deletes its schedules, so this is a race,
@@ -222,8 +240,9 @@ class TaskScheduler:
                     outcome = ScheduleRunOutcome.OK
                     message = "Browser launched"
                     if schedule.run_minutes:
-                        self._timed_closes[schedule.profile_id] = started + timedelta(
-                            minutes=schedule.run_minutes
+                        self._timed_closes[schedule.profile_id] = (
+                            started + timedelta(minutes=schedule.run_minutes),
+                            schedule.model_copy(deep=True),
                         )
                         message += f"; closing after {schedule.run_minutes} min"
             else:  # ScheduleAction.REFRESH_BROWSER
@@ -247,4 +266,41 @@ class TaskScheduler:
             outcome=outcome,
             message=message,
         )
-        return await self.storage.log_schedule_run(run)
+        saved = await self.storage.log_schedule_run(run)
+        from camoufox_pm.api.principal import Principal
+
+        actor = Principal(schedule.actor_kind, schedule.actor_username)
+        await self.storage.append_audit(
+            actor,
+            "schedule_execute",
+            schedule.profile_id,
+            "success"
+            if outcome == ScheduleRunOutcome.OK
+            else "denied"
+            if message == "Schedule authority was revoked; schedule disabled"
+            else "failure"
+            if outcome == ScheduleRunOutcome.ERROR
+            else "skipped",
+        )
+        return saved
+
+    async def _authorized_actor(self, schedule: Schedule):
+        from camoufox_pm.api.principal import Principal
+
+        from .access import AccessControl
+
+        if schedule.actor_kind not in {"session", "system", "legacy_api_key", "anonymous_local"}:
+            return None
+        if schedule.actor_kind == "session":
+            if not schedule.actor_username:
+                return None
+            user = await self.storage.get_user_by_username(schedule.actor_username)
+            if not user or not schedule.actor_user_id or user["id"] != schedule.actor_user_id:
+                return None
+        actor = Principal(schedule.actor_kind, schedule.actor_username)
+        permission = "launch" if schedule.action == ScheduleAction.LAUNCH else "edit"
+        return (
+            actor
+            if await AccessControl(self.storage).can_profile(actor, schedule.profile_id, permission)
+            else None
+        )

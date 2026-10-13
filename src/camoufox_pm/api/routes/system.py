@@ -5,11 +5,12 @@ from pathlib import Path
 from typing import Literal
 
 import psutil
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from loguru import logger
 from pydantic import BaseModel, ConfigDict
 
 from camoufox_pm import __version__
+from camoufox_pm.api.access import require_admin
 from camoufox_pm.api.dependencies import get_profile_manager, get_storage_manager
 from camoufox_pm.api.models.system import (
     ApiResponse,
@@ -26,7 +27,7 @@ from camoufox_pm.core import fingerprint_store
 from camoufox_pm.core.browser_install import installed_browser
 from camoufox_pm.core.cleanup import ProfileCleanupManager
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_admin)])
 
 # Application startup time, used to compute uptime.
 startup_time = time.time()

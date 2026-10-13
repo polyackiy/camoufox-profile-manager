@@ -344,6 +344,7 @@ async def _run_leases_command() -> None:
 @_admitted_command
 async def _run_user_command(args: argparse.Namespace) -> None:
     # Imported here so plain `camoufox-pm` startup does not pay for them.
+    from camoufox_pm.api.principal import Principal
     from camoufox_pm.core import auth
     from camoufox_pm.core.database import StorageManager
 
@@ -354,7 +355,10 @@ async def _run_user_command(args: argparse.Namespace) -> None:
             password = _read_password(args)
             try:
                 await storage.create_user(
-                    auth.new_user_id(), args.username, auth.hash_password(password)
+                    auth.new_user_id(),
+                    args.username,
+                    auth.hash_password(password),
+                    actor=Principal("system"),
                 )
             except ValueError as exc:
                 _fail(str(exc))
@@ -364,11 +368,17 @@ async def _run_user_command(args: argparse.Namespace) -> None:
             )
         elif args.user_command == "passwd":
             password = _read_password(args)
-            if not await storage.update_user_password(args.username, auth.hash_password(password)):
+            if not await storage.update_user_password(
+                args.username, auth.hash_password(password), actor=Principal("system")
+            ):
                 _fail(f"No user named '{args.username}'.")
             print(f"Password updated for '{args.username}'.")
         elif args.user_command == "remove":
-            if not await storage.delete_user(args.username):
+            try:
+                deleted = await storage.delete_user(args.username, actor=Principal("system"))
+            except ValueError as exc:
+                _fail(str(exc))
+            if not deleted:
                 _fail(f"No user named '{args.username}'.")
             print(f"User '{args.username}' removed, along with any open sessions.")
             if await storage.count_users() == 0:

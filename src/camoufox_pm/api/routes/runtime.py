@@ -2,14 +2,15 @@
 
 from typing import Literal
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from camoufox_pm.api.access import require_admin
 from camoufox_pm.api.models.system import ApiResponse
 from camoufox_pm.core.browser_install import BrowserStatus, browser_installer
 from camoufox_pm.core.updates import UpdateStatus, check_update
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_admin)])
 
 
 @router.get("/system/browser", response_model=ApiResponse[BrowserStatus])

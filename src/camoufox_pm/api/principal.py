@@ -7,7 +7,7 @@ profile access: authorization rules can consume it in later increments.
 from dataclasses import dataclass
 from typing import Literal
 
-PrincipalKind = Literal["session", "legacy_api_key", "anonymous_local"]
+PrincipalKind = Literal["session", "legacy_api_key", "anonymous_local", "system"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -16,3 +16,4 @@ class Principal:
 
     kind: PrincipalKind
     username: str | None = None
+    role: Literal["administrator", "operator", "viewer"] = "administrator"

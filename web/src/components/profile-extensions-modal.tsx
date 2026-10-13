@@ -1,4 +1,5 @@
 "use client";
+import { useAuth } from "./login-gate";
 import { useEffect, useState } from "react";
 import { Modal } from "./modal";
 import { useI18n } from "./i18n-provider";
@@ -20,6 +21,7 @@ export function ProfileExtensionsModal({
   onSaved: () => void;
 }) {
   const { t } = useI18n();
+  const { canManageAccess } = useAuth();
   const toast = useToast();
   const [library, setLibrary] = useState<ExtensionMetadata[]>([]);
   const [current, setCurrent] = useState<ProfileExtensions | null>(null);
@@ -30,7 +32,7 @@ export function ProfileExtensionsModal({
   async function load() {
     try {
       const [items, saved] = await Promise.all([
-        extensionsAPI.list(),
+        canManageAccess ? extensionsAPI.list() : Promise.resolve([]),
         extensionsAPI.profile(profile.id),
       ]);
       setLibrary(items);
@@ -77,7 +79,7 @@ export function ProfileExtensionsModal({
     });
   }
   async function save() {
-    if (!current || busy) return;
+    if (!canManageAccess || !current || busy) return;
     setBusy(true);
     setError(null);
     try {
@@ -113,21 +115,22 @@ export function ProfileExtensionsModal({
           <button className="btn btn-default" onClick={onClose} disabled={busy}>
             {t("Cancel")}
           </button>
-          <button
+          {canManageAccess && <button
             className="btn btn-primary"
             onClick={save}
             disabled={busy || !current || selected.size + retained.size > 16}
           >
             {busy ? t("Saving…") : t("Save extensions")}
-          </button>
+          </button>}
         </>
       }
     >
-      <p className="mb-4 text-ink-dim">
+      {canManageAccess ? <p className="mb-4 text-ink-dim">
         {t(
           "Changes apply to stopped profiles on the next launch. Review permissions before assigning an extension. Each profile keeps an independent snapshot.",
         )}
       </p>
+      : <p className="mb-4 text-ink-dim">{t("Assigned extension snapshots")}</p>}
       {!current && !error && <p role="status">{t("Loading…")}</p>}
       {[
         ...library.map((item) => ({ item, key: item.id!, orphan: false })),
@@ -140,7 +143,7 @@ export function ProfileExtensionsModal({
               className="mt-1"
               checked={(orphan ? retained : selected).has(key)}
               onChange={() => toggle(key, orphan)}
-              disabled={busy}
+              disabled={busy || !canManageAccess}
             />
             <span>
               <span className="font-medium">{item.name}</span>
@@ -150,7 +153,7 @@ export function ProfileExtensionsModal({
               <span className="block break-all font-mono text-[11px] text-ink-dim">
                 {item.addon_id}
               </span>
-              {orphan && (
+              {orphan && canManageAccess && (
                 <span className="block text-ink-dim">
                   {t("Profile snapshot; library entry was removed")}
                 </span>

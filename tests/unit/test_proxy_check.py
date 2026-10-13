@@ -390,3 +390,18 @@ async def test_auth_socks_geoip_failure_blocks_without_sdk_local_lookup(monkeypa
     with pytest.raises(ConnectionError, match="Check the proxy") as caught:
         await proxy_check.prepare_authenticated_socks_geoip(proxy, options)
     assert "secret" not in str(caught.value)
+
+
+def test_proxy_error_messages_never_echo_credentials():
+    import ssl
+
+    from camoufox_pm.core.proxy_check import _readable
+
+    for error in [
+        httpx.ProxyError("proxy-user:proxy-secret@host"),
+        httpx.ConnectError("SSL proxy-secret"),
+        ssl.SSLError("proxy-secret"),
+        RuntimeError("proxy-secret"),
+    ]:
+        assert "proxy-secret" not in _readable(error)
+        assert "proxy-user" not in _readable(error)

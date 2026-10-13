@@ -1,83 +1,96 @@
-# Stage three: shared-manager access and accountability
+# Stage three: roles, profile access and activity
 
 Tracking issue: [#77](https://github.com/polyackiy/camoufox-profile-manager/issues/77).
+Stage two acceptance is recorded in [stage-two.md](stage-two.md). This stage
+controls multiple users of one manager; cross-device synchronization remains a
+separate design.
 
-Stage two's accepted feature scope is recorded in [stage-two.md](stage-two.md).
-This next stage starts with access controls for multiple users of one manager.
-Cross-device synchronization requires its own data ownership/conflict design and
-follows this work. This document is a proposed implementation sequence, not a
-claim that the current manager already isolates users' profiles.
+## Getting started
 
-## Product contract
+Create the first administrator with `camoufox-pm user add <username>` and log in.
+Open **Access** in the sidebar to add a user with an explicit role, select their
+profiles, and grant export separately where needed. The Activity tab filters by
+actor, action and result, pages through events and exports JSON. Password reset
+and role changes invalidate that account's sessions; the user must log in again.
 
-A person should see only profiles they can use. An administrator can grant access
-without handing over the manager API key or host credentials. Sensitive actions
-must be attributable to an actor without storing passwords, cookies, proxy
-credentials, session tokens or profile contents in the audit log.
+Existing accounts become administrators during the resumable schema 1 → 2
+migration. The last administrator cannot be deleted or demoted, including from
+the CLI. Keep a second administrator if you need to replace the first. Schema 2
+adds roles, grants, activity and durable schedule authority. Older managers refuse
+the newer schema: use the matching binary/data checkpoint for rollback, not an
+old executable against the upgraded database.
 
-The initial roles are administrator, operator and viewer. An administrator manages
-users, grants, system settings and recovery. An operator can run/edit assigned
-profiles; a viewer can inspect permitted profile metadata. Launching a browser
-reveals the logged-in account to its operator, so launch permission is already a
-sensitive grant. Raw profile/cookie/proxy export needs a separate explicit grant;
-view permission must not imply export or access to credentials.
+## Permission matrix
 
-Local host access remains privileged. This feature cannot protect profile data
-from someone who can read the database or browser files directly. Existing API
-keys are documented administrator credentials until scoped tokens are added.
-Anonymous loopback mode remains a single-user deployment, with no misleading
-team-security claim.
+| Capability | Administrator | Operator | Viewer |
+| --- | --- | --- | --- |
+| See profile metadata | All | Explicitly assigned | Explicitly assigned |
+| Edit, launch/close, refresh fingerprint, cookies import, tags, Trash | All | Assigned profiles | No |
+| Export archive/cookies/Excel | All | Separate export grant | Separate export grant |
+| Create/import/duplicate profiles | Yes | No | No |
+| Proxy credentials/configuration, group assignment | Yes | No | No |
+| Shared proxy/template/extension libraries, saved views, groups | Yes | No | No |
+| Backup, system/browser/update settings, user/grant administration | Yes | No | No |
+| Activity view/export | Yes | No | No |
 
-## Implementation sequence and acceptance
+A profile grant supplies view access. The account's role adds edit/launch for an
+operator. Export is independent and defaults off, including for operators.
+Launching exposes the logged-in account to the operator; an export may contain
+cookies and proxy credentials. Give either permission deliberately.
 
-1. **Identify actors centrally.** Preserve existing authentication behavior while
-   returning a typed principal for account sessions, legacy API keys and anonymous
-   local use. Add a route inventory covering list/detail/export/import/launch,
-   proxy library, scheduling, templates/extensions, system settings and recovery.
-   Tests must prove unauthenticated/expired sessions still fail and tokens never
-   enter log fields.
-2. **Migrate roles and profile grants.** Use a numbered migration and explicit
-   backwards compatibility: existing users retain administrator access, new users
-   receive a deliberate role. Prevent removing the last administrator. Group
-   membership is an organizational feature until its grant inheritance is defined.
-3. **Enforce at the service/API boundary.** Filter collections and authorize every
-   direct-object operation, bulk action, scheduled action and streaming/download
-   path. Denial must not leak profile existence or credentials. Browser UI hiding
-   alone is not authorization. Recovery/system update controls require an admin.
-4. **Record security events.** Append actor, action, object ID, result and UTC time
-   for grants, login/logout, launches, imports/exports and destructive operations.
-   Bound retention; administrator export must exclude secrets. Record events only
-   after/with the actual committed mutation, including failures where meaningful.
-5. **Expose usable administration.** User/grant management, clear access-denied
-   states and a searchable activity view. Document installation upgrades and
-   recovery; run multi-user API/UI tests plus scheduled/bulk/streaming cases.
+Nonadmin profile responses remove proxy credentials, IP-change URLs, storage
+paths and sensitive diagnostics. Editing a redacted profile preserves its proxy;
+only an administrator can change the proxy destination or credentials. Groups are
+organizational, never an implicit grant. Visible groups/counts derive from the
+user's assigned profiles. Global libraries and shared saved views are admin-only.
+The API permits granted operators to manage profile schedules and assigned
+extensions; the first nonadmin web UI concentrates on profile operation and shows
+assigned extensions read-only.
 
-Each increment is independently reviewable. Do not advertise multi-user isolation
-until steps 2–5 are integrated and all authorization paths are covered. Sync must
-not start by copying open Firefox profiles or transferring unencrypted archives;
-its design must address profile ownership, locking, credentials, merge conflicts,
-server trust and rollback before implementation.
+## Enforcement and revocation
 
-## Authorization coverage inventory
+Both `/api` and `/api/v1` enforce the same policy. Collections, active sessions,
+Trash and counts are filtered before pagination. Hidden and missing objects use
+the same nonadmin response. Bulk operations check every selected object before
+mutation and record individual successes. Excel contains only exportable profiles.
+Downloads recheck roles, grants and session validity before each chunk; revocation
+interrupts the remaining transfer. Bytes already delivered cannot be recalled.
 
-The following existing routes need explicit grants in the enforcement increment.
-Both `/api` and `/api/v1` aliases must use the same policy.
+Schedules retain actor kind, username and immutable account ID. The scheduler
+checks current permissions before execution and timed close; revoked jobs are
+refused and execution disables the schedule. Deleting and recreating the same
+username does not restore old authority. Pre-upgrade schedules retain trusted
+system authority. New schedules cannot supply their own actor through the API.
 
-| Surface | Required distinction |
-| --- | --- |
-| Profile lists, details, groups, tags, saved views | Filter collections; do not reveal another user's profile IDs or metadata |
-| Create, edit, bulk updates, clone, Trash, permanent delete | Check each affected profile; return safe partial-result semantics |
-| Browser launch/close, session listing, fingerprint refresh | Launch/edit grant; never expose another user's running session |
-| Profile archives, Excel, JSON/Netscape cookies | Separate export grant; streaming/download must stay authorized throughout |
-| Proxy library, health checks, bulk assignment | Separate credential/library administration from permitted profile use |
-| Templates and profile-derived templates | Check source access and destination ownership; avoid copying secrets |
-| Extension upload/delete and per-profile selection | Library administration versus assigned-profile editing |
-| Schedules, run-now, run history | Persist actor/authority and recheck grants at execution, including revoked users |
-| Backups, browser setup, settings, update/recovery actions | Administrator-only mutations; preserve offline recovery capability for the host owner |
-| User/session management and audit view/export | Administrator-only grants; bounded access to activity records |
+The public health probe returns no profile count when authentication is configured.
+Administrator recovery controls retain read-only authentication during offline
+maintenance; they do not write to the database being restored.
 
-This is a coverage checklist for implementation, not an active permission matrix.
-The first increment introduces a secret-free immutable request principal without
-changing existing authorization. Account sessions identify the validated username;
-legacy API-key and anonymous-local principals do not contain credentials. Roles,
-profile grants and persistent security events remain subsequent increments.
+## Activity records
+
+Events retain actor kind/name, fixed action, object ID, result and UTC time. Grant
+records identify both recipient and profile. Passwords, cookies, tokens, proxy
+URLs, request bodies and profile contents are excluded. User/grant changes write
+the event in the storage transaction; API operation outcomes are recorded after
+the response completes. Partial bulk outcomes and interrupted streams are not
+reported as successful complete exports. Scheduled actions and timed closes have
+separate events. The log retains the newest 10,000 events, including in exports.
+
+Offline updater/recovery activity remains in its separate durable transaction
+journal because writing the live activity database during restoration is unsafe.
+The activity log is local, bounded operational history, not a tamper-proof external
+compliance ledger. A host administrator can change the database or its backups.
+
+## Deployment boundary and verification
+
+Legacy API keys remain administrator credentials; do not share the manager's API
+key with restricted users. Anonymous loopback mode is a trusted single-user mode.
+These permissions protect access through the manager API/UI, not against people
+who can read host files or control the OS/browser directly. They do not provide
+cross-device sync or remote desktop isolation.
+
+Tests cover migration/resume, last-admin protection, both API aliases, cross-user
+object/list/bulk access, credential redaction, separate exports, session/grant
+revocation during streaming, revoked/recreated scheduled actors and activity
+outcomes. Browser UI contracts exercise account/grant/activity administration,
+viewer/operator controls, safe redacted edits and access-loss state clearing.

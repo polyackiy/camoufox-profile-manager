@@ -63,7 +63,7 @@ async def test_anonymous_identity_preserves_open_local_default(principal_client)
     client, observed = principal_client
     response = await client.get("/probe")
     assert response.status_code == 200
-    assert response.json() == {"kind": "anonymous_local", "username": None}
+    assert response.json() == {"kind": "anonymous_local", "username": None, "role": "administrator"}
     assert observed == [Principal("anonymous_local")]
 
 
@@ -78,9 +78,9 @@ async def test_legacy_key_identity_has_no_secret_or_session_username(
     response = await client.get(
         "/probe", headers={"X-API-Key": "private-key-value", "Cookie": f"cpm_session={token}"}
     )
-    assert response.json() == {"kind": "legacy_api_key", "username": None}
+    assert response.json() == {"kind": "legacy_api_key", "username": None, "role": "administrator"}
     assert observed == [Principal("legacy_api_key")]
-    assert {field.name for field in fields(observed[0])} == {"kind", "username"}
+    assert {field.name for field in fields(observed[0])} == {"kind", "username", "role"}
     assert token not in repr(observed[0]) and "private-key-value" not in repr(observed[0])
 
 
@@ -90,7 +90,7 @@ async def test_valid_session_identity_uses_authenticated_username(principal_clie
     token = await add_session(storage)
     response = await client.get("/probe", headers={"Cookie": f"cpm_session={token}"})
     assert response.status_code == 200
-    assert response.json() == {"kind": "session", "username": "alice"}
+    assert response.json() == {"kind": "session", "username": "alice", "role": "administrator"}
     assert observed == [Principal("session", username="alice")]
     assert token not in repr(observed[0])
 

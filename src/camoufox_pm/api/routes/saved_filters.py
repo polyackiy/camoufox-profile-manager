@@ -2,6 +2,9 @@
 
 from fastapi import APIRouter, HTTPException, Query
 
+from camoufox_pm.api.access import (
+    require_admin,
+)
 from camoufox_pm.api.dependencies import get_profile_manager
 from camoufox_pm.api.models.saved_filters import (
     SavedFilterCreate,
@@ -22,6 +25,7 @@ def store() -> SavedFilterStore:
     "/saved-filters", response_model=ApiResponse[SavedFilterList], operation_id="list_saved_filters"
 )
 async def list_filters():
+    await require_admin()
     return ApiResponse(
         success=True, message="Saved view operation completed", data={"filters": store().list()}
     )
@@ -34,6 +38,7 @@ async def list_filters():
     operation_id="create_saved_filter",
 )
 async def create_filter(request: SavedFilterCreate):
+    await require_admin()
     return ApiResponse(
         success=True,
         message="Saved view operation completed",
@@ -47,6 +52,7 @@ async def create_filter(request: SavedFilterCreate):
     operation_id="update_saved_filter",
 )
 async def update_filter(filter_id: str, request: SavedFilterUpdate):
+    await require_admin()
     result = store().update(
         filter_id, request.row_version, name=request.name, config=request.config
     )
@@ -61,6 +67,7 @@ async def update_filter(filter_id: str, request: SavedFilterUpdate):
     operation_id="delete_saved_filter",
 )
 async def delete_filter(filter_id: str, row_version: int = Query(..., ge=0)):
+    await require_admin()
     if not store().delete(filter_id, row_version):
         raise HTTPException(404, "Saved view not found")
     return ApiResponse(success=True, message="Saved view operation completed", data=None)

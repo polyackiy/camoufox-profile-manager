@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
+import { useAuth } from '@/components/login-gate'
 import { Check, Info, LoaderCircle, RefreshCw, TriangleAlert, X } from 'lucide-react'
 
 import { useI18n } from '@/components/i18n-provider'
@@ -134,6 +135,7 @@ interface Props {
 export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) {
   const { t, locale } = useI18n()
   const isEdit = profile !== null
+  const { canManageAccess } = useAuth()
   const [form, setForm] = useState<FormState>(EMPTY)
   const [saving, setSaving] = useState(false)
   const [regenerating, setRegenerating] = useState(false)
@@ -283,6 +285,10 @@ export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) 
         proxy_config: buildProxy(),
       }
 
+      if (!canManageAccess) {
+        delete payload.proxy_config
+        delete payload.group
+      }
       if (isEdit) {
         payload.status = form.status
         payload.row_version = baseVersion
@@ -483,7 +489,7 @@ export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) 
               {t('Group')}
             </label>
             <select
-              id="pf-group"
+              id="pf-group" disabled={!canManageAccess}
               className="field"
               value={form.group}
               onChange={(e) => set('group', e.target.value)}
@@ -561,7 +567,7 @@ export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) 
           </div>
         </Section>
 
-        <Section
+        {canManageAccess && <Section
           title={t('Proxy')}
           hint={t('Leave the server empty for a direct connection.')}
         >
@@ -649,7 +655,7 @@ export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) 
             </button>
             <ProxyCheckResult result={proxyCheck} />
           </div>
-        </Section>
+        </Section>}
 
         <details className="rounded-md border border-line p-3" open={isEdit || undefined}>
           <summary className="cursor-pointer font-medium">{t('Advanced browser and fingerprint settings')}</summary>

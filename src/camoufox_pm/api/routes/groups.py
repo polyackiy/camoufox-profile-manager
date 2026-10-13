@@ -3,6 +3,10 @@
 from fastapi import APIRouter, HTTPException, status
 from loguru import logger
 
+from camoufox_pm.api.access import (
+    require_admin,
+    visible_profile_ids,
+)
 from camoufox_pm.api.dependencies import get_profile_manager
 from camoufox_pm.api.models.groups import (
     GroupCreateRequest,
@@ -26,7 +30,7 @@ async def list_groups():
     """List all groups."""
     try:
         profile_manager = get_profile_manager()
-        groups_data = await profile_manager.list_groups()
+        groups_data = await visible_groups(profile_manager)
         groups = [
             GroupResponse(
                 id=group_data["id"],
@@ -53,6 +57,7 @@ async def list_groups():
 )
 async def create_group(request: GroupCreateRequest):
     """Create a new group."""
+    await require_admin()
     try:
         profile_manager = get_profile_manager()
         group_data = await profile_manager.create_group(
@@ -84,7 +89,9 @@ async def get_group(group_id: str):
     """Get a group by ID."""
     try:
         profile_manager = get_profile_manager()
-        group_data = await profile_manager.get_group(group_id)
+        group_data = next(
+            (g for g in await visible_groups(profile_manager) if g["id"] == group_id), None
+        )
         if not group_data:
             raise HTTPException(status_code=404, detail=f"Group with ID {group_id} not found")
         return GroupResponse(
@@ -110,6 +117,7 @@ async def get_group(group_id: str):
 )
 async def update_group(group_id: str, request: GroupUpdateRequest):
     """Update a group."""
+    await require_admin()
     try:
         profile_manager = get_profile_manager()
         updates = {}
@@ -145,6 +153,7 @@ async def update_group(group_id: str, request: GroupUpdateRequest):
 )
 async def delete_group(group_id: str):
     """Delete a group."""
+    await require_admin()
     try:
         profile_manager = get_profile_manager()
         success = await profile_manager.delete_group(group_id)
@@ -159,3 +168,17 @@ async def delete_group(group_id: str):
     except Exception as exc:
         logger.error(f"Failed to delete group {group_id}: {exc}")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+async def visible_groups(manager):
+    groups = await manager.list_groups()
+    allowed = await visible_profile_ids()
+    if allowed is None:
+        return groups
+    counts = {}
+    for profile in await manager.list_profiles():
+        if profile.id in allowed and profile.group:
+            counts[profile.group] = counts.get(profile.group, 0) + 1
+    return [
+        {**group, "profile_count": counts[group["id"]]} for group in groups if group["id"] in counts
+    ]

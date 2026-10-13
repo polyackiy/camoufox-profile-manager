@@ -72,6 +72,7 @@ export interface FingerprintSummary {
 
 export interface Profile {
   id: string
+  permissions?: { view: boolean; edit: boolean; launch: boolean; export: boolean }
   name: string
   group?: string | null
   tags?: string[]
@@ -149,7 +150,12 @@ const API_KEY_STORAGE = 'camoufox-pm.api-key'
 /** The key CPM_API_KEY expects, if the user has stored one. */
 export function getApiKey(): string {
   if (typeof window === 'undefined') return ''
-  return window.localStorage.getItem(API_KEY_STORAGE) ?? ''
+  try {
+    return window.localStorage.getItem(API_KEY_STORAGE) ?? ''
+  } catch {
+    // Cookie/local authentication remains usable when browser storage is blocked.
+    return ''
+  }
 }
 
 export function setApiKey(key: string): void {
@@ -161,6 +167,10 @@ export function setApiKey(key: string): void {
 export function authHeaders(): Record<string, string> {
   const key = getApiKey()
   return key ? { 'X-API-Key': key } : {}
+}
+
+export function notifyAccessDenied(status: number): void {
+  if ((status === 401 || status === 403) && typeof window !== 'undefined') window.dispatchEvent(new Event('camoufox-access-denied'))
 }
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
@@ -175,6 +185,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     },
   })
   if (!response.ok) {
+    if (!path.includes('/auth/')) notifyAccessDenied(response.status)
     let detail = response.statusText
     let code: string | undefined
     try {
@@ -422,7 +433,7 @@ export const profilesAPI = {
     const response = await fetch(`${API_BASE_URL}${API_PREFIX}/profiles/export/excel`, {
       headers: authHeaders(),
     })
-    if (!response.ok) throw new Error(response.statusText)
+    if (!response.ok) { notifyAccessDenied(response.status); throw new ApiRequestError(response.statusText, response.status) }
     return response.blob()
   },
 
@@ -431,6 +442,7 @@ export const profilesAPI = {
       headers: authHeaders(),
     })
     if (!response.ok) {
+      notifyAccessDenied(response.status)
       const body = await response.json().catch(() => null)
       throw new Error(body?.detail ?? response.statusText)
     }
@@ -447,6 +459,7 @@ export const profilesAPI = {
       body,
     })
     if (!response.ok) {
+      notifyAccessDenied(response.status)
       const detail = await response.json().catch(() => null)
       throw new Error(detail?.detail ?? response.statusText)
     }
@@ -697,6 +710,9 @@ export const presetsAPI = {
 
 /** The caller's authentication state, from GET /auth/session. */
 export interface AuthSession {
+  role?: 'administrator' | 'operator' | 'viewer' | null
+  actor_kind?: string
+  can_manage_access?: boolean
   user_auth_enabled: boolean
   authenticated: boolean
   username: string | null

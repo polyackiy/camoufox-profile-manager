@@ -77,7 +77,7 @@ class DesktopUI(unittest.TestCase):
         data = {}
         envelope = False
         if path == "/auth/session":
-            data = {"user_auth_enabled": self.auth_required, "authenticated": not self.auth_required, "username": None}
+            data = {"user_auth_enabled": self.auth_required, "authenticated": not self.auth_required, "username": None, "role": "administrator", "actor_kind": "anonymous_local", "can_manage_access": True}
         elif path == "/system/config":
             data, envelope = self.config, True
         elif path == "/system/status":
