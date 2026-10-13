@@ -45,22 +45,50 @@ def main() -> None:
                 del environment[key]
         environment["CPM_DB_PATH"] = str(database)
         environment["PYTHONIOENCODING"] = "utf-8"
-        result = subprocess.run(
-            [str(executable), "--desktop", "update-recovery", "status"],
-            cwd=work,
-            env=environment,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=60,
-            check=False,
-        )
+        log = database.parent / "update-control" / "recovery-command.log"
+        try:
+            result = subprocess.run(
+                [str(executable), "--desktop", "update-recovery", "status"],
+                cwd=work,
+                env=environment,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=60,
+                check=False,
+            )
+        except subprocess.TimeoutExpired as exc:
+
+            def decoded(value):
+                return (
+                    value.decode("utf-8", errors="replace")
+                    if isinstance(value, bytes)
+                    else value or ""
+                )
+
+            files = sorted(str(path.relative_to(work)) for path in work.rglob("*"))
+            recovery_output = (
+                log.read_text(encoding="utf-8", errors="replace")
+                if log.exists()
+                else "<no recovery log>"
+            )
+            print(f"Frozen recovery timed out after {exc.timeout}s", file=sys.stderr)
+            print(f"Partial stdout:\n{decoded(exc.stdout)}", file=sys.stderr)
+            print(f"Partial stderr:\n{decoded(exc.stderr)}", file=sys.stderr)
+            print(f"Temporary recovery log:\n{recovery_output}", file=sys.stderr)
+            print(f"Temporary directory inventory: {json.dumps(files)}", file=sys.stderr)
+            print(
+                f"Application database created: {database.exists()}; local key created: {(database.parent / 'secret.key').exists()}",
+                file=sys.stderr,
+            )
+            raise RuntimeError(
+                "Frozen recovery did not finish; timeout diagnostics retained above"
+            ) from exc
         if result.returncode != 0:
             raise RuntimeError(
                 f"Frozen recovery exited {result.returncode}: {result.stdout}\n{result.stderr}"
             )
-        log = database.parent / "update-control" / "recovery-command.log"
         output = result.stdout + (log.read_text(encoding="utf-8") if log.exists() else "")
         status = read_status(output)
         if (

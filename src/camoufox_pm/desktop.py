@@ -4,6 +4,7 @@ import contextlib
 import html
 import os
 import socket
+import stat
 import sys
 import threading
 import time
@@ -192,27 +193,47 @@ def _show_error(message: str) -> None:
             print(message, file=sys.stderr)
 
 
-def main() -> None:
-    """Double-click entry point; ordinary ``camoufox-pm`` keeps its CLI behavior."""
+def _run_packaged_recovery() -> None:
+    """Recovery is a console command: errors must never wait for a GUI dialog."""
+    output = None
+    previous_stdout, previous_stderr = sys.stdout, sys.stderr
     try:
-        # Frozen bundles enter here rather than the console script. Dispatch
-        # recovery before bootstrap can create a key or open application data.
-        if "update-recovery" in sys.argv[1:]:
-            from camoufox_pm import cli
-            from camoufox_pm.config import Settings, desktop_data_dir, get_settings
-            from camoufox_pm.core.maintenance import configured_gate
-            from camoufox_pm.core.update_permissions import create_private_file, protect_path
+        from camoufox_pm.config import Settings, desktop_data_dir, get_settings
 
-            configured = Settings()
-            if "db_path" not in configured.model_fields_set:
-                os.environ["CPM_DB_PATH"] = str(desktop_data_dir() / "profiles.db")
-            get_settings.cache_clear()
-            if "--desktop" not in sys.argv[1:]:
-                sys.argv.insert(1, "--desktop")
-            output = None
-            previous_stdout, previous_stderr = sys.stdout, sys.stderr
-            if sys.stdout is None or sys.stderr is None:
-                output_path = configured_gate().path.parent / "recovery-command.log"
+        configured = Settings()
+        if "db_path" not in configured.model_fields_set:
+            os.environ["CPM_DB_PATH"] = str(desktop_data_dir() / "profiles.db")
+        get_settings.cache_clear()
+        if "--desktop" not in sys.argv[1:]:
+            sys.argv.insert(1, "--desktop")
+        if sys.stdout is None or sys.stderr is None:
+            control = Path(get_settings().db_path).expanduser().resolve().parent / "update-control"
+            output_path = control / "recovery-command.log"
+            if os.name != "nt":
+                for path in (control, *control.parents):
+                    if path.is_symlink() or (path.exists() and not path.is_dir()):
+                        raise RuntimeError(
+                            "Recovery log directory contains a symlink or non-directory"
+                        )
+                if control.parent.exists() and (
+                    control.parent.stat().st_uid != os.geteuid()
+                    or stat.S_IMODE(control.parent.stat().st_mode) & 0o022
+                ):
+                    raise RuntimeError(
+                        "Recovery log parent must be owned and writable only by this user"
+                    )
+                if control.exists() and control.stat().st_uid != os.geteuid():
+                    raise RuntimeError("Recovery log directory is owned by another user")
+                if output_path.is_symlink() or (
+                    output_path.exists()
+                    and (not output_path.is_file() or output_path.stat().st_uid != os.geteuid())
+                ):
+                    raise RuntimeError("Recovery log must be a regular file owned by this user")
+            control.mkdir(parents=True, exist_ok=True, mode=0o700)
+            if os.name == "nt":
+                from camoufox_pm.core.update_permissions import create_private_file, protect_path
+
+                protect_path(control)
                 if not output_path.exists():
                     try:
                         os.close(create_private_file(output_path))
@@ -220,16 +241,36 @@ def main() -> None:
                         pass
                 protect_path(output_path)
                 output = output_path.open("a", encoding="utf-8", buffering=1)
-                sys.stdout = output
-                sys.stderr = output
-            try:
-                cli.main()
-            finally:
-                if output is not None:
-                    sys.stdout, sys.stderr = previous_stdout, previous_stderr
-                    output.close()
-            return
+            else:
+                # Establish the log using only stdlib before importing core's
+                # crypto/native dependencies, so loader failures remain visible.
+                control.chmod(0o700)
+                flags = os.O_WRONLY | os.O_APPEND | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0)
+                descriptor = os.open(output_path, flags, 0o600)
+                os.fchmod(descriptor, 0o600)
+                output = os.fdopen(descriptor, "a", encoding="utf-8", buffering=1)
+            sys.stdout = sys.stderr = output
+        from camoufox_pm import cli
 
+        cli.main()
+    except Exception as exc:
+        import traceback
+
+        if sys.stderr is not None:
+            traceback.print_exc(file=sys.stderr)
+        raise SystemExit(1) from exc
+    finally:
+        if output is not None:
+            sys.stdout, sys.stderr = previous_stdout, previous_stderr
+            output.close()
+
+
+def main() -> None:
+    """Double-click entry point; ordinary ``camoufox-pm`` keeps its CLI behavior."""
+    if "update-recovery" in sys.argv[1:]:
+        _run_packaged_recovery()
+        return
+    try:
         from camoufox_pm.config import bootstrap_desktop, get_settings
 
         bootstrap_desktop()

@@ -172,8 +172,8 @@ Settings includes browser download retry, profile backups, and an update check. 
 profiles go to **Trash** for recovery. Updates prepare a backup before offering
 an installer; replacing the app remains a manual installation step.
 [Getting started](docs/getting-started.md) explains these controls.
-Source builds also provide [complete offline data/browser recovery](docs/update-recovery.md)
-and explicit preview-release discovery. These additions follow the `v0.6.0-rc.2`
+The manager also provides [complete offline data/browser recovery](docs/update-recovery.md)
+and explicit preview-release discovery. These additions are included in the `v0.6.0-rc.3`
 installer release; signed automatic app replacement remains tracked in #63.
 
 For Simplified Chinese UI and Linux input-method setup, see
