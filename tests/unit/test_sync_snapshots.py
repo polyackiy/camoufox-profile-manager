@@ -495,3 +495,19 @@ def test_closed_snapshot_excludes_reserved_linux_marker_without_following(
         assert snapshot.read("data/cookies.sqlite") == b"opaque browser cookies"
     assert marker.lstat().st_ino == before.st_ino
     assert os.readlink(marker) == f"127.0.0.1:+{os.getpid()}"
+
+
+@pytest.mark.parametrize("stable", [False, True])
+def test_snapshot_preserves_explicit_canvas_privacy_choice(area, compat, stable):
+    from camoufox_pm.core.models import BrowserSettings
+
+    root, data = area
+    profile = Profile(name="Canvas choice", browser_settings=BrowserSettings(stable_canvas=stable))
+    archive = root / "snapshot.zip"
+    s.build_snapshot(profile, data, archive, compat)
+    decoded = s.validate_snapshot(archive, root / "stage", compat)
+    restored = Profile(**decoded.profile.apply_fields())
+    assert restored.browser_settings.stable_canvas is stable
+    assert restored.browser_settings == profile.browser_settings
+    prefs = restored.to_camoufox_launch_options().get("firefox_user_prefs", {})
+    assert (prefs.get("privacy.baselineFingerprintingProtection") is False) is stable

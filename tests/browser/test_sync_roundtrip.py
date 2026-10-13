@@ -135,9 +135,14 @@ async def test_closed_profile_two_device_authenticated_roundtrip(
         client = factory(enrolled.root, enrolled.device_id, keys)
         clients.append(client)
         client.register(authority, enrolled.membership, token)
+        # Exact canvas continuity is an explicit per-profile opt-in: the
+        # default deliberately randomizes exports per session, even locally.
         original = await owner_manager.create_profile(
-            "Encrypted browser roundtrip", generate_fingerprint=False
+            "Encrypted browser roundtrip",
+            generate_fingerprint=False,
+            browser_settings={"stable_canvas": True},
         )
+        assert original.browser_settings.stable_canvas
         before = await observe(owner_manager, original.id, local_sites.first, initialize=True)
         original = await owner_manager.get_profile(original.id)
         pinned = original.fingerprint
@@ -183,6 +188,8 @@ async def test_closed_profile_two_device_authenticated_roundtrip(
         assert acquired["phase"] == "held"
         transferred = await recipient_manager.get_profile(local_id)
         assert transferred.fingerprint == pinned
+        assert transferred.browser_settings == original.browser_settings
+        assert transferred.browser_settings.stable_canvas
         assert Path(transferred.storage_path).is_relative_to(recipient_manager.profiles_dir)
         assert transferred.storage_path != original.storage_path
         assert await guard_profile(recipient_manager, local_id)
@@ -199,7 +206,9 @@ async def test_closed_profile_two_device_authenticated_roundtrip(
         final = await observe(owner_manager, original.id, local_sites.first)
         assert final[0] == "second-device"
         assert final[1:] == before[1:]
-        assert (await owner_manager.get_profile(original.id)).fingerprint == pinned
+        restored = await owner_manager.get_profile(original.id)
+        assert restored.fingerprint == pinned
+        assert restored.browser_settings == original.browser_settings
         for runtime in (owner, recipient):
             assert not list(runtime.cache.glob("*/snapshot.zip")), (
                 "No plaintext transfer archive may remain"
