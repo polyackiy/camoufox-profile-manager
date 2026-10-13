@@ -175,8 +175,11 @@ profiles go to **Trash** for recovery. Updates prepare a backup before offering
 an installer; replacing the app remains a manual installation step.
 [Getting started](docs/getting-started.md) explains these controls.
 The manager also provides [complete offline data/browser recovery](docs/update-recovery.md)
-and explicit preview-release discovery. These additions are included in the `v0.6.0-rc.3`
+and explicit preview-release discovery. These additions are included in the `v0.6.0-rc.4`
 installer release; signed automatic app replacement remains tracked in #63.
+[Roles, profile grants and activity history](docs/stage-three.md) are available
+under **Access**. Existing accounts migrate to administrators; export permission
+is separate from profile visibility.
 
 For Simplified Chinese UI and Linux input-method setup, see
 [简体中文与 Linux 输入法](docs/chinese-input.md).

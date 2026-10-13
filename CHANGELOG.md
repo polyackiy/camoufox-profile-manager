@@ -6,6 +6,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.6.0-rc.4] - 2026-10-13
+
+Unsigned desktop preview with profile access controls and integrated recovery.
+
 ### Added
 - Add administrator/operator/viewer roles, explicit profile and export grants,
   user administration and a bounded activity log (#77). Existing users retain
