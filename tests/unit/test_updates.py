@@ -6,6 +6,29 @@ import pytest
 from camoufox_pm.core import updates
 
 
+async def test_explicit_preview_channel_uses_highest_published_version(github, monkeypatch):
+    monkeypatch.setattr(updates, "__version__", "0.6.0rc1")
+    requests = github(
+        [
+            {"tag_name": "v999.0.0", "draft": True},
+            {"tag_name": "v0.6.0-rc.1", "prerelease": True},
+            {"tag_name": "v0.6.0-rc.2", "prerelease": True},
+            {"tag_name": "v0.5.0"},
+            {"tag_name": "v1.0.0/../malicious"},
+        ]
+    )
+    result = await updates.check_update("preview")
+    assert result.available and result.latest_version == "0.6.0-rc.2"
+    assert result.release_url.endswith("/tag/v0.6.0-rc.2")
+    assert str(requests[0].url).endswith("/releases?per_page=100")
+
+
+async def test_preview_does_not_downgrade_a_newer_install(github, monkeypatch):
+    monkeypatch.setattr(updates, "__version__", "0.6.0")
+    github([{"tag_name": "v0.6.0-rc.2", "prerelease": True}])
+    assert not (await updates.check_update("preview")).available
+
+
 @pytest.fixture
 def github(monkeypatch):
     real_client = httpx.AsyncClient

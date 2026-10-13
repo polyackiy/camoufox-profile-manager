@@ -613,6 +613,17 @@ export interface AppUpdate {
   error?: string | null
 }
 
+export interface UpdateRecovery {
+  state: string
+  transaction_id?: string
+  created_at?: string
+  target_version?: string
+  browser_version?: string
+  maintenance_active: boolean
+  automatic_install_available: boolean
+  can_cancel: boolean
+}
+
 export interface BackupInfo {
   id: string
   profile_id: string
@@ -708,13 +719,19 @@ export const systemAPI = {
     const body = await request<{ data: BrowserReadiness }>(`${API_PREFIX}/system/browser/install`, { method: 'POST' })
     return body.data
   },
-  async updates(): Promise<AppUpdate> {
-    const body = await request<{ data: AppUpdate }>(`${API_PREFIX}/system/updates`)
+  async updates(preview = false): Promise<AppUpdate> {
+    const body = await request<{ data: AppUpdate }>(`${API_PREFIX}/system/updates${preview ? '?channel=preview' : ''}`)
     return body.data
   },
-  async prepareUpdate(): Promise<{ release_url: string; backup_count: number; message: string }> {
-    const body = await request<{ data: { release_url: string; backup_count: number; message: string } }>(`${API_PREFIX}/system/updates/prepare`, { method: 'POST' })
+  async prepareUpdate(preview = false): Promise<{ release_url: string; backup_count: number; message: string }> {
+    const body = await request<{ data: { release_url: string; backup_count: number; message: string } }>(`${API_PREFIX}/system/updates/prepare${preview ? '?channel=preview' : ''}`, { method: 'POST' })
     return body.data
+  },
+  updateRecovery(): Promise<UpdateRecovery> {
+    return request<UpdateRecovery>(`${API_PREFIX}/system/update-recovery`)
+  },
+  cancelUpdatePreparation(): Promise<UpdateRecovery> {
+    return request<UpdateRecovery>(`${API_PREFIX}/system/update-recovery/cancel`, { method: 'POST' })
   },
   status(): Promise<SystemStatus> {
     return request<SystemStatus>(`${API_PREFIX}/system/status`)

@@ -19,6 +19,7 @@ from camoufox_pm.api.dependencies import (
 )
 from camoufox_pm.api.errors import install_error_handlers
 from camoufox_pm.api.middleware.logging import LoggingMiddleware
+from camoufox_pm.api.middleware.maintenance import MaintenanceMiddleware
 from camoufox_pm.api.models.system import ErrorResponse, HealthResponse
 from camoufox_pm.api.routes import (
     auth,
@@ -37,10 +38,14 @@ from camoufox_pm.api.routes import (
 from camoufox_pm.config import get_settings
 from camoufox_pm.core.backups import ProfileBackupManager
 from camoufox_pm.core.database import StorageManager
+from camoufox_pm.core.maintenance import MaintenanceBlocked, MaintenanceGate
 from camoufox_pm.core.profile_manager import ProfileManager
 from camoufox_pm.core.scheduler import TaskScheduler
 
 settings = get_settings()
+maintenance_gate = MaintenanceGate(
+    Path(settings.db_path).parent / "update-control" / "maintenance.sqlite3"
+)
 
 
 @asynccontextmanager
@@ -48,37 +53,45 @@ async def lifespan(app: FastAPI):
     """Initialize shared resources on startup and clean up on shutdown."""
     logger.info("Starting Camoufox Profile Manager API...")
 
+    if maintenance_gate.blocked:
+        raise MaintenanceBlocked(
+            "An interrupted update requires recovery before opening application data"
+        )
     storage_manager = StorageManager(settings.db_path)
     profile_manager = None
     scheduler = None
     backup_task = None
     try:
-        await storage_manager.initialize()
-        data_dir = str(Path(settings.db_path).parent)
-        profile_manager = ProfileManager(storage_manager, data_dir)
-        await profile_manager.initialize()
-        set_storage_manager(storage_manager)
-        set_profile_manager(profile_manager)
+        with maintenance_gate.operation():
+            maintenance_gate.register_manager()
+            await storage_manager.initialize()
+            data_dir = str(Path(settings.db_path).parent)
+            profile_manager = ProfileManager(storage_manager, data_dir)
+            await profile_manager.initialize()
+            set_storage_manager(storage_manager)
+            set_profile_manager(profile_manager)
 
-        backup_manager = ProfileBackupManager(
-            profile_manager,
-            retention=settings.backup_retention,
-            interval_hours=settings.backup_interval_hours,
-        )
-        recovery.set_backup_manager(backup_manager)
+            backup_manager = ProfileBackupManager(
+                profile_manager,
+                retention=settings.backup_retention,
+                interval_hours=settings.backup_interval_hours,
+            )
+            recovery.set_backup_manager(backup_manager)
 
-        async def back_up_idle_profiles():
-            while True:
-                try:
-                    await backup_manager.create_due_backups()
-                except Exception as exc:
-                    logger.warning(f"Automatic profile backup failed: {exc}")
-                await asyncio.sleep(60)
+            async def back_up_idle_profiles():
+                while True:
+                    try:
+                        with maintenance_gate.operation():
+                            await backup_manager.create_due_backups()
+                    except Exception as exc:
+                        logger.warning(f"Automatic profile backup failed: {exc}")
+                    await asyncio.sleep(60)
 
-        scheduler = TaskScheduler(storage_manager, profile_manager)
-        await scheduler.start()
-        set_scheduler(scheduler)
-        backup_task = asyncio.create_task(back_up_idle_profiles(), name="profile-backups")
+            scheduler = TaskScheduler(storage_manager, profile_manager)
+            scheduler.maintenance_gate = maintenance_gate
+            await scheduler.start()
+            set_scheduler(scheduler)
+            backup_task = asyncio.create_task(back_up_idle_profiles(), name="profile-backups")
         logger.info("API ready")
         yield
     finally:
@@ -103,6 +116,7 @@ async def lifespan(app: FastAPI):
         finally:
             recovery.set_backup_manager(None)
             await storage_manager.close()
+            maintenance_gate.unregister_manager()
 
 
 app = FastAPI(
@@ -133,6 +147,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.add_middleware(LoggingMiddleware)
+app.add_middleware(MaintenanceMiddleware, gate=maintenance_gate)
 
 # Session-or-API-key guard; a no-op when neither users nor CPM_API_KEY exist.
 protected = [Depends(require_auth)]

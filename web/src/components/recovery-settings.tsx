@@ -5,7 +5,7 @@ import { Archive, Download, ExternalLink, LoaderCircle, RotateCcw } from 'lucide
 import { useI18n } from '@/components/i18n-provider'
 import { Modal } from '@/components/modal'
 import { useToast } from '@/components/toast'
-import { recoveryAPI, systemAPI, type AppUpdate, type BackupInfo } from '@/lib/api'
+import { recoveryAPI, systemAPI, type AppUpdate, type BackupInfo, type UpdateRecovery } from '@/lib/api'
 
 function message(error: unknown): string { return error instanceof Error ? error.message : String(error) }
 
@@ -17,11 +17,26 @@ export function UpdateSettings() {
   const [preparing, setPreparing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [prepared, setPrepared] = useState<{ url: string; count: number } | null>(null)
+  const [preview, setPreview] = useState(false)
+  const [recovery, setRecovery] = useState<UpdateRecovery | null>(null)
+  const [recoveryError, setRecoveryError] = useState<string | null>(null)
+
+  async function refreshRecovery() {
+    try { setRecovery(await systemAPI.updateRecovery()); setRecoveryError(null) }
+    catch (err) { setRecoveryError(message(err)) }
+  }
+
+  async function cancelPreparation() {
+    setPreparing(true)
+    try { setRecovery(await systemAPI.cancelUpdatePreparation()); setRecoveryError(null) }
+    catch (err) { setRecoveryError(message(err)) }
+    finally { setPreparing(false) }
+  }
 
   async function check() {
     setChecking(true); setError(null); setPrepared(null)
     try {
-      const result = await systemAPI.updates()
+      const result = await systemAPI.updates(preview)
       setUpdate(result)
       if (result.error) setError(result.error)
     } catch (err) { setError(message(err)) }
@@ -30,7 +45,7 @@ export function UpdateSettings() {
   async function prepare() {
     setPreparing(true); setError(null)
     try {
-      const result = await systemAPI.prepareUpdate()
+      const result = await systemAPI.prepareUpdate(preview)
       if (!isReleaseLink(result.release_url)) throw new Error(t('The server returned an unverified release link. Check for updates again.'))
       setPrepared({ url: result.release_url, count: result.backup_count })
       window.dispatchEvent(new Event('camoufox-backups-changed'))
@@ -43,6 +58,8 @@ export function UpdateSettings() {
     <div className="panel p-4">
       <p className="font-medium">{t('Check for a new desktop release')}</p>
       <p className="mt-1 text-ink-dim">{t('Close all running profiles before updating. We create a backup of every profile before making the release download available. Install the downloaded release to update the app.')}</p>
+      <label className="mt-3 flex min-h-11 items-center gap-2 text-ink-dim"><input type="checkbox" checked={preview} disabled={checking || preparing} onChange={event => { setPreview(event.target.checked); setUpdate(null); setPrepared(null); setError(null) }} />{t('Include preview releases (opt-in)')}</label>
+      {preview && <p className="text-ink-dim">{t('Preview installers may be unsigned and are intended for testing. Stable remains the default channel.')}</p>}
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <button className="btn btn-default" disabled={checking || preparing} onClick={check}>{checking && <LoaderCircle size={13} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />}{checking ? t('Checking…') : t('Check for updates')}</button>
         {update?.available && !prepared && !error && <button className="btn btn-primary" disabled={preparing || checking} onClick={prepare}><Archive size={13} aria-hidden="true" />{preparing ? t('Creating backups…') : t('Back up and prepare update')}</button>}
@@ -54,6 +71,19 @@ export function UpdateSettings() {
         <a className="btn btn-primary mt-3" href={prepared.url} target="_blank" rel="noopener noreferrer"><Download size={13} aria-hidden="true" />{t('Open release downloads')}<ExternalLink size={12} aria-hidden="true" /></a>
         <p className="mt-2 text-ink-dim">{t('Download the asset for your operating system. Backups remain in Settings after the update.')}</p>
       </div>}
+      <details className="mt-4 border-t border-line pt-3">
+        <summary className="cursor-pointer font-medium">{t('Update recovery')}</summary>
+        <p className="mt-2 text-ink-dim">{t('Automatic replacement is not enabled for this preview. Profile backups do not include the complete application database or encryption key. Keep your existing data folder when installing a new release.')}</p>
+        <button className="btn btn-default mt-3" disabled={preparing} onClick={refreshRecovery}>{t('Check recovery status')}</button>
+        {recovery && <div className="mt-3" role="status">
+          <p>{recovery.maintenance_active ? t('Update maintenance is active. Profile changes and launches are paused.') : t('No update maintenance is active.')}</p>
+          {recovery.target_version && <p className="mt-1 text-ink-dim">{t('Target manager: {manager}; Camoufox: {browser}.', { manager: recovery.target_version, browser: recovery.browser_version })}</p>}
+          {recovery.created_at && <p className="mt-1 text-ink-dim">{t('Prepared at {date}.', { date: new Date(recovery.created_at).toLocaleString() })}</p>}
+          {recovery.can_cancel && <><p className="mt-2 text-ink-dim">{t('Cancel preparation to resume normal work. No installed application or profile data will be replaced.')}</p><button className="btn btn-default mt-2" disabled={preparing} onClick={cancelPreparation}>{preparing ? t('Working…') : t('Cancel update preparation')}</button></>}
+          {recovery.maintenance_active && !recovery.can_cancel && <p className="mt-2 text-ink-dim">{t('Close the manager and use the documented offline recovery procedure before resuming work.')}</p>}
+        </div>}
+        {recoveryError && <p className="mt-3 text-danger" role="alert">{recoveryError}</p>}
+      </details>
     </div>
   </section>
 }

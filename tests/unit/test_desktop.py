@@ -1,5 +1,6 @@
 """Desktop startup owns its socket, its data lock, and server shutdown."""
 
+import os
 import socket
 import sys
 import time
@@ -202,3 +203,103 @@ def test_forced_server_exit_cannot_authorize_successful_native_quit():
     thread = SimpleNamespace(join=Mock(), is_alive=Mock(side_effect=[True, False]))
     assert desktop._stop_server(server, thread) is False
     assert server.force_exit
+
+
+def test_packaged_recovery_dispatches_before_key_bootstrap(tmp_path, monkeypatch):
+    import sys
+
+    from camoufox_pm import cli, config, desktop
+    from camoufox_pm.core import maintenance
+    from camoufox_pm.core.maintenance import MaintenanceGate
+
+    gate = MaintenanceGate(tmp_path / "update-control" / "maintenance.sqlite3")
+    monkeypatch.setattr(maintenance, "configured_gate", lambda: gate)
+    monkeypatch.setattr(config, "desktop_data_dir", lambda: tmp_path)
+    monkeypatch.setenv("CPM_DB_PATH", str(tmp_path / "profiles.db"))
+
+    def forbidden():
+        raise AssertionError("Packaged recovery must not bootstrap keys or start the server")
+
+    monkeypatch.setattr(config, "bootstrap_desktop", forbidden)
+    monkeypatch.setattr(desktop, "run_desktop", forbidden)
+    monkeypatch.setattr(sys, "argv", ["Camoufox Profile Manager", "update-recovery", "status"])
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+
+    def recovery_command():
+        assert "--desktop" in sys.argv
+        print("checkpoint-id and timestamp")
+
+    monkeypatch.setattr(cli, "main", recovery_command)
+    with monkeypatch.context() as windowed:
+        windowed.setattr(sys, "stdout", None)
+        windowed.setattr(sys, "stderr", None)
+        desktop.main()
+    assert (
+        gate.path.parent / "recovery-command.log"
+    ).read_text() == "checkpoint-id and timestamp\n"
+    assert not (tmp_path / "secret.key").exists()
+    config.get_settings.cache_clear()
+
+
+@pytest.mark.parametrize("failure", ["import", "command"])
+def test_packaged_recovery_errors_log_and_exit_without_gui(tmp_path, monkeypatch, failure):
+    import builtins
+    import sys
+
+    from camoufox_pm import cli, config, desktop
+
+    monkeypatch.setenv("CPM_DB_PATH", str(tmp_path / "profiles.db"))
+    monkeypatch.setattr(sys, "argv", ["bundle", "--desktop", "update-recovery", "status"])
+
+    def forbidden_gui(*args):
+        raise AssertionError("Recovery errors must not open a dialog")
+
+    def fail_command():
+        raise RuntimeError("diagnostic command failure")
+
+    monkeypatch.setattr(desktop, "_show_error", forbidden_gui)
+    monkeypatch.setattr(cli, "main", fail_command)
+    original_import = builtins.__import__
+
+    def importing(name, globals=None, locals=None, fromlist=(), level=0):
+        if failure == "import" and name == "camoufox_pm" and "cli" in fromlist:
+            raise ImportError("diagnostic early crypto loader failure")
+        return original_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.setattr(builtins, "__import__", importing)
+    with monkeypatch.context() as windowed:
+        windowed.setattr(sys, "stdout", None)
+        windowed.setattr(sys, "stderr", None)
+        with pytest.raises(SystemExit) as result:
+            desktop.main()
+    assert result.value.code == 1
+    log = (tmp_path / "update-control" / "recovery-command.log").read_text()
+    assert "Traceback" in log and "diagnostic" in log
+    assert not (tmp_path / "secret.key").exists()
+    config.get_settings.cache_clear()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX early log protection")
+def test_packaged_recovery_refuses_control_symlink_without_chmod_or_gui(tmp_path, monkeypatch):
+    import sys
+
+    from camoufox_pm import config, desktop
+
+    target = tmp_path / "other-directory"
+    target.mkdir(mode=0o755)
+    original_mode = target.stat().st_mode
+    (tmp_path / "update-control").symlink_to(target, target_is_directory=True)
+    monkeypatch.setenv("CPM_DB_PATH", str(tmp_path / "profiles.db"))
+    monkeypatch.setattr(sys, "argv", ["bundle", "--desktop", "update-recovery", "status"])
+    monkeypatch.setattr(
+        desktop, "_show_error", lambda *args: pytest.fail("No GUI on recovery failure")
+    )
+    with monkeypatch.context() as windowed:
+        windowed.setattr(sys, "stdout", None)
+        windowed.setattr(sys, "stderr", None)
+        with pytest.raises(SystemExit) as result:
+            desktop.main()
+    assert result.value.code == 1
+    assert target.stat().st_mode == original_mode
+    assert not (target / "recovery-command.log").exists()
+    config.get_settings.cache_clear()

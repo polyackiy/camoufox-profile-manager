@@ -74,6 +74,12 @@ a = Analysis(
     hiddenimports=hiddenimports,
     noarchive=False,
 )
+if sys.platform == "darwin":
+    from PyInstaller.depend.bindepend import get_imports
+    sys.path.insert(0, SPECPATH)
+    from openssl_bundle import select_openssl_pair
+    a.binaries = select_openssl_pair(a.binaries, get_imports)
+
 pyz = PYZ(a.pure)
 exe = EXE(
     pyz,

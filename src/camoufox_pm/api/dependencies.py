@@ -90,8 +90,19 @@ async def require_auth(request: Request, x_api_key: str | None = Header(default=
             return
         raise HTTPException(status_code=401, detail="Invalid or missing API key")
     token = request.cookies.get(auth.SESSION_COOKIE)
-    if token and await auth.validate_session(storage, token) is not None:
-        return
+    recovery_control = request.url.path in {
+        f"{prefix}/system/update-recovery{suffix}"
+        for prefix in ("/api", "/api/v1")
+        for suffix in ("", "/cancel")
+    }
+    if token:
+        username = (
+            await auth.validate_session(storage, token, read_only=True)
+            if recovery_control
+            else await auth.validate_session(storage, token)
+        )
+        if username is not None:
+            return
     raise HTTPException(
         status_code=401, detail="Authentication required: log in or send a valid API key"
     )

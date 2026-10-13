@@ -6,6 +6,24 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.6.0-rc.3] - 2026-10-13
+
+Unsigned desktop preview with offline recovery; automatic installation remains disabled.
+
+### Fixed
+- Bundle the compatible OpenSSL pair required by cryptography on Intel macOS (#76).
+- Dispatch packaged recovery before desktop bootstrap and report command errors
+  without a modal window; verify the frozen entry point in every desktop build.
+- Omit only recognized transient Firefox profile lock markers from offline copies.
+
+### Added
+- Explicit preview-release discovery and update-recovery status in Settings.
+- Offline complete data/browser checkpoints, resumable restoration and a
+  cross-process maintenance gate with private Windows ACL/POSIX storage.
+- TUF target verification, native publisher verification and journalled offline
+  replacement primitives. Automatic app replacement remains disabled pending
+  production signing and real package-to-package acceptance (#63).
+
 ## [0.6.0-rc.2] - 2026-10-13
 
 Desktop preview with stage-two workflows. Installers remain unsigned; see the
@@ -710,7 +728,10 @@ First public release after a comprehensive revamp.
   Camoufox owns fingerprint generation for consistency.
 - Committed profile data, leaked proxy credentials, and duplicate/backup files.
 
-[Unreleased]: https://github.com/polyackiy/camoufox-profile-manager/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/polyackiy/camoufox-profile-manager/compare/v0.6.0-rc.3...HEAD
+[0.6.0-rc.3]: https://github.com/polyackiy/camoufox-profile-manager/compare/v0.6.0-rc.2...v0.6.0-rc.3
+[0.6.0-rc.2]: https://github.com/polyackiy/camoufox-profile-manager/compare/v0.6.0-rc.1...v0.6.0-rc.2
+[0.6.0-rc.1]: https://github.com/polyackiy/camoufox-profile-manager/compare/v0.5.0...v0.6.0-rc.1
 [0.5.0]: https://github.com/polyackiy/camoufox-profile-manager/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/polyackiy/camoufox-profile-manager/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/polyackiy/camoufox-profile-manager/compare/v0.3.0...v0.4.0

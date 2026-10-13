@@ -165,7 +165,9 @@ class BrowserInstaller:
 
     def _run(self) -> None:
         try:
-            with installation_lock():
+            from .maintenance import configured_gate
+
+            with configured_gate().operation(), installation_lock():
                 self._install()
             installed, version = installed_browser()
             if not installed or not browser_resources_ready():

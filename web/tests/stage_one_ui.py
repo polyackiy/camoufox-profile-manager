@@ -60,6 +60,7 @@ class DesktopUI(unittest.TestCase):
         self.browser_state = {"installed": False, "version": None, "state": "idle", "progress": None, "message": "Browser not installed", "error": None}
         self.profiles = []
         self.backups = []
+        self.update_recovery = {"state": "idle", "maintenance_active": False, "automatic_install_available": False, "can_cancel": False}
         self.trash = []
         self.config = {"version": "0.5.0", "host": "127.0.0.1", "port": 8000, "database_path": "/local/profiles.db", "api_key_set": False, "user_auth_enabled": False, "encryption_enabled": True, "cors_origins": [], "camoufox_available": True, "uptime_seconds": 60}
         self.page.route("**/api/v1/**", self.route)
@@ -98,6 +99,15 @@ class DesktopUI(unittest.TestCase):
         elif path == "/system/browser/install":
             self.browser_state = {**self.browser_state, "state": "downloading", "progress": 35, "message": "Downloading browser"}
             data, envelope = self.browser_state, True
+        elif path == "/system/update-recovery":
+            data = self.update_recovery
+        elif path == "/system/update-recovery/cancel":
+            self.update_recovery = {**self.update_recovery, "state": "cancelled", "maintenance_active": False, "can_cancel": False}
+            data = self.update_recovery
+        elif path == "/system/updates?channel=preview":
+            data, envelope = {"current_version": "0.6.0rc1", "latest_version": "0.6.0-rc.2", "available": True, "release_url": "https://github.com/polyackiy/camoufox-profile-manager/releases/tag/v0.6.0-rc.2", "assets": []}, True
+        elif path == "/system/updates/prepare?channel=preview":
+            data, envelope = {"release_url": "https://github.com/polyackiy/camoufox-profile-manager/releases/tag/v0.6.0-rc.2", "backup_count": 1, "message": "Ready"}, True
         elif path == "/system/updates":
             data, envelope = {"current_version": "0.5.0", "latest_version": "0.6.0", "available": True, "release_url": "https://github.com/polyackiy/camoufox-profile-manager/releases/tag/v0.6.0", "assets": []}, True
         elif path == "/system/updates/prepare":
@@ -199,6 +209,29 @@ class DesktopUI(unittest.TestCase):
         expect(self.page.get_by_text("Backup restored as a new profile", exact=True)).to_be_visible()
         self.assertTrue(any(method == "POST" and path == "/system/backups/saved/restore" for method, path, _ in self.calls))
         self.assertFalse(any(method in {"PUT", "DELETE"} for method, _, _ in self.calls))
+
+    def test_preview_channel_is_opt_in_and_preserved_during_preparation(self):
+        self.page.goto(f"{self.origin}/settings/")
+        choice = self.page.get_by_label("Include preview releases (opt-in)")
+        expect(choice).not_to_be_checked()
+        choice.check()
+        self.page.get_by_role("button", name="Check for updates", exact=True).click()
+        expect(self.page.get_by_text("Version 0.6.0-rc.2 is available. You have 0.6.0rc1.")).to_be_visible()
+        self.page.get_by_role("button", name="Back up and prepare update").click()
+        expect(self.page.get_by_role("link", name="Open release downloads")).to_have_attribute("href", "https://github.com/polyackiy/camoufox-profile-manager/releases/tag/v0.6.0-rc.2")
+        choice.uncheck()
+        expect(self.page.get_by_role("link", name="Open release downloads")).not_to_be_visible()
+
+    def test_prepared_update_can_be_cancelled_without_restoring_data(self):
+        self.update_recovery = {"state": "prepared", "maintenance_active": True, "automatic_install_available": False, "can_cancel": True, "target_version": "0.7.0", "browser_version": "156.0.1-beta.36"}
+        self.page.goto(f"{self.origin}/settings/")
+        self.page.get_by_text("Update recovery", exact=True).click()
+        self.page.get_by_role("button", name="Check recovery status").click()
+        expect(self.page.get_by_text("Update maintenance is active. Profile changes and launches are paused.")).to_be_visible()
+        self.page.get_by_role("button", name="Cancel update preparation").click()
+        expect(self.page.get_by_text("No update maintenance is active.")).to_be_visible()
+        expect(self.page.get_by_role("button", name="Cancel update preparation")).not_to_be_visible()
+        self.assertFalse(any("/restore" in path for _, path, _ in self.calls))
 
     def test_permanent_delete_requires_name_confirmation(self):
         self.trash = [{"id": "trashed", "name": "Recoverable", "deleted_at": "2026-01-01T00:00:00Z"}]

@@ -243,3 +243,38 @@ async def get_system_info():
             uptime_seconds=int(time.time() - startup_time),
         ),
     )
+
+
+@router.get("/system/update-recovery", operation_id="update_recovery_status")
+async def update_recovery_status():
+    """Expose transaction progress without credential-bearing local paths."""
+    from camoufox_pm.core.maintenance import configured_gate
+    from camoufox_pm.core.update_service import UpdateService
+
+    gate = configured_gate()
+    service = UpdateService(gate.path.parent, gate)
+    try:
+        status = service.status()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    allowed = ("state", "transaction_id", "created_at", "target_version", "browser_version")
+    return {
+        **{key: status[key] for key in allowed if key in status},
+        "maintenance_active": gate.blocked,
+        "automatic_install_available": False,
+        "can_cancel": status["state"] in ("preparing", "prepared"),
+    }
+
+
+@router.post("/system/update-recovery/cancel", operation_id="cancel_update_preparation")
+async def cancel_update_preparation():
+    """Resume normal operation only before any executable replacement."""
+    from camoufox_pm.core.maintenance import configured_gate
+    from camoufox_pm.core.update_service import UpdateService
+
+    gate = configured_gate()
+    try:
+        UpdateService(gate.path.parent, gate).cancel_preparation()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return await update_recovery_status()

@@ -1,5 +1,7 @@
 """First-run browser download and application update preparation."""
 
+from typing import Literal
+
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
@@ -21,8 +23,12 @@ async def install_browser():
 
 
 @router.get("/system/updates", response_model=ApiResponse[UpdateStatus])
-async def updates():
-    return ApiResponse(data=await check_update())
+async def updates(channel: Literal["stable", "preview"] = "stable"):
+    return ApiResponse(
+        success=True,
+        message="Update check completed.",
+        data=await check_update(channel) if channel != "stable" else await check_update(),
+    )
 
 
 class UpdatePreparation(BaseModel):
@@ -32,10 +38,10 @@ class UpdatePreparation(BaseModel):
 
 
 @router.post("/system/updates/prepare", response_model=ApiResponse[UpdatePreparation])
-async def prepare_update():
+async def prepare_update(channel: Literal["stable", "preview"] = "stable"):
     from camoufox_pm.api.routes.recovery import get_backup_manager
 
-    update = await check_update()
+    update = await check_update(channel) if channel != "stable" else await check_update()
     if update.error:
         raise HTTPException(503, update.error)
     if not update.available:
@@ -49,9 +55,11 @@ async def prepare_update():
             409, f"Backup incomplete. Resolve these problems before updating: {failures}"
         )
     return ApiResponse(
+        success=True,
+        message="Update prepared.",
         data=UpdatePreparation(
             release_url=update.release_url,
             backup_count=len(result["backups"]),
             message="Profiles backed up. Close the application before installing the update.",
-        )
+        ),
     )

@@ -671,5 +671,17 @@
   "Could not read the cookie file": "无法读取 Cookie 文件",
   "Cookie input exceeds 2 MiB": "Cookie 内容超过 2 MiB",
   "Install the browser in Settings before transferring cookies": "请先在设置中安装浏览器，再导入或导出 Cookie",
-  "Confirm replacement before importing cookies": "导入 Cookie 前请确认替换操作"
+  "Confirm replacement before importing cookies": "导入 Cookie 前请确认替换操作",
+  "Include preview releases (opt-in)": "包含预览版本（需主动选择）",
+  "Preview installers may be unsigned and are intended for testing. Stable remains the default channel.": "预览版安装程序可能未签名，仅供测试。默认使用稳定渠道。",
+  "Update recovery": "更新恢复",
+  "Automatic replacement is not enabled for this preview. Profile backups do not include the complete application database or encryption key. Keep your existing data folder when installing a new release.": "此预览版未启用自动替换。配置文件备份不包含完整的应用数据库或加密密钥。安装新版本时请保留现有数据文件夹。",
+  "Check recovery status": "检查恢复状态",
+  "Update maintenance is active. Profile changes and launches are paused.": "更新维护已启用。配置文件修改和启动已暂停。",
+  "No update maintenance is active.": "当前没有更新维护。",
+  "Target manager: {manager}; Camoufox: {browser}.": "目标管理器版本：{manager}；Camoufox：{browser}。",
+  "Prepared at {date}.": "准备时间：{date}。",
+  "Cancel preparation to resume normal work. No installed application or profile data will be replaced.": "取消准备以恢复正常工作。不会替换已安装的应用或配置文件数据。",
+  "Cancel update preparation": "取消更新准备",
+  "Close the manager and use the documented offline recovery procedure before resuming work.": "请关闭管理器，并按照文档中的离线恢复流程操作后再继续工作。"
 }

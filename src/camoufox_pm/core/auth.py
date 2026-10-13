@@ -77,12 +77,13 @@ async def create_session(storage, user_id: str) -> str:
     return token
 
 
-async def validate_session(storage, token: str) -> str | None:
+async def validate_session(storage, token: str, *, read_only: bool = False) -> str | None:
     """Return the username the token belongs to, or None. Expired rows are removed."""
     session = await storage.get_session(hash_token(token))
     if session is None:
         return None
     if datetime.fromisoformat(session["expires_at"]) <= datetime.now():
-        await storage.delete_session(session["token_hash"])
+        if not read_only:
+            await storage.delete_session(session["token_hash"])
         return None
     return session["username"]
