@@ -64,6 +64,13 @@ Firefox process may also conservatively block the command. Legacy/remote unknown
 operation records remain blocked; process birth identity proves local crashed
 participants safe to remove without expiring live operations.
 
+Firefox's POSIX `profiles/profile_*/lock` symlink is the sole narrow exception.
+When its target matches Firefox's `IPv4:[+]PID` signature and the exclusive offline
+checks pass, checkpointing omits this transient marker from copied data and
+inventories. It never follows or deletes the link; rollback retains the original
+marker with the failed state. Other symlinks, malformed lock signatures and lock
+links elsewhere remain rejected. The marker alone does not prove a browser stopped.
+
 ## Settings and implementation boundaries
 
 Settings uses stable releases by default. **Include preview releases** opts into

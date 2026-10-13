@@ -181,7 +181,7 @@ def test_disk_full_restore_preserves_original_and_can_resume(tmp_path, monkeypat
     create_checkpoint(root, db_path=db, paths=paths, maintenance_check=lambda: True)
     original_copy = module._copy
 
-    def full_disk(source, target):
+    def full_disk(source, target, **kwargs):
         target.write_bytes(b"partial")
         raise OSError(28, "No space left")
 
@@ -199,7 +199,7 @@ def test_interrupted_creation_never_restorable(tmp_path, monkeypatch):
     db, paths = setup_state(tmp_path)
     root = tmp_path / "checkpoint"
 
-    def full_disk(*args):
+    def full_disk(*args, **kwargs):
         raise OSError(28, "No space left")
 
     monkeypatch.setattr(module, "_copy", full_disk)
@@ -302,3 +302,78 @@ def test_regular_file_fsync_uses_writable_handles_for_windows(tmp_path, monkeypa
     monkeypatch.setattr(module.os, "fsync", writable_fsync)
     create_checkpoint(root, db_path=db, paths=paths, maintenance_check=lambda: True)
     restore_checkpoint(root, db_path=db, paths=paths, maintenance_check=lambda: True)
+
+
+@pytest.mark.skipif(__import__("os").name == "nt", reason="Firefox POSIX signature symlink")
+@pytest.mark.parametrize("signature", ["127.0.0.1:+12345", "192.168.1.12:12345"])
+def test_offline_profile_lock_not_followed_copied_or_deleted(tmp_path, monkeypatch, signature):
+    from pathlib import Path
+
+    db, paths = setup_state(tmp_path)
+    profile = paths["profiles"] / "profile_rbazb7vc"
+    profile.mkdir()
+    (profile / "cookies.sqlite").write_bytes(b"session")
+    lock = profile / "lock"
+    lock.symlink_to(signature)
+    original_open = Path.open
+
+    def no_lock_open(path, *args, **kwargs):
+        assert path.name != "lock", "Firefox lock symlink must never be followed"
+        return original_open(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", no_lock_open)
+    root = tmp_path / "checkpoint"
+    create_checkpoint(root, db_path=db, paths=paths, maintenance_check=lambda: True)
+    assert lock.is_symlink() and __import__("os").readlink(lock) == signature
+    journal = json.loads((root / "journal.json").read_text())
+    entry = next(entry for entry in journal["entries"] if entry["label"] == "profiles")
+    assert "profile_rbazb7vc/lock" not in entry["inventory"]
+    assert not (root / entry["payload"] / "profile_rbazb7vc" / "lock").is_symlink()
+    (profile / "cookies.sqlite").write_bytes(b"new-session")
+    restore_checkpoint(root, db_path=db, paths=paths, maintenance_check=lambda: True)
+    assert (profile / "cookies.sqlite").read_bytes() == b"session"
+    assert not lock.is_symlink()
+    retained_lock = tmp_path / "profiles.failed-checkpoint" / "profile_rbazb7vc" / "lock"
+    assert retained_lock.is_symlink() and __import__("os").readlink(retained_lock) == signature
+    restore_checkpoint(root, db_path=db, paths=paths, maintenance_check=lambda: True)
+
+
+@pytest.mark.skipif(__import__("os").name == "nt", reason="Firefox POSIX signature symlink")
+@pytest.mark.parametrize(
+    "relative,signature",
+    [
+        ("profile_rbazb7vc/lock", "../../secret.key"),
+        ("profile_rbazb7vc/lock", "256.0.0.1:+123"),
+        ("profile_rbazb7vc/lock", "127.0.0.1:+0"),
+        ("profile_rbazb7vc/lock", "localhost:+123"),
+        ("profile_rbazb7vc/lock", "127.0.0.1:+123/../../secret.key"),
+        ("profile_rbazb7vc/nested/lock", "127.0.0.1:+123"),
+        ("profile_rbazb7vc/other", "127.0.0.1:+123"),
+        ("other/lock", "127.0.0.1:+123"),
+        ("lock", "127.0.0.1:+123"),
+    ],
+)
+def test_profile_lock_exception_rejects_arbitrary_symlinks(tmp_path, relative, signature):
+    db, paths = setup_state(tmp_path)
+    lock = paths["profiles"] / relative
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    lock.symlink_to(signature)
+    with pytest.raises(CheckpointError, match="Unsupported"):
+        create_checkpoint(
+            tmp_path / "checkpoint", db_path=db, paths=paths, maintenance_check=lambda: True
+        )
+    assert lock.is_symlink()
+
+
+@pytest.mark.skipif(__import__("os").name == "nt", reason="Firefox POSIX signature symlink")
+def test_profile_lock_exception_never_bypasses_offline_gate(tmp_path):
+    db, paths = setup_state(tmp_path)
+    profile = paths["profiles"] / "profile_rbazb7vc"
+    profile.mkdir()
+    lock = profile / "lock"
+    lock.symlink_to(f"127.0.0.1:+{__import__('os').getpid()}")
+    with pytest.raises(CheckpointError, match="maintenance"):
+        create_checkpoint(
+            tmp_path / "checkpoint", db_path=db, paths=paths, maintenance_check=lambda: False
+        )
+    assert lock.is_symlink()

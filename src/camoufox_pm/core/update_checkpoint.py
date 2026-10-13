@@ -9,8 +9,10 @@ views, schedules, templates and application metadata; external files must be lis
 from __future__ import annotations
 
 import hashlib
+import ipaddress
 import json
 import os
+import re
 import shutil
 import sqlite3
 import stat
@@ -37,7 +39,34 @@ def _gate(check: Callable[[], bool]) -> None:
         raise CheckpointError("An exclusive offline maintenance gate is required")
 
 
-def _safe(path: Path) -> Path:
+def _is_profile_lock(path: Path, root: Path | None) -> bool:
+    """Recognize only Firefox's POSIX root lock signature, without following it.
+
+    This is not proof a browser stopped. The exclusive offline contract remains
+    required. Never remove the live/failed-state link or copy it into a snapshot.
+    Mozilla creates this link as IPv4:[+]PID, not a pointer to profile data:
+    https://github.com/mozilla-firefox/firefox/blob/main/toolkit/profile/nsProfileLock.cpp
+    """
+    if (
+        root is None
+        or os.name == "nt"
+        or path.name != "lock"
+        or path.parent.parent != root
+        or not re.fullmatch(r"profile_[A-Za-z0-9_-]+", path.parent.name)
+        or not path.is_symlink()
+    ):
+        return False
+    signature = re.fullmatch(r"([0-9.]+):\+?([1-9][0-9]*)", os.readlink(path))
+    if not signature:
+        return False
+    try:
+        ipaddress.IPv4Address(signature[1])
+    except ipaddress.AddressValueError:
+        return False
+    return True
+
+
+def _safe(path: Path, *, profile_locks: bool = False) -> Path:
     path = path.expanduser().absolute()
     if any(
         part.is_symlink()
@@ -47,6 +76,8 @@ def _safe(path: Path) -> Path:
         raise CheckpointError(f"Symlinks are not supported: {path}")
     if path.is_dir():
         for child in path.rglob("*"):
+            if _is_profile_lock(child, path if profile_locks else None):
+                continue
             if (
                 child.is_symlink()
                 or getattr(child.stat(), "st_file_attributes", 0) & 0x400
@@ -85,10 +116,14 @@ def _write(path: Path, value: dict) -> None:
     _sync_dir(path.parent)
 
 
-def _inventory(path: Path) -> dict:
+def _inventory(path: Path, *, profile_locks: bool = False) -> dict:
     result: dict[str, dict[str, str | int]] = {}
     entries = [path, *sorted(path.rglob("*"))] if path.is_dir() else [path]
     for entry in entries:
+        if _is_profile_lock(entry, path if profile_locks else None):
+            continue
+        if entry.is_symlink():
+            raise CheckpointError(f"Unsupported filesystem entry: {entry}")
         key = "." if entry == path else entry.relative_to(path).as_posix()
         if entry.is_dir():
             result[key] = {"kind": "directory"}
@@ -106,11 +141,15 @@ def _inventory(path: Path) -> dict:
     return result
 
 
-def _copy(source: Path, target: Path) -> None:
+def _copy(source: Path, target: Path, *, profile_lock_root: Path | None = None) -> None:
+    if source.is_symlink():
+        raise CheckpointError(f"Unsupported filesystem entry: {source}")
     if source.is_dir():
         create_private_directory(target)
         for child in sorted(source.iterdir()):
-            _copy(child, target / child.name)
+            if _is_profile_lock(child, profile_lock_root):
+                continue
+            _copy(child, target / child.name, profile_lock_root=profile_lock_root)
         _sync_dir(target)
     else:
         descriptor = create_private_file(target)
@@ -124,10 +163,12 @@ def _copy(source: Path, target: Path) -> None:
     _sync_dir(target.parent)
 
 
-def _protect_tree(path: Path) -> None:
+def _protect_tree(path: Path, *, profile_locks: bool = False) -> None:
     protect_path(path)
     if path.is_dir():
         for child in path.rglob("*"):
+            if _is_profile_lock(child, path if profile_locks else None):
+                continue
             protect_path(child)
 
 
@@ -156,7 +197,9 @@ def create_checkpoint(
     sources = {"database": _safe(Path(db_path))}
     if "database" in paths:
         raise CheckpointError("The database label is reserved")
-    sources.update({name: _safe(Path(path)) for name, path in paths.items()})
+    sources.update(
+        {name: _safe(Path(path), profile_locks=name == "profiles") for name, path in paths.items()}
+    )
     for name in required_paths:
         if name not in sources or not sources[name].exists():
             raise CheckpointError(f"Required checkpoint source is missing: {name}")
@@ -197,9 +240,14 @@ def create_checkpoint(
                     os.fsync(handle.fileno())
                 _integrity(payload)
             else:
-                before = _inventory(source)
-                _copy(source, payload)
-                if before != _inventory(source) or before != _inventory(payload):
+                before = _inventory(source, profile_locks=name == "profiles")
+                if name == "profiles":
+                    _copy(source, payload, profile_lock_root=source)
+                else:
+                    _copy(source, payload)
+                if before != _inventory(
+                    source, profile_locks=name == "profiles"
+                ) or before != _inventory(payload):
                     raise CheckpointError(f"Source changed while copying: {source}")
             entry["inventory"] = _inventory(payload)
         journal["entries"].append(entry)
@@ -236,7 +284,10 @@ def restore_checkpoint(
         raise CheckpointError("Checkpoint is incomplete or unsupported")
     trusted = {
         "database": _safe(Path(db_path)),
-        **{name: _safe(Path(path)) for name, path in paths.items()},
+        **{
+            name: _safe(Path(path), profile_locks=name == "profiles")
+            for name, path in paths.items()
+        },
     }
     if "database" in paths or {entry["label"] for entry in journal["entries"]} != set(trusted):
         raise CheckpointError("Checkpoint sources differ from trusted restore configuration")
@@ -244,7 +295,7 @@ def restore_checkpoint(
     for index, entry in enumerate(journal["entries"]):
         if entry["payload"] != str(index):
             raise CheckpointError("Invalid checkpoint payload")
-        target = _safe(Path(entry["target"]))
+        target = _safe(Path(entry["target"]), profile_locks=entry["label"] == "profiles")
         if target != trusted[entry["label"]]:
             raise CheckpointError("Untrusted restore destination")
         if _overlaps(root, target) or any(_overlaps(target, old) for old in targets):
@@ -269,7 +320,7 @@ def restore_checkpoint(
         stage = target.with_name(target.name + ".restore-" + root.name)
         if entry.get("restored"):
             continue
-        _safe(failed)
+        _safe(failed, profile_locks=entry["label"] == "profiles")
         _safe(stage)
         if not entry.get("preserving"):
             if failed.exists() or stage.exists():
@@ -279,10 +330,10 @@ def restore_checkpoint(
         if not entry.get("preserved"):
             if target.exists() and not failed.exists():
                 os.replace(target, failed)
-                _protect_tree(failed)
+                _protect_tree(failed, profile_locks=entry["label"] == "profiles")
                 _sync_dir(target.parent)
             if failed.exists():
-                _protect_tree(failed)
+                _protect_tree(failed, profile_locks=entry["label"] == "profiles")
             entry["preserved"] = True
             _write(root / "journal.json", journal)
         # SQLite WAL belongs to the failed database, never the restored snapshot.
