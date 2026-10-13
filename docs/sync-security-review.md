@@ -107,3 +107,18 @@ execution, committed CIRCL-vector regeneration and wrong-context rejection.
 also passed on all four targets with the updated dependency lock. The
 [owner bootstrap contract](sync-trust-contract.md) is a reviewed target for S2/S3,
 not an implemented key-management guarantee.
+
+## Dependency advisory check
+
+On 2026-10-13, review also checked the published
+[cryptography advisories](https://github.com/pyca/cryptography/security/advisories)
+and [PyNaCl changelog](https://github.com/pyca/pynacl/blob/main/CHANGELOG.rst).
+The selected PyNaCl 1.6.2 includes the upstream libsodium fix for CVE-2025-69277.
+The cryptography floor for the optional sync extra is 50.0.2. This targeted check
+is not a complete dependency/SBOM audit or a promise that no vulnerabilities exist.
+
+Source-built cryptography requires a separately patched OpenSSL installation,
+as [upstream explicitly documents](https://github.com/pyca/cryptography/security/advisories/GHSA-537c-gmf6-5ccf).
+The Intel native run above bundled the matching OpenSSL 3.6.3 library pair.
+A successful roundtrip establishes packaging compatibility, not security of
+arbitrary system libraries on downstream source-build hosts.
