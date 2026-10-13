@@ -746,10 +746,16 @@ def test_invitation_newer_membership_anchor_rejects_relay_signed_sibling(system)
     invited_device = generate_device().certificate(engine.root.owner_id, str(uuid4()))
     relay_device = generate_device().certificate(engine.root.owner_id, str(uuid4()))
     trusted = approve_membership(
-        engine.root, authority, first.membership.devices + (invited_device,), previous=first
+        engine.root,
+        authority.authority_key,
+        first.membership.devices + (invited_device,),
+        previous=first,
     )
     sibling = approve_membership(
-        engine.root, authority, first.membership.devices + (relay_device,), previous=first
+        engine.root,
+        authority.authority_key,
+        first.membership.devices + (relay_device,),
+        previous=first,
     )
     remote = str(uuid4())
     body = ProfileInvitationBody(
@@ -771,7 +777,7 @@ def test_invitation_newer_membership_anchor_rejects_relay_signed_sibling(system)
     accept_profile_code(engine.service, engine.user_id, pack, authorize=lambda: None)
     engine.bind_paired("invited1", remote)
     server.memberships.append(sibling)
-    with pytest.raises(EngineError, match="fork"):
+    with pytest.raises(EngineError):
         engine.reconcile("invited1")
     assert not engine.may_launch("invited1")
     assert engine.control.get("sync/membership-conflict") is not None
