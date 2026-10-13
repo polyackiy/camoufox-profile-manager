@@ -202,3 +202,38 @@ def test_forced_server_exit_cannot_authorize_successful_native_quit():
     thread = SimpleNamespace(join=Mock(), is_alive=Mock(side_effect=[True, False]))
     assert desktop._stop_server(server, thread) is False
     assert server.force_exit
+
+
+def test_packaged_recovery_dispatches_before_key_bootstrap(tmp_path, monkeypatch):
+    import sys
+
+    from camoufox_pm import cli, config, desktop
+    from camoufox_pm.core import maintenance
+    from camoufox_pm.core.maintenance import MaintenanceGate
+
+    gate = MaintenanceGate(tmp_path / "update-control" / "maintenance.sqlite3")
+    monkeypatch.setattr(maintenance, "configured_gate", lambda: gate)
+    monkeypatch.setattr(config, "desktop_data_dir", lambda: tmp_path)
+
+    def forbidden():
+        raise AssertionError("Packaged recovery must not bootstrap keys or start the server")
+
+    monkeypatch.setattr(config, "bootstrap_desktop", forbidden)
+    monkeypatch.setattr(desktop, "run_desktop", forbidden)
+    monkeypatch.setattr(sys, "argv", ["Camoufox Profile Manager", "update-recovery", "status"])
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+
+    def recovery_command():
+        assert "--desktop" in sys.argv
+        print("checkpoint-id and timestamp")
+
+    monkeypatch.setattr(cli, "main", recovery_command)
+    with monkeypatch.context() as windowed:
+        windowed.setattr(sys, "stdout", None)
+        windowed.setattr(sys, "stderr", None)
+        desktop.main()
+    assert (
+        gate.path.parent / "recovery-command.log"
+    ).read_text() == "checkpoint-id and timestamp\n"
+    assert not (tmp_path / "secret.key").exists()
+    config.get_settings.cache_clear()

@@ -195,6 +195,41 @@ def _show_error(message: str) -> None:
 def main() -> None:
     """Double-click entry point; ordinary ``camoufox-pm`` keeps its CLI behavior."""
     try:
+        # Frozen bundles enter here rather than the console script. Dispatch
+        # recovery before bootstrap can create a key or open application data.
+        if "update-recovery" in sys.argv[1:]:
+            from camoufox_pm import cli
+            from camoufox_pm.config import Settings, desktop_data_dir, get_settings
+            from camoufox_pm.core.maintenance import configured_gate
+            from camoufox_pm.core.update_permissions import create_private_file, protect_path
+
+            configured = Settings()
+            if "db_path" not in configured.model_fields_set:
+                os.environ["CPM_DB_PATH"] = str(desktop_data_dir() / "profiles.db")
+            get_settings.cache_clear()
+            if "--desktop" not in sys.argv[1:]:
+                sys.argv.insert(1, "--desktop")
+            output = None
+            previous_stdout, previous_stderr = sys.stdout, sys.stderr
+            if sys.stdout is None or sys.stderr is None:
+                output_path = configured_gate().path.parent / "recovery-command.log"
+                if not output_path.exists():
+                    try:
+                        os.close(create_private_file(output_path))
+                    except FileExistsError:
+                        pass
+                protect_path(output_path)
+                output = output_path.open("a", encoding="utf-8", buffering=1)
+                sys.stdout = output
+                sys.stderr = output
+            try:
+                cli.main()
+            finally:
+                if output is not None:
+                    sys.stdout, sys.stderr = previous_stdout, previous_stderr
+                    output.close()
+            return
+
         from camoufox_pm.config import bootstrap_desktop, get_settings
 
         bootstrap_desktop()

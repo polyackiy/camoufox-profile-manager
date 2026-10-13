@@ -14,7 +14,28 @@ camoufox-pm update-recovery status
 
 Use the same working directory, database configuration and encryption key source
 on every invocation. Desktop users add `--desktop` so the stable desktop database
-is selected. Checkpoint output includes its ID and UTC creation timestamp. Copies
+is selected; put this global flag before the subcommand:
+
+```sh
+camoufox-pm --desktop update-recovery checkpoint
+```
+
+Packaged applications dispatch the same recovery arguments before starting the
+server or generating encryption keys. For example on macOS, invoke the bundle
+executable from Terminal (adjust the installed application name/path):
+
+```sh
+"/Applications/Camoufox Profile Manager.app/Contents/MacOS/camoufox-pm" --desktop update-recovery status
+```
+
+On Windows, invoke the installed `camoufox-pm.exe` with these arguments from
+PowerShell; on Linux invoke the installed desktop executable. Windowed bundles
+without stdout/stderr append command output to
+`update-control/recovery-command.log` beside the configured database. Open that
+file to read checkpoint IDs, timestamps and versions; the command does not open
+a desktop window. Console installations print directly to the terminal.
+
+Checkpoint output includes its ID and UTC creation timestamp. Copies
 include all database tables, profiles including Trash, the entire versioned browser
 installation and its active configuration, the adjacent local encryption key and
 the current directory's `.env` if present. Extension library and templates live in
