@@ -196,9 +196,9 @@ export default function AccessPage() {
             {t('Password')}
             <input className="field block" type="password" value={password} onChange={event => setPassword(event.target.value)} autoComplete="new-password" minLength={8} required />
           </label>
-          <label>
+          <label htmlFor="access-new-user-role">
             {t('Role')}
-            <select className="field block" value={newUserRole} disabled={!users.length} onChange={event => setRole(event.target.value as AccessRole)}>
+            <select id="access-new-user-role" className="field block" value={newUserRole} disabled={!users.length} onChange={event => setRole(event.target.value as AccessRole)}>
               {roles.map(role => <option key={role} value={role}>{t(roleLabel[role])}</option>)}
             </select>
           </label>
@@ -301,15 +301,15 @@ export default function AccessPage() {
           setFilters(draftFilters)
         }}>
           {(['actor', 'action', 'result'] as const).map(key => (
-            <label key={key}>
+            <label key={key} htmlFor={`access-filter-${key}`}>
               {t(filterLabel[key])}
               {key === 'result' ? (
-                <select className="field block" value={draftFilters.result} onChange={event => setDraftFilters({ ...draftFilters, result: event.target.value })}>
+                <select id="access-filter-result" className="field block" value={draftFilters.result} onChange={event => setDraftFilters({ ...draftFilters, result: event.target.value })}>
                   <option value="">{t('All results')}</option>
                   {auditResults.map(result => <option key={result} value={result}>{t(result)}</option>)}
                 </select>
               ) : (
-                <input className="field block" value={draftFilters[key]} onChange={event => setDraftFilters({ ...draftFilters, [key]: event.target.value })} />
+                <input id={`access-filter-${key}`} className="field block" value={draftFilters[key]} onChange={event => setDraftFilters({ ...draftFilters, [key]: event.target.value })} />
               )}
             </label>
           ))}

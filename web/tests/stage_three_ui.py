@@ -88,10 +88,12 @@ class StageThreeUI(StageTwoUI):
         assign = self.page.get_by_role("checkbox", name="Assign Account 001", exact=True)
         export = self.page.get_by_role("checkbox", name="Allow export for Account 001", exact=True)
         expect(export).to_be_disabled()
-        assign.check()
+        # Grant checkboxes show only the committed server state.
+        assign.click()
+        expect(assign).to_be_checked()
         expect(export).to_be_enabled()
         expect(export).not_to_be_checked()
-        export.check()
+        export.click()
         expect(export).to_be_checked()
         self.assertEqual(self.grants, [{"profile_id": "profile-1", "can_export": True}])
 
