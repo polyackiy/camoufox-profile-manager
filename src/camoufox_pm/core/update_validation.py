@@ -16,23 +16,30 @@ from .schema_migrations import CURRENT_SCHEMA
 from .update_permissions import create_private_file, verify_private_path
 
 
-async def _validate(record: dict):
-    from camoufox.async_api import AsyncCamoufox
-    from camoufox.multiversion import (
-        get_active_path,
-        list_installed,
-        load_config,
-        save_config,
-        set_active,
-    )
-    from camoufox.pkgman import launch_path
+def _activate_paired_browser(record: dict):
+    from camoufox.browser_pin import load_pin
+    from camoufox.multiversion import get_active_path, list_installed, load_config, save_config
+    from camoufox.pkgman import RepoConfig
+    from packaging.version import Version
 
     manifest = record["manifest"]
-    if manifest["version"] != __version__ or manifest["schema_result"] != CURRENT_SCHEMA:
-        raise ValueError("Installed manager does not match the authenticated target")
+    release_pin = load_pin()
+    if release_pin is not None and release_pin.spec != manifest["browser_version"]:
+        raise ValueError("The authenticated pair does not match the installed wrapper release pin")
     matches = [
         item for item in list_installed() if item.version.full_string == manifest["browser_version"]
     ]
+    if record.get("paired_browser_path"):
+        expected_path = Path(record["paired_browser_path"]).resolve()
+        marker = json.loads((expected_path / ".cpm-pair.json").read_text())
+        if marker != {
+            "version": manifest["browser_version"],
+            "sha256": record.get("browser_sha256"),
+        }:
+            raise ValueError(
+                "Paired browser cache identity does not match the authenticated target"
+            )
+        matches = [item for item in matches if item.path.resolve() == expected_path]
     if record.get("browser_sha256"):
         matches = [
             item
@@ -47,13 +54,35 @@ async def _validate(record: dict):
     if len(matches) != 1:
         raise ValueError("The exact tested browser pair must already be installed")
     paired = matches[0]
-    set_active(paired.relative_path)
     config = load_config()
-    # An explicit custom pin otherwise overrides active_version on the next launch.
-    config["pinned"] = f"{paired.repo_name}/{paired.version.full_string}"
+    # Use the upstream fetch pin protocol. The verified cache repository name is
+    # local storage provenance, never an upstream download channel.
+    origin = (
+        release_pin.repo_name if release_pin is not None else RepoConfig.get_default_name().lower()
+    )
+    config["channel"] = (
+        f"{origin}/{'prerelease' if Version(paired.version.full_string).is_prerelease else 'stable'}"
+    )
+    config["pinned"] = paired.version.full_string
+    if record.get("browser_sha256"):
+        config["pinned_sha"] = record["browser_sha256"]
+    else:
+        config.pop("pinned_sha", None)
+    config["active_version"] = paired.relative_path
     save_config(config)
     if get_active_path() != paired.path:
         raise ValueError("Browser pin prevents activating the tested pair")
+    return paired
+
+
+async def _validate(record: dict):
+    from camoufox.async_api import AsyncCamoufox
+    from camoufox.pkgman import launch_path
+
+    manifest = record["manifest"]
+    if manifest["version"] != __version__ or manifest["schema_result"] != CURRENT_SCHEMA:
+        raise ValueError("Installed manager does not match the authenticated target")
+    paired = _activate_paired_browser(record)
     from camoufox_pm.config import get_settings
 
     from .update_recovery import _validate_encrypted_credentials

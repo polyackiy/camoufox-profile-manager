@@ -103,12 +103,26 @@ class UpdateTransaction:
             value.update(state="installing_browser", browser_install_started=True)
             self.service._save(value)
 
-    def browser_installed(self) -> None:
+    def browser_installed(self, paired_path: Path | None = None) -> None:
         with self.service._control():
             self._offline()
             value = self.service.status()
             if value["state"] != "installing_browser":
                 raise MaintenanceBlocked("Browser installation was not started")
+            if paired_path is not None:
+                paired_path = Path(paired_path).resolve()
+                browser_root = Path(value["paths"]["browser"]).resolve()
+                if not paired_path.is_relative_to(browser_root / "browsers" / "cpm-verified"):
+                    raise ValueError("Paired browser must be in the authenticated local cache")
+                marker = json.loads((paired_path / ".cpm-pair.json").read_text())
+                if marker != {
+                    "version": value["browser_version"],
+                    "sha256": value.get("browser_sha256"),
+                }:
+                    raise ValueError(
+                        "Paired browser cache identity differs from the authenticated target"
+                    )
+                value["paired_browser_path"] = str(paired_path)
             value["state"] = "browser_ready"
             self.service._save(value)
 
@@ -118,6 +132,16 @@ class UpdateTransaction:
         if executable.is_symlink() or not executable.is_file():
             raise ValueError("Installed application entrypoint is missing or unsafe")
         record = self.service.status()
+        if hasattr(self, "browser_target"):
+            from .update_browser_pair import install_paired_browser
+
+            paired = install_paired_browser(
+                self.browser_target,
+                Path(record["paths"]["browser"]),
+                offline_check=lambda: self._offline() is None,
+            )
+            if str(paired.resolve()) != record.get("paired_browser_path"):
+                raise ValueError("Authenticated paired browser location changed")
         receipt = self.service.root / "validation.json"
         receipt.unlink(missing_ok=True)
         with os.fdopen(create_private_file(receipt), "w", encoding="utf-8") as stream:

@@ -430,10 +430,10 @@ def _execute_request(action=None, confirmed_timestamp=None):
         from .update_browser_pair import install_paired_browser
 
         transaction.begin_browser_install()
-        install_paired_browser(
+        paired_path = install_paired_browser(
             transaction.browser_target, paths["browser"], offline_check=transaction.offline_check
         )
-        transaction.browser_installed()
+        transaction.browser_installed(paired_path)
     result = (
         transaction.rollback(record["confirm_timestamp"])
         if record["action"] == "rollback"
