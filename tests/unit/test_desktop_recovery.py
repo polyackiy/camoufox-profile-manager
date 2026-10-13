@@ -23,13 +23,13 @@ def test_recovery_dispatches_exact_timestamp_and_closes_only_after_success():
         lambda: {"transaction_id": "one", "can_rollback": True, "checkpoint_timestamp": "now"},
         dispatch,
     )
-    bridge.window = Mock()
+    bridge._window = Mock()
     with pytest.raises(RuntimeError):
         bridge.action("rollback", "one", "now")
-    bridge.window.destroy.assert_not_called()
+    bridge._window.destroy.assert_not_called()
     assert bridge.action("rollback", "one", "now") == {"state": "queued"}
     dispatch.assert_called_with("rollback", "one", "now")
-    bridge.window.destroy.assert_called_once()
+    bridge._window.destroy.assert_called_once()
 
 
 @pytest.mark.parametrize(
@@ -39,7 +39,7 @@ def test_recovery_cannot_open_manager_before_safe_state(status):
     bridge = RecoveryBridge(lambda: status, Mock())
     with pytest.raises(ValueError):
         bridge.open_manager()
-    assert not bridge.open_requested
+    assert not bridge._open_requested
 
 
 def test_recovery_rechecks_capability_and_rejects_arbitrary_actions():

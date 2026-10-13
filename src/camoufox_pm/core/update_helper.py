@@ -14,7 +14,12 @@ from collections.abc import Callable
 from pathlib import Path
 from uuid import uuid4
 
-from .update_permissions import create_private_file, verify_private_path
+from .update_permissions import (
+    create_private_directory,
+    create_private_file,
+    verify_private_path,
+    verify_windows_installation_parent,
+)
 
 
 class ReplacementError(RuntimeError):
@@ -49,15 +54,34 @@ def validate_installation_parent(parent: Path) -> Path:
     parent = _plain_directory(parent)
     info = parent.stat()
     if os.name == "nt":
-        verify_private_path(parent)
+        verify_windows_installation_parent(parent)
         if not os.access(parent, os.W_OK):
             raise ReplacementError("Installation requires elevation; use the manual installer")
+        # os.access on Windows ignores many ACL distinctions. Demonstrate actual
+        # directory creation/removal with a private, empty same-parent probe.
+        probe = parent / f".cpm-update-probe-{uuid4().hex}"
+        try:
+            create_private_directory(probe)
+            probe.rmdir()
+        except (OSError, RuntimeError) as exc:
+            raise ReplacementError(
+                "Installation requires elevation; use the manual installer"
+            ) from exc
     elif (
         info.st_uid not in (0, os.getuid())
         or info.st_mode & 0o002
         or not os.access(parent, os.W_OK)
     ):
         raise ReplacementError("Installation parent must be trusted and user-writable")
+    if os.name != "nt" and info.st_mode & 0o020:
+        import grp
+
+        try:
+            group = grp.getgrgid(info.st_gid).gr_name
+        except KeyError as exc:
+            raise ReplacementError("Installation parent has an unknown writable group") from exc
+        if group not in {"root", "wheel", "admin"}:
+            raise ReplacementError("Installation parent has an untrusted writable group")
     return parent
 
 

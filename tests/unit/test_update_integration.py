@@ -94,6 +94,7 @@ def repository(tmp_path, monkeypatch, artifacts):
 
 
 def test_authenticated_runtime_pair_apply_and_new_manager_rollback(tmp_path, monkeypatch):
+    protect_path(tmp_path)
     installation = tmp_path / "installation"
     installation.mkdir(mode=0o700)
     (installation / "release").write_text("old manager")

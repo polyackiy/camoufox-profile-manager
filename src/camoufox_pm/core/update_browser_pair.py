@@ -12,6 +12,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from .update_package import PackageEntry, extract_verified_browser_archive
+from .update_permissions import create_private_directory
 from .update_targets import UpdateVerificationError, VerifiedTarget
 
 
@@ -43,7 +44,7 @@ def install_paired_browser(target: VerifiedTarget, browser_root: Path, *, offlin
     )
     destination.parent.mkdir(parents=True, exist_ok=True)
     temporary = destination.parent / f".staging-{uuid4().hex}"
-    temporary.mkdir(mode=0o700)
+    create_private_directory(temporary)
     try:
         package = extract_verified_browser_archive(target, temporary)
         package.verify_tree()

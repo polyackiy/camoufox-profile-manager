@@ -19,7 +19,12 @@ from dataclasses import asdict, dataclass, replace
 from pathlib import Path, PurePosixPath
 from uuid import uuid4
 
-from .update_permissions import create_private_directory, reject_reparse_paths, verify_private_path
+from .update_permissions import (
+    create_private_directory,
+    create_private_file,
+    reject_reparse_paths,
+    verify_private_path,
+)
 from .update_targets import UpdateVerificationError, VerifiedTarget
 
 MANIFEST = "update-package.json"
@@ -97,11 +102,24 @@ class VerifiedPackage:
 
 
 def _mode(info: os.stat_result, directory: bool) -> int:
-    # Windows does not retain POSIX executable bits; its ACL remains inherited
-    # from private staging. POSIX mode changes are part of the tree binding.
+    # Windows does not retain POSIX executable bits; native ACLs protect each
+    # extracted entry from creation. POSIX mode changes are part of the tree binding.
     if os.name == "nt":
         return 0o755 if directory else 0o644
     return stat.S_IMODE(info.st_mode)
+
+
+def _create_tree_directory(path: Path) -> None:
+    if os.name == "nt":
+        create_private_directory(path)
+    else:
+        path.mkdir(mode=0o755)
+
+
+def _create_tree_file(path: Path):
+    if os.name == "nt":
+        return os.fdopen(create_private_file(path), "wb")
+    return path.open("xb")
 
 
 def _digest(path: Path) -> str:
@@ -321,7 +339,7 @@ def extract_verified_package(target: VerifiedTarget, staging: Path) -> VerifiedP
                 for entry in entries:
                     candidate = root / entry.path
                     if entry.kind == "directory":
-                        candidate.mkdir(mode=0o755)
+                        _create_tree_directory(candidate)
                         if os.name != "nt":
                             candidate.chmod(entry.mode)
                     elif entry.kind == "file":
@@ -332,7 +350,10 @@ def extract_verified_package(target: VerifiedTarget, staging: Path) -> VerifiedP
                             )
                         digest = hashlib.sha256()
                         length = 0
-                        with archive.open(member) as source, candidate.open("xb") as destination:
+                        with (
+                            archive.open(member) as source,
+                            _create_tree_file(candidate) as destination,
+                        ):
                             while chunk := source.read(1024 * 1024):
                                 length += len(chunk)
                                 if length > entry.length:
@@ -480,7 +501,7 @@ def extract_verified_browser_archive(target: VerifiedTarget, staging: Path) -> V
                 for entry in ordered:
                     candidate = root / entry.path
                     if entry.kind == "directory":
-                        candidate.mkdir(mode=0o755)
+                        _create_tree_directory(candidate)
                         if os.name != "nt":
                             candidate.chmod(0o755)
                     elif entry.kind == "file":
@@ -488,7 +509,7 @@ def extract_verified_browser_archive(target: VerifiedTarget, staging: Path) -> V
                         length = 0
                         with (
                             archive.open(sources[entry.path]) as source,
-                            candidate.open("xb") as dest,
+                            _create_tree_file(candidate) as dest,
                         ):
                             for chunk in iter(lambda: source.read(1024 * 1024), b""):
                                 length += len(chunk)

@@ -50,3 +50,20 @@ def test_added_browser_code_rejected_on_retry(tmp_path):
 def test_browser_install_refuses_without_offline_lock(tmp_path):
     with pytest.raises(UpdateVerificationError, match="offline"):
         install_paired_browser(browser(tmp_path), tmp_path / "root", offline_check=lambda: False)
+
+
+def test_pair_staging_uses_native_private_creation(tmp_path, monkeypatch):
+    from camoufox_pm.core import update_browser_pair
+    from camoufox_pm.core.update_permissions import create_private_directory, verify_private_path
+
+    created = []
+
+    def private(path):
+        create_private_directory(path)
+        verify_private_path(path)
+        created.append(path)
+
+    monkeypatch.setattr(update_browser_pair, "create_private_directory", private)
+    install_paired_browser(browser(tmp_path), tmp_path / "root", offline_check=lambda: True)
+    assert len(created) == 1
+    assert created[0].name.startswith(".staging-")

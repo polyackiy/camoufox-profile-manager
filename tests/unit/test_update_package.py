@@ -14,6 +14,7 @@ from camoufox_pm.core.update_package import (
     extract_verified_browser_archive,
     extract_verified_package,
 )
+from camoufox_pm.core.update_permissions import create_private_directory, verify_private_path
 from camoufox_pm.core.update_targets import UpdateVerificationError, VerifiedTarget
 
 SPEC = importlib.util.spec_from_file_location(
@@ -40,7 +41,7 @@ def package(tmp_path):
     archive = tmp_path / "package.zip"
     producer.build_update_package(tree, archive, platform="windows")
     staging = tmp_path / "staging"
-    staging.mkdir(mode=0o700)
+    create_private_directory(staging)
     return tree, archive, staging
 
 
@@ -146,7 +147,7 @@ def test_macos_contained_symlinks(tmp_path):
     archive = tmp_path / "package.zip"
     producer.build_update_package(tree, archive, platform="darwin")
     staging = tmp_path / "staging"
-    staging.mkdir(mode=0o700)
+    create_private_directory(staging)
     result = extract_verified_package(target(archive, "darwin"), staging)
     assert (result.path / "Contents/Frameworks/library").read_bytes() == b"framework"
     result.verify_tree()
@@ -221,7 +222,7 @@ def test_authenticated_upstream_archive_exact_root(tmp_path):
     verified = target(archive, "darwin")
     verified.manifest["component"] = "camoufox"
     staging = tmp_path / "staging"
-    staging.mkdir(mode=0o700)
+    create_private_directory(staging)
     package = extract_verified_browser_archive(verified, staging)
     assert (package.path / "Camoufox.app/Contents/MacOS/camoufox").read_bytes() == b"browser"
     package.verify_tree()
@@ -240,7 +241,7 @@ def test_upstream_traversal_rejected(tmp_path, name):
     verified = target(archive)
     verified.manifest["component"] = "camoufox"
     staging = tmp_path / "staging"
-    staging.mkdir(mode=0o700)
+    create_private_directory(staging)
     with pytest.raises(UpdateVerificationError):
         extract_verified_browser_archive(verified, staging)
     assert not list(staging.iterdir())
@@ -271,7 +272,7 @@ def test_upstream_macos_symlinks(tmp_path):
     verified = target(archive, "darwin")
     verified.manifest["component"] = "camoufox"
     staging = tmp_path / "staging"
-    staging.mkdir(mode=0o700)
+    create_private_directory(staging)
     package = extract_verified_browser_archive(verified, staging)
     assert (package.path / "Frameworks/Versions/Current/library").read_bytes() == b"framework"
     package.verify_tree()
@@ -285,6 +286,31 @@ def test_upstream_case_collision(tmp_path):
     verified = target(archive)
     verified.manifest["component"] = "camoufox"
     staging = tmp_path / "staging"
-    staging.mkdir(mode=0o700)
+    create_private_directory(staging)
     with pytest.raises(UpdateVerificationError):
         extract_verified_browser_archive(verified, staging)
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows native protected DACLs")
+def test_extracted_entries_have_private_native_acl(package):
+    _, archive, staging = package
+    result = extract_verified_package(target(archive), staging)
+    verify_private_path(result.path)
+    for candidate in result.path.rglob("*"):
+        verify_private_path(candidate)
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows native protected DACLs")
+def test_upstream_entries_have_private_native_acl(tmp_path):
+    archive = tmp_path / "upstream.zip"
+    with zipfile.ZipFile(archive, "w") as zipped:
+        zipped.writestr("_internal/adjacent.dll", b"DLL")
+        zipped.writestr("camoufox.exe", b"browser")
+    verified = target(archive)
+    verified.manifest["component"] = "camoufox"
+    staging = tmp_path / "staging"
+    create_private_directory(staging)
+    result = extract_verified_browser_archive(verified, staging)
+    verify_private_path(result.path)
+    for candidate in result.path.rglob("*"):
+        verify_private_path(candidate)

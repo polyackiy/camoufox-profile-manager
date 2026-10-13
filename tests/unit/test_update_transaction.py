@@ -11,6 +11,7 @@ from types import SimpleNamespace
 import pytest
 
 from camoufox_pm.core.maintenance import MaintenanceGate
+from camoufox_pm.core.update_permissions import protect_path
 from camoufox_pm.core.update_service import UpdateService
 from camoufox_pm.core.update_transaction import UpdateTransaction
 
@@ -32,6 +33,7 @@ def portable_fake_launcher(monkeypatch):
 
 
 def transaction(tmp_path, *, fail=False):
+    protect_path(tmp_path)
     installation = tmp_path / "app"
     installation.mkdir(mode=0o700)
     (installation / "release").write_text("old")

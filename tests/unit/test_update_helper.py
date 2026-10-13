@@ -149,3 +149,34 @@ def test_world_writable_installation_parent_refused(tmp_path):
     tmp_path.chmod(0o777)
     with pytest.raises(ReplacementError, match="trusted"):
         validate_installation_parent(tmp_path)
+
+
+def test_unprivileged_group_writable_parent_refused(tmp_path, monkeypatch):
+    import os
+    from types import SimpleNamespace
+
+    from camoufox_pm.core.update_helper import validate_installation_parent
+
+    if os.name == "nt":
+        pytest.skip("POSIX group boundary")
+    import grp
+
+    monkeypatch.setattr(grp, "getgrgid", lambda gid: SimpleNamespace(gr_name="staff"))
+    tmp_path.chmod(0o775)
+    with pytest.raises(ReplacementError, match="untrusted writable group"):
+        validate_installation_parent(tmp_path)
+
+
+def test_privileged_group_writable_parent_allowed(tmp_path, monkeypatch):
+    import os
+    from types import SimpleNamespace
+
+    from camoufox_pm.core.update_helper import validate_installation_parent
+
+    if os.name == "nt":
+        pytest.skip("POSIX group boundary")
+    import grp
+
+    monkeypatch.setattr(grp, "getgrgid", lambda gid: SimpleNamespace(gr_name="admin"))
+    tmp_path.chmod(0o775)
+    assert validate_installation_parent(tmp_path) == tmp_path.resolve()

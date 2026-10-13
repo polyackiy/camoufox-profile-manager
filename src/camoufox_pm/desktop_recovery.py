@@ -94,8 +94,8 @@ class RecoveryBridge:
         self._status = status
         self._dispatch = dispatch
         self._lock = Lock()
-        self.window = None
-        self.open_requested = False
+        self._window = None
+        self._open_requested = False
 
     def status(self) -> dict:
         return self._status()
@@ -126,8 +126,8 @@ class RecoveryBridge:
             ):
                 raise ValueError("Confirm the current recovery timestamp before restoring")
             result = self._dispatch(action, transaction_id, timestamp)
-            if action in {"resume", "rollback"} and self.window is not None:
-                self.window.destroy()
+            if action in {"resume", "rollback"} and self._window is not None:
+                self._window.destroy()
             return result
         finally:
             self._lock.release()
@@ -142,9 +142,9 @@ class RecoveryBridge:
                 not in {"idle", "cancelled", "committed", "rolled_back", "staged", "failed"}
             ):
                 raise ValueError("Finish recovery before opening the manager")
-            self.open_requested = True
-            if self.window is not None:
-                self.window.destroy()
+            self._open_requested = True
+            if self._window is not None:
+                self._window.destroy()
 
 
 def show_recovery(
@@ -153,7 +153,7 @@ def show_recovery(
     import webview
 
     bridge = RecoveryBridge(status, dispatch)
-    bridge.window = webview.create_window(
+    bridge._window = webview.create_window(
         "Camoufox Profile Manager — Update recovery",
         html=RECOVERY_HTML,
         js_api=bridge,
@@ -161,7 +161,7 @@ def show_recovery(
         height=660,
         min_size=(520, 480),
     )
-    if bridge.window is None:
+    if bridge._window is None:
         raise RuntimeError("The recovery window could not be created")
     webview.start()
-    return bridge.open_requested
+    return bridge._open_requested
