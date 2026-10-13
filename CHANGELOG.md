@@ -6,6 +6,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.6.0-rc.2] - 2026-10-13
+
+Desktop preview with stage-two workflows. Installers remain unsigned; see the
+release notes for signing and clean-system acceptance limitations.
+
 ### Added
 - Standard JSON/Netscape cookie import and export with validation, merge/replace
   choices and a recovery snapshot before replacement.
