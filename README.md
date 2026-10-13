@@ -339,3 +339,10 @@ Built on [Camoufox](https://github.com/daijro/camoufox) by daijro.
 ---
 
 Русская версия: [README.ru.md](README.ru.md).
+
+## Next stage: synchronization
+
+[Stage four architecture and plan](docs/stage-four-sync.md) proposes encrypted
+closed-profile handoff between trusted devices of one owner. This is planned
+work, not a shipped synchronization feature. Follow [#82](https://github.com/polyackiy/camoufox-profile-manager/issues/82)
+for the implementation sequence and security acceptance gates.
