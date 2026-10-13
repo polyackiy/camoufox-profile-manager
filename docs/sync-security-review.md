@@ -229,6 +229,10 @@ Fixed findings and regression coverage:
 - **Cancellation acknowledgement:** an original valid schedule is not evidence
   of successful cancellation. Require the exact root-signed cancellation in the
   reply; retain uncertain cancellation intent and display it as pending.
+- **Cross-device restoration UI:** a locally trashed copy must retain an explicit
+  authenticated way to retrieve an active successor restored elsewhere. The
+  restoration check leaves launch blocked until verified installation; UI tests
+  cover an active successor, an unchanged tombstone and pending-operation fences.
 - **Crashed download leases:** reap confirmed-dead PID/birth identities independently
   of old-version collection, including current heads. Live or uncertain readers
   remain protected and cannot be evicted by a heartbeat timeout.
@@ -245,6 +249,9 @@ and interruptions before/after each durable publication boundary.
 A new native installed-manager acceptance workflow builds ordinary installers and
 runs two isolated installed manager processes with their bundled UI and a real
 HTTPS relay. Its ephemeral test CA is added only to disposable installed copies;
-release artifacts and TLS validation are not weakened. Until recorded successful
-CI results exist, the harness itself is not proof that installed-platform behavior
-passes. Same-runner testing also does not prove every physical GPU/font environment.
+release artifacts and TLS validation are not weakened.
+[Run 38471961607](https://github.com/polyackiy/camoufox-profile-manager/actions/runs/38471961607)
+passed on Linux, Windows and macOS ARM/Intel at `5bd37f6`, including four real
+browser launches, UI Trash/restore and retention schedule/cancel. See the
+[support matrix](sync-support-matrix.md) for exact coverage and limits. Same-runner
+testing does not prove every physical GPU/font environment.
