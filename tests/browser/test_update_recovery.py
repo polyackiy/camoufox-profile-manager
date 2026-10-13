@@ -68,7 +68,7 @@ async def test_complete_profile_checkpoint_restores_real_session_and_identity(
             profile = await manager.create_profile(
                 "Recovery browser proof", generate_fingerprint=False
             )
-            await manager.update_profile(profile.id, tags=["before-checkpoint"])
+            await manager.update_profile(profile.id, {"tags": ["before-checkpoint"]})
             page = await page_for(profile.id)
             await page.evaluate("""() => {
                 document.cookie = 'recovery=original; Max-Age=3600; Path=/; SameSite=Lax';
@@ -102,7 +102,7 @@ async def test_complete_profile_checkpoint_restores_real_session_and_identity(
             await manager.close_browser(profile.id)
             changed_pin = {**pinned, "navigator.hardwareConcurrency": 31}
             await manager.update_profile(
-                profile.id, tags=["after-checkpoint"], fingerprint=changed_pin
+                profile.id, {"tags": ["after-checkpoint"], "fingerprint": changed_pin}
             )
             changed = await manager.get_profile(profile.id)
             assert changed.tags == ["after-checkpoint"]

@@ -9,9 +9,9 @@ on:
         options: [all, ubuntu-latest, windows-latest, macos-latest]
         default: all
       suite:
-        description: Full acceptance or focused canvas restart diagnosis
+        description: Full acceptance, canvas restart diagnosis, or focused recovery smoke
         type: choice
-        options: [full, canvas]
+        options: [full, canvas, recovery]
         default: full
       raster_mode:
         description: Diagnostic canvas backend override (default tests product behavior)
@@ -50,7 +50,7 @@ jobs:
       CPM_CANVAS_CACHE_PROBE: ${{ inputs.raster_mode == 'cache-lifecycle' && '1' || '0' }}
       CPM_BROWSER_WATCHDOG_SECONDS: '180'
       CPM_CANVAS_DIAGNOSTIC_DIR: canvas-diagnostics
-      CPM_BROWSER_TARGET: ${{ inputs.suite == 'canvas' && 'tests/browser/test_fingerprint_stability.py::test_stable_canvas_survives_a_relaunch' || 'tests' }}
+      CPM_BROWSER_TARGET: ${{ inputs.suite == 'canvas' && 'tests/browser/test_fingerprint_stability.py::test_stable_canvas_survives_a_relaunch' || inputs.suite == 'recovery' && 'tests/browser/test_update_recovery.py' || 'tests' }}
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v7
@@ -70,10 +70,10 @@ jobs:
       - name: Record the tested pair
         run: uv run camoufox version
       - name: Install packaged native Firefox for Windows renderer diagnostics
-        if: runner.os == 'Windows' && (inputs.raster_mode == 'native-firefox' || inputs.raster_mode == 'default' || inputs.raster_mode == '')
+        if: runner.os == 'Windows' && inputs.suite != 'recovery' && (inputs.raster_mode == 'native-firefox' || inputs.raster_mode == 'default' || inputs.raster_mode == '')
         run: uv run playwright install firefox
       - name: Verify Windows native renderer convergence before manager acceptance
-        if: runner.os == 'Windows' && (inputs.raster_mode == 'default' || inputs.raster_mode == '')
+        if: runner.os == 'Windows' && inputs.suite != 'recovery' && (inputs.raster_mode == 'default' || inputs.raster_mode == '')
         # Plain Firefox reproduces the cold-host pixel transition too. Preserve
         # every baseline, warn on change, fail after at most three launches.
         # Manual cold diagnostics bypass this step; product launches never use it.
@@ -91,7 +91,7 @@ jobs:
         shell: bash
         run: uv run pytest "$CPM_BROWSER_TARGET" -m browser --no-network --junitxml=browser-results.xml
       - name: Verify repeated Windows canvas restarts
-        if: runner.os == 'Windows' && inputs.raster_mode != 'text-probes' && inputs.raster_mode != 'process-lifecycle' && inputs.raster_mode != 'native-firefox'
+        if: runner.os == 'Windows' && inputs.suite != 'recovery' && inputs.raster_mode != 'text-probes' && inputs.raster_mode != 'process-lifecycle' && inputs.raster_mode != 'native-firefox'
         shell: pwsh
         # A single clean run does not settle the previously observed drift.
         run: |
