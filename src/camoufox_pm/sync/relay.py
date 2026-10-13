@@ -196,6 +196,9 @@ class _LimitedFileResponse(FileResponse):
             self.slots.release()
 
 
+UNCOMMITTED_TTL_SECONDS = 7 * 24 * 60 * 60
+
+
 class _Store:
     def __init__(self, directory: Path):
         self.directory = directory.absolute()
@@ -228,6 +231,7 @@ CREATE INDEX event_profile ON events(owner,profile,sequence);
 PRAGMA application_id=1129336146;
 PRAGMA user_version=1;
 COMMIT;""")
+            self._migrate_expiry(db)
             self._schema(db)
             if db.execute("PRAGMA quick_check").fetchall() != [("ok",)]:
                 raise ValueError(_ERROR)
@@ -256,9 +260,33 @@ COMMIT;""")
                 raise ValueError(_ERROR)
 
     @staticmethod
-    def _schema(db: sqlite3.Connection) -> None:
+    def _migrate_expiry(db: sqlite3.Connection) -> None:
+        # Stop old-version workers before upgrading. Old uploads get full grace.
+        db.execute("BEGIN IMMEDIATE")
+        try:
+            if db.execute("PRAGMA user_version").fetchone()[0] == 1:
+                _Store._schema(db, legacy=True)
+                baseline = max(
+                    int(time.time()),
+                    db.execute("SELECT highwater FROM clock WHERE id=1").fetchone()[0],
+                )
+                db.execute(
+                    "CREATE TABLE upload_expiry (owner TEXT NOT NULL, revision TEXT NOT NULL, expires INTEGER NOT NULL, PRIMARY KEY(owner,revision))"
+                )
+                db.execute(
+                    "INSERT INTO upload_expiry SELECT owner,id,? FROM revisions WHERE state IN ('uploading','ready')",
+                    (baseline + UNCOMMITTED_TTL_SECONDS,),
+                )
+                db.execute("PRAGMA user_version=2")
+            db.commit()
+        except BaseException:
+            db.rollback()
+            raise
+
+    @staticmethod
+    def _schema(db: sqlite3.Connection, *, legacy: bool = False) -> None:
         if (
-            db.execute("PRAGMA user_version").fetchone()[0] != 1
+            db.execute("PRAGMA user_version").fetchone()[0] != (1 if legacy else 2)
             or db.execute("PRAGMA application_id").fetchone()[0] != 1129336146
         ):
             raise ValueError(_ERROR)
@@ -275,7 +303,7 @@ COMMIT;""")
             ("table", "owners"),
             ("table", "profiles"),
             ("table", "revisions"),
-        ]:
+        ] + ([] if legacy else [("table", "upload_expiry")]):
             raise ValueError(_ERROR)
 
     def connection(self) -> sqlite3.Connection:
@@ -357,6 +385,88 @@ COMMIT;""")
             "revision_id": head,
             "holder_device_id": holder,
         }
+
+
+def expire_uncommitted_uploads(directory: Path, *, limit: int = 100) -> dict[str, int]:
+    """Operator-only bounded cleanup, serialized with commits; retains history.
+
+    Delete and fsync before releasing quota. A pre-commit crash leaves reserved
+    quota for the next sweep. Live/uncertain worker identities are never touched.
+    """
+    if type(limit) is not int or not 1 <= limit <= 1000:
+        raise ValueError(_ERROR)
+    try:
+        reject_reparse_paths(directory)
+        if not (directory / "relay.sqlite3").is_file():
+            raise ValueError(_ERROR)
+        store = _Store(directory)
+        expired = skipped = failed = 0
+        selected = []
+        with store.transaction() as db:
+            now = int(time.time())
+            highwater = db.execute("SELECT highwater FROM clock WHERE id=1").fetchone()[0]
+            rollback = now < highwater
+            if not rollback:
+                db.execute("UPDATE clock SET highwater=? WHERE id=1", (now,))
+            rows = db.execute(
+                "SELECT r.owner,r.id FROM revisions r LEFT JOIN upload_expiry e ON e.owner=r.owner AND e.revision=r.id WHERE r.state IN ('expiring','aborting') OR (r.state IN ('uploading','ready') AND e.expires<=? AND ?=0) ORDER BY e.expires,r.owner,r.id LIMIT ?",
+                (now, int(rollback), limit),
+            ).fetchall()
+            if rollback and not rows:
+                raise ValueError(_ERROR)
+            for owner, revision in rows:
+                active = db.execute(
+                    "SELECT pid,created FROM active_uploads WHERE owner=? AND revision=?",
+                    (owner, revision),
+                ).fetchone()
+                if active is not None:
+                    try:
+                        if abs(psutil.Process(active[0]).create_time() - active[1]) < 0.01:
+                            skipped += 1
+                            continue
+                    except psutil.NoSuchProcess:
+                        pass
+                    except (psutil.Error, OSError):
+                        skipped += 1
+                        continue
+                if db.execute(
+                    "SELECT 1 FROM profiles WHERE owner=? AND head=?", (owner, revision)
+                ).fetchone():
+                    skipped += 1
+                    continue
+                db.execute(
+                    "UPDATE revisions SET state=CASE WHEN state='aborting' THEN 'aborting' ELSE 'expiring' END WHERE owner=? AND id=?",
+                    (owner, revision),
+                )
+                selected.append((owner, revision))
+        # Persist the fence BEFORE removing anything: a crash or failed fsync
+        # must never make a missing ciphertext eligible for a later commit.
+        for owner, revision in selected:
+            with store.transaction() as db:
+                row = db.execute(
+                    "SELECT state FROM revisions WHERE owner=? AND id=?", (owner, revision)
+                ).fetchone()
+                if row not in {("expiring",), ("aborting",)}:
+                    continue
+                terminal = "aborted" if row == ("aborting",) else "expired"
+                try:
+                    store.pending_path(owner, revision).unlink(missing_ok=True)
+                    store.blob_path(owner, revision).unlink(missing_ok=True)
+                    store.sync_directory(store.blobs)
+                except Exception:
+                    failed += 1
+                    continue
+                db.execute(
+                    "UPDATE revisions SET state=?,size=0 WHERE owner=? AND id=? AND state IN ('expiring','aborting')",
+                    (terminal, owner, revision),
+                )
+                db.execute(
+                    "DELETE FROM active_uploads WHERE owner=? AND revision=?", (owner, revision)
+                )
+                expired += 1
+        return {"examined": len(rows), "expired": expired, "skipped": skipped, "failed": failed}
+    except Exception:
+        raise ValueError("Relay upload maintenance failed") from None
 
 
 def create_relay_app(
@@ -592,6 +702,62 @@ def create_relay_app(
         }
         if type(operation) is not str or operation not in allowed or set(obj) != allowed[operation]:
             raise HTTPException(400, _ERROR)
+        if operation == "discard_upload":
+            revision = _id(obj["revision_id"])
+            with store.transaction() as db:
+                _, membership = store.owner(db, owner_id)
+                current_device(membership, auth)
+                row = db.execute(
+                    "SELECT writer,state FROM revisions WHERE owner=? AND id=?",
+                    (owner_id, revision),
+                ).fetchone()
+                if (
+                    row is None
+                    or row[0] != auth.device_id
+                    or row[1] not in {"uploading", "ready", "aborting", "aborted", "expired"}
+                ):
+                    raise HTTPException(409, _ERROR)
+                if row[1] in {"aborted", "expired"}:
+                    return {"revision_id": revision, "state": row[1]}
+                active = db.execute(
+                    "SELECT pid,created FROM active_uploads WHERE owner=? AND revision=?",
+                    (owner_id, revision),
+                ).fetchone()
+                if active is not None:
+                    try:
+                        if abs(psutil.Process(active[0]).create_time() - active[1]) < 0.01:
+                            raise HTTPException(409, _ERROR)
+                    except psutil.NoSuchProcess:
+                        pass
+                    except (psutil.Error, OSError):
+                        raise HTTPException(409, _ERROR) from None
+                db.execute(
+                    "UPDATE revisions SET state='aborting' WHERE owner=? AND id=?",
+                    (owner_id, revision),
+                )
+            # Durable intent prevents a later commit after partial filesystem
+            # deletion, even if this process dies before the final transaction.
+            with store.transaction() as db:
+                _, membership = store.owner(db, owner_id)
+                current_device(membership, auth)
+                row = db.execute(
+                    "SELECT state FROM revisions WHERE owner=? AND id=?", (owner_id, revision)
+                ).fetchone()
+                if row == ("aborted",):
+                    return {"revision_id": revision, "state": "aborted"}
+                if row != ("aborting",):
+                    raise HTTPException(409, _ERROR)
+                store.pending_path(owner_id, revision).unlink(missing_ok=True)
+                store.blob_path(owner_id, revision).unlink(missing_ok=True)
+                store.sync_directory(store.blobs)
+                db.execute(
+                    "UPDATE revisions SET state='aborted',size=0 WHERE owner=? AND id=?",
+                    (owner_id, revision),
+                )
+                db.execute(
+                    "DELETE FROM active_uploads WHERE owner=? AND revision=?", (owner_id, revision)
+                )
+            return {"revision_id": revision, "state": "aborted"}
         with store.transaction() as db:
             root, membership = store.owner(db, owner_id)
             device = current_device(membership, auth)
@@ -629,39 +795,6 @@ def create_relay_app(
                     "ciphertext_length": row[2],
                     "state": row[3],
                 }
-            if operation == "discard_upload":
-                revision = _id(obj["revision_id"])
-                row = db.execute(
-                    "SELECT writer,state FROM revisions WHERE owner=? AND id=?",
-                    (owner_id, revision),
-                ).fetchone()
-                if row is None or row[0] != auth.device_id or row[1] == "committed":
-                    raise HTTPException(409, _ERROR)
-                active = db.execute(
-                    "SELECT pid,created FROM active_uploads WHERE owner=? AND revision=?",
-                    (owner_id, revision),
-                ).fetchone()
-                if active is not None:
-                    try:
-                        if abs(psutil.Process(active[0]).create_time() - active[1]) < 0.01:
-                            raise HTTPException(409, _ERROR)
-                    except psutil.NoSuchProcess:
-                        pass
-                    except psutil.AccessDenied:
-                        raise HTTPException(409, _ERROR) from None
-                db.execute(
-                    "UPDATE revisions SET state='aborted',size=0 WHERE owner=? AND id=?",
-                    (owner_id, revision),
-                )
-                path = store.blob_path(owner_id, revision)
-                pending = store.pending_path(owner_id, revision)
-                pending.unlink(missing_ok=True)
-                path.unlink(missing_ok=True)
-                store.sync_directory(store.blobs)
-                db.execute(
-                    "DELETE FROM active_uploads WHERE owner=? AND revision=?", (owner_id, revision)
-                )
-                return {"revision_id": revision, "state": "aborted"}
             if operation == "update_membership":
                 if epoch >= 10000:
                     raise HTTPException(429, _ERROR)
@@ -847,6 +980,18 @@ def create_relay_app(
                     db.execute(
                         "INSERT INTO revisions VALUES(?,?,?,?,?,'uploading',NULL,NULL)",
                         (owner_id, revision_id, auth.device_id, length, body_hash),
+                    )
+                    db.execute(
+                        "INSERT INTO upload_expiry VALUES(?,?,?)",
+                        (
+                            owner_id,
+                            revision_id,
+                            max(
+                                int(time.time()),
+                                db.execute("SELECT highwater FROM clock WHERE id=1").fetchone()[0],
+                            )
+                            + UNCOMMITTED_TTL_SECONDS,
+                        ),
                     )
                     process = psutil.Process()
                     db.execute(

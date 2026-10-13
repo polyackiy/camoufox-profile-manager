@@ -866,3 +866,95 @@ def test_unchanged_historical_head_survives_revocation_and_current_successor_can
     result = engine.reconcile("profile1")
     assert result.phase == "apply_required"
     assert result.checkpoint.membership_epoch == 3
+
+
+@pytest.mark.parametrize("tamper", [None, "hash", "holder", "commit"])
+def test_expired_upload_restarts_only_unchanged_uncommitted_checkout(system, tamper):
+    engine, server, _, _ = system
+    remote = held(system)
+    manifest, signature, source = snapshot(system)
+    server.lose_ack = "upload"
+    with pytest.raises(RelayError):
+        engine.publish("profile1", manifest, signature, source)
+    original = engine.status("profile1").pending
+    server.blobs[manifest.revision_id].update(state="expired", ciphertext_length=0)
+    if tamper == "hash":
+        server.blobs[manifest.revision_id]["ciphertext_sha256"] = "0" * 64
+    elif tamper == "holder":
+        server.profiles[remote]["holder_device_id"] = None
+    elif tamper == "commit":
+        # A signed commit always wins over an untrusted expired-status claim.
+        engine._send_pending("profile1")
+    if tamper in {"hash", "holder"}:
+        with pytest.raises(EngineError):
+            engine.restart_expired_upload("profile1")
+        assert engine.status("profile1").pending == original
+    else:
+        assert engine.restart_expired_upload("profile1") is (tamper is None)
+        assert engine.status("profile1").pending is None
+        if tamper is None:
+            archived = engine.control.get("expired-upload/" + original.operation_id)
+            assert archived.payload["pending"]["ciphertext_path"] == str(source.absolute())
+            assert engine.may_launch("profile1")
+    assert source.exists()
+
+
+def test_unavailable_expiry_status_retains_original_upload_intent(system, monkeypatch):
+    engine, server, _, _ = system
+    held(system)
+    manifest, signature, source = snapshot(system)
+    server.lose_ack = "upload"
+    with pytest.raises(RelayError):
+        engine.publish("profile1", manifest, signature, source)
+    pending = engine.status("profile1").pending
+    rpc = engine.client.rpc
+
+    def missing(payload):
+        if payload["operation"] == "blob_status":
+            raise RelayError("not found or temporarily unreachable")
+        return rpc(payload)
+
+    monkeypatch.setattr(engine.client, "rpc", missing)
+    assert engine.restart_expired_upload("profile1") is False
+    assert engine.status("profile1").pending == pending
+    assert source.exists()
+    assert not engine.control.list("expired-upload/")
+
+
+@pytest.mark.parametrize("race", ["commit", "authorization"])
+def test_expired_restart_rechecks_history_and_authorization_before_cas(system, monkeypatch, race):
+    engine, server, _, _ = system
+    held(system)
+    manifest, signature, source = snapshot(system)
+    server.lose_ack = "upload"
+    with pytest.raises(RelayError):
+        engine.publish("profile1", manifest, signature, source)
+    pending = engine.status("profile1").pending
+    server.blobs[manifest.revision_id].update(state="expired", ciphertext_length=0)
+    rpc = engine.client.rpc
+
+    def changed(payload):
+        response = rpc(payload)
+        if payload["operation"] == "blob_status":
+            if race == "commit":
+                # A signed commit arrives after the first reconciliation.
+                rpc(pending.body)
+            else:
+
+                def denied():
+                    raise PermissionError("live administrator revoked")
+
+                engine.authorize = denied
+        return response
+
+    monkeypatch.setattr(engine.client, "rpc", changed)
+    with pytest.raises((EngineError, PermissionError)):
+        engine.restart_expired_upload("profile1")
+    assert not engine.control.list("expired-upload/")
+    assert source.exists()
+    state = engine.status("profile1")
+    if race == "commit":
+        assert state.checkpoint.revision_id == manifest.revision_id
+        assert state.pending is None
+    else:
+        assert state.pending == pending

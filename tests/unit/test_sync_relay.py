@@ -336,7 +336,7 @@ def test_strict_json_duplicate_keys_and_unknown_operations(relay):
 
 def test_restart_rejects_unknown_database_schema(relay):
     with sqlite3.connect(relay.directory / "relay.sqlite3") as db:
-        db.execute("PRAGMA user_version=2")
+        db.execute("PRAGMA user_version=999")
     with pytest.raises(ValueError):
         create_relay_app(
             relay.directory,
@@ -605,7 +605,7 @@ def test_pending_delete_failure_retains_quota_reservation(relay, monkeypatch):
     monkeypatch.setattr(Path, "unlink", fail_pending)
     assert relay.rpc("discard_upload", revision_id=revision).status_code == 400
     status = relay.rpc("blob_status", revision_id=revision).json()
-    assert status["state"] == "uploading" and status["ciphertext_length"] == 100
+    assert status["state"] == "aborting" and status["ciphertext_length"] == 100
 
 
 @pytest.mark.asyncio
@@ -764,3 +764,234 @@ async def test_old_certificate_request_cannot_cross_remove_and_readd_rotation(tm
         result = await pending
         assert result.status_code == 403
     relay.client.close()
+
+
+def overdue(relay, revision):
+    with sqlite3.connect(relay.directory / "relay.sqlite3") as db:
+        db.execute(
+            "UPDATE upload_expiry SET expires=? WHERE revision=?", (int(time.time()) - 10, revision)
+        )
+
+
+def test_expiry_grace_terminal_tombstone_and_bound(relay):
+    from camoufox_pm.sync.relay import expire_uncommitted_uploads
+
+    revisions = [str(uuid4()) for _ in range(2)]
+    for revision in revisions:
+        assert relay.upload(revision, b"x" * 100).status_code == 200
+    assert expire_uncommitted_uploads(relay.directory)["examined"] == 0
+    for revision in revisions:
+        overdue(relay, revision)
+    assert expire_uncommitted_uploads(relay.directory, limit=1)["expired"] == 1
+    assert expire_uncommitted_uploads(relay.directory)["expired"] == 1
+    assert expire_uncommitted_uploads(relay.directory)["examined"] == 0
+    for revision in revisions:
+        status = relay.rpc("blob_status", revision_id=revision).json()
+        assert status["state"] == "expired" and status["ciphertext_length"] == 0
+        assert relay.upload(revision, b"x" * 100).status_code == 409
+        assert not (relay.directory / "blobs" / f"{relay.root.owner_id}-{revision}.blob").exists()
+
+
+@pytest.mark.parametrize("live", [True, False])
+def test_expiry_worker_liveness_and_crashed_partial(relay, live):
+    import os
+
+    import psutil
+
+    from camoufox_pm.core.update_permissions import create_private_file
+    from camoufox_pm.sync.relay import expire_uncommitted_uploads
+
+    revision = str(uuid4())
+    assert relay.upload(revision, b"x" * 100).status_code == 200
+    overdue(relay, revision)
+    partial = relay.directory / "blobs" / f".pending-{relay.root.owner_id}-{revision}"
+    with os.fdopen(create_private_file(partial), "wb") as stream:
+        stream.write(b"partial")
+    with sqlite3.connect(relay.directory / "relay.sqlite3") as db:
+        db.execute("UPDATE revisions SET state='uploading' WHERE id=?", (revision,))
+        db.execute(
+            "INSERT INTO active_uploads VALUES(?,?,?,?)",
+            (
+                relay.root.owner_id,
+                revision,
+                os.getpid(),
+                psutil.Process().create_time() if live else 0,
+            ),
+        )
+    result = expire_uncommitted_uploads(relay.directory)
+    assert result["skipped" if live else "expired"] == 1
+    assert partial.exists() == live
+
+
+@pytest.mark.parametrize("failure", ["unlink", "fsync"])
+def test_expiry_failure_retains_quota(relay, monkeypatch, failure):
+    from pathlib import Path
+
+    from camoufox_pm.sync.relay import _Store, expire_uncommitted_uploads
+
+    revision = str(uuid4())
+    assert relay.upload(revision, b"x" * 100).status_code == 200
+    overdue(relay, revision)
+    if failure == "unlink":
+        original = Path.unlink
+
+        def deny(path, *args, **kwargs):
+            if path.name.endswith(".blob"):
+                raise PermissionError("private path")
+            return original(path, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "unlink", deny)
+    else:
+        original_sync = _Store.sync_directory
+
+        def deny_sync(path):
+            if path.name == "blobs":
+                raise OSError("private path")
+            original_sync(path)
+
+        monkeypatch.setattr(_Store, "sync_directory", staticmethod(deny_sync))
+    result = expire_uncommitted_uploads(relay.directory)
+    assert result["failed"] == 1
+    status = relay.rpc("blob_status", revision_id=revision).json()
+    assert status["state"] == "expiring" and status["ciphertext_length"] == 100
+    monkeypatch.undo()
+    assert expire_uncommitted_uploads(relay.directory)["expired"] == 1
+
+
+def test_expiry_serializes_with_commit_and_preserves_history(relay):
+    from camoufox_pm.sync.relay import expire_uncommitted_uploads
+
+    held = relay.claim()
+    content = b"x" * 100
+    manifest = relay.manifest(content)
+    assert relay.upload(manifest.revision_id, content).status_code == 200
+    overdue(relay, manifest.revision_id)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        commit = pool.submit(relay.commit, manifest, expected=held)
+        sweep = pool.submit(expire_uncommitted_uploads, relay.directory)
+        response, result = commit.result(), sweep.result()
+    status = relay.rpc("blob_status", revision_id=manifest.revision_id).json()["state"]
+    if response.status_code == 200:
+        assert status == "committed" and result["expired"] == 0
+        assert expire_uncommitted_uploads(relay.directory)["expired"] == 0
+    else:
+        assert response.status_code == 409 and status == "expired" and result["expired"] == 1
+
+
+def test_expiry_clock_rollback_fails_closed(relay):
+    from camoufox_pm.sync.relay import expire_uncommitted_uploads
+
+    revision = str(uuid4())
+    assert relay.upload(revision, b"x" * 100).status_code == 200
+    overdue(relay, revision)
+    with sqlite3.connect(relay.directory / "relay.sqlite3") as db:
+        db.execute("UPDATE clock SET highwater=?", (int(time.time()) + 100,))
+    with pytest.raises(ValueError, match="maintenance failed"):
+        expire_uncommitted_uploads(relay.directory)
+    with sqlite3.connect(relay.directory / "relay.sqlite3") as db:
+        assert db.execute(
+            "SELECT state,size FROM revisions WHERE id=?", (revision,)
+        ).fetchone() == ("ready", 100)
+
+
+def test_expiry_v1_migration_grants_full_grace(relay):
+    from camoufox_pm.sync.relay import UNCOMMITTED_TTL_SECONDS, _Store, expire_uncommitted_uploads
+
+    revision = str(uuid4())
+    assert relay.upload(revision, b"x" * 100).status_code == 200
+    with sqlite3.connect(relay.directory / "relay.sqlite3") as db:
+        db.execute("DROP TABLE upload_expiry")
+        db.execute("PRAGMA user_version=1")
+    before = int(time.time())
+    _Store(relay.directory)
+    with sqlite3.connect(relay.directory / "relay.sqlite3") as db:
+        assert (
+            db.execute(
+                "SELECT expires FROM upload_expiry WHERE revision=?", (revision,)
+            ).fetchone()[0]
+            >= before + UNCOMMITTED_TTL_SECONDS
+        )
+    assert expire_uncommitted_uploads(relay.directory)["expired"] == 0
+
+
+def test_expiry_crash_fence_prevents_commit_after_removed_file(relay, monkeypatch):
+    from camoufox_pm.sync.relay import _Store, expire_uncommitted_uploads
+
+    held = relay.claim()
+    manifest = relay.manifest(b"x" * 100)
+    assert relay.upload(manifest.revision_id, b"x" * 100).status_code == 200
+    overdue(relay, manifest.revision_id)
+    original = _Store.sync_directory
+
+    class Crash(BaseException):
+        pass
+
+    def crash(path):
+        if path.name == "blobs":
+            raise Crash()
+        original(path)
+
+    monkeypatch.setattr(_Store, "sync_directory", staticmethod(crash))
+    with pytest.raises(Crash):
+        expire_uncommitted_uploads(relay.directory)
+    assert relay.commit(manifest, expected=held).status_code == 409
+    assert relay.rpc("discard_upload", revision_id=manifest.revision_id).status_code == 409
+    status = relay.rpc("blob_status", revision_id=manifest.revision_id).json()
+    assert status["state"] == "expiring" and status["ciphertext_length"] == 100
+    monkeypatch.undo()
+    # Reopen after crash with a backwards clock: finish the already-durable
+    # deletion decision without authorizing expiry of any additional upload.
+    with sqlite3.connect(relay.directory / "relay.sqlite3") as db:
+        db.execute("UPDATE clock SET highwater=?", (int(time.time()) + 100,))
+    assert expire_uncommitted_uploads(relay.directory)["expired"] == 1
+    with sqlite3.connect(relay.directory / "relay.sqlite3") as db:
+        assert db.execute(
+            "SELECT state,size FROM revisions WHERE id=?", (manifest.revision_id,)
+        ).fetchone() == ("expired", 0)
+    assert not (
+        relay.directory / "blobs" / f"{relay.root.owner_id}-{manifest.revision_id}.blob"
+    ).exists()
+
+
+def test_expiry_cannot_remove_committed_older_ancestor(relay):
+    from camoufox_pm.sync.relay import expire_uncommitted_uploads
+
+    relay.claim()
+    for _ in range(2):
+        manifest = relay.manifest(b"x" * 100)
+        assert relay.upload(manifest.revision_id, b"x" * 100).status_code == 200
+        assert relay.commit(manifest).status_code == 200
+        overdue(relay, manifest.revision_id)
+    assert expire_uncommitted_uploads(relay.directory)["examined"] == 0
+    assert len(list((relay.directory / "blobs").glob("*.blob"))) == 2
+
+
+def test_discard_crash_fence_blocks_commit_and_operator_finishes(relay, monkeypatch):
+    from camoufox_pm.sync.relay import _Store, expire_uncommitted_uploads
+
+    held = relay.claim()
+    manifest = relay.manifest(b"x" * 100)
+    assert relay.upload(manifest.revision_id, b"x" * 100).status_code == 200
+    original = _Store.sync_directory
+
+    def fail(path):
+        if path.name == "blobs":
+            raise OSError("simulated crash before final metadata commit")
+        original(path)
+
+    monkeypatch.setattr(_Store, "sync_directory", staticmethod(fail))
+    assert relay.rpc("discard_upload", revision_id=manifest.revision_id).status_code == 400
+    assert relay.commit(manifest, expected=held).status_code == 409
+    status = relay.rpc("blob_status", revision_id=manifest.revision_id).json()
+    assert status["state"] == "aborting" and status["ciphertext_length"] == 100
+    assert not (
+        relay.directory / "blobs" / f"{relay.root.owner_id}-{manifest.revision_id}.blob"
+    ).exists()
+    monkeypatch.undo()
+    with sqlite3.connect(relay.directory / "relay.sqlite3") as db:
+        db.execute("UPDATE clock SET highwater=?", (int(time.time()) + 100,))
+    assert expire_uncommitted_uploads(relay.directory)["expired"] == 1
+    with sqlite3.connect(relay.directory / "relay.sqlite3") as db:
+        assert db.execute(
+            "SELECT state,size FROM revisions WHERE id=?", (manifest.revision_id,)
+        ).fetchone() == ("aborted", 0)

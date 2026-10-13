@@ -18,7 +18,7 @@ from uuid import uuid4
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from pydantic import Field, field_validator
 
-from camoufox_pm.sync.client import RelayClient, RelayConflict
+from camoufox_pm.sync.client import RelayClient, RelayConflict, RelayError
 from camoufox_pm.sync.control import ControlMutation, ControlRecord
 from camoufox_pm.sync.identity import (
     AuthoritySecrets,
@@ -803,6 +803,68 @@ class SyncEngine:
             }:
                 raise EngineError("Encrypted upload is uncertain; original file retained") from None
         return self._send_pending(local_id)
+
+    def restart_expired_upload(self, local_id: str) -> bool:
+        """Retire only an expired, uncommitted intent under the same checkout.
+
+        The relay's expiry claim never establishes ownership. Signed history is
+        reconciled on both sides of the status read, and the original ciphertext
+        and intent remain retained for recovery.
+        """
+        state = self.reconcile(local_id)
+        pending = state.pending
+        if pending is None or pending.kind != "commit":
+            return False
+        manifest = SnapshotManifest.model_validate(pending.body["manifest"])
+        try:
+            status = self.client.rpc(
+                {"operation": "blob_status", "revision_id": manifest.revision_id}
+            )
+        except RelayError:
+            # A missing/inaccessible upload proves no expiry. Retry only the
+            # original intent and bytes; never mint a replacement on uncertainty.
+            return False
+        if status.get("state") != "expired":
+            return False
+        if status != {
+            "revision_id": manifest.revision_id,
+            "writer_device_id": self.device_id,
+            "ciphertext_sha256": manifest.ciphertext_sha256,
+            "ciphertext_length": 0,
+            "state": "expired",
+        }:
+            raise EngineError("Expired upload identity is uncertain; original file retained")
+        self.reconcile(local_id)
+        record, state = self._read(local_id)
+        if (
+            state.pending != pending
+            or state.forked
+            or state.checkpoint.model_dump(mode="json") != pending.body["expected"]
+            or state.checkpoint.holder_device_id != self.device_id
+            or state.installed_revision != state.checkpoint.revision_id
+            or state.installed_generation != state.checkpoint.checkout_generation
+        ):
+            raise EngineError("Expired upload checkout changed; original file retained")
+        if self.authorize is not None:
+            self.authorize()
+        replacement = state.model_copy(
+            update={
+                "pending": None,
+                "phase": "handoff" if state.handoff else "held",
+                "needs_snapshot": state.handoff,
+            }
+        )
+        self.control.batch(
+            (
+                ControlMutation(
+                    "expired-upload/" + pending.operation_id,
+                    {"local_id": local_id, "pending": pending.model_dump(mode="json")},
+                    None,
+                ),
+                ControlMutation(record.key, replacement.model_dump(mode="json"), record.revision),
+            )
+        )
+        return True
 
     def release(self, local_id: str) -> Binding:
         _, state = self._read(local_id)

@@ -492,3 +492,42 @@ async def test_preserve_copy_does_not_delete_existing_target_on_collision(
     with pytest.raises(SnapshotError):
         await runtime.preserve_local_copy("owner-user", area.profile.id, acknowledge_fork=True)
     assert sentinel.read_text() == "existing unrelated data"
+
+
+@pytest.mark.parametrize("initial", [False, True])
+async def test_expired_retry_encrypts_fresh_revision_and_retains_original(
+    runtime, area, monkeypatch, initial
+):
+    from pathlib import Path
+
+    from camoufox_pm.sync.engine import SyncEngine
+
+    runtime, server = runtime
+    if not initial:
+        await runtime.enable("owner-user", area.profile.id)
+    original = SyncEngine._send_pending
+    failed = False
+
+    def interrupted(self, local_id):
+        nonlocal failed
+        if self.status(local_id).pending.kind == "commit" and not failed:
+            failed = True
+            raise RuntimeError("interrupted before commit")
+        return original(self, local_id)
+
+    monkeypatch.setattr(SyncEngine, "_send_pending", interrupted)
+    with pytest.raises(RuntimeError):
+        await (runtime.enable if initial else runtime.handoff)("owner-user", area.profile.id)
+    pending = runtime.service.control.get("profile/" + area.profile.id).payload["pending"]
+    manifest = pending["body"]["manifest"]
+    old_path = Path(pending["ciphertext_path"])
+    old_bytes = old_path.read_bytes()
+    server.blobs[manifest["revision_id"]].update(state="expired", ciphertext_length=0)
+    result = await runtime.retry("owner-user", area.profile.id)
+    assert result["phase"] == ("held" if initial else "released")
+    assert result["checkpoint"]["revision_id"] != manifest["revision_id"]
+    assert old_path.read_bytes() == old_bytes
+    assert runtime.service.control.get("expired-upload/" + pending["operation_id"])
+    assert not list(runtime.cache.glob("*/snapshot.zip"))
+    fresh = [p for p in runtime.cache.glob("*/ciphertext") if p != old_path]
+    assert fresh and all(p.read_bytes() != old_bytes for p in fresh)

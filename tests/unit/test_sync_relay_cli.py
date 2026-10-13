@@ -51,3 +51,23 @@ def test_development_cannot_bind_public(monkeypatch):
     with pytest.raises(SystemExit) as error:
         main()
     assert error.value.code == 2
+
+
+def test_maintenance_cli_bounded_without_registration(monkeypatch, capsys, tmp_path):
+    import camoufox_pm.sync.relay as relay
+
+    calls = []
+
+    def cleanup(directory, *, limit):
+        calls.append((directory, limit))
+        return {"examined": 2, "expired": 1, "skipped": 1, "failed": 0}
+
+    monkeypatch.setattr(relay, "expire_uncommitted_uploads", cleanup)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["relay", "--data", str(tmp_path), "--expire-uploads", "--maintenance-limit", "2"],
+    )
+    main()
+    assert calls == [(tmp_path, 2)]
+    assert "expired=1" in capsys.readouterr().out

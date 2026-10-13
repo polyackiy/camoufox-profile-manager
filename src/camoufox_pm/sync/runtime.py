@@ -228,7 +228,9 @@ class SyncRuntime:
                     mark_synchronized(self.manager, profile, engine.root.owner_id, remote_id)
                     state = engine.status(local_id)
                     if state.pending is not None:
-                        await self._retry(engine, user_id, local_id)
+                        await run_file_operation(engine.restart_expired_upload, local_id)
+                        if engine.status(local_id).pending is not None:
+                            await self._retry(engine, user_id, local_id)
                         state = engine.status(local_id)
                     if state.checkpoint.revision_id is not None:
                         if not engine.may_launch(local_id):
@@ -574,7 +576,12 @@ class SyncRuntime:
                 )
             with self.maintenance.operation():
                 async with profile_operation(self.manager, local_id, sync_operation=True):
-                    return await self._retry(engine, user_id, local_id)
+                    restarted = await run_file_operation(engine.restart_expired_upload, local_id)
+                    if not restarted:
+                        return await self._retry(engine, user_id, local_id)
+            return await self.handoff(
+                user_id, local_id, password=password, authorize=_authorization.get()
+            )
         finally:
             client.close()
 
