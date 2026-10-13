@@ -196,12 +196,12 @@ export default function AccessPage() {
             {t('Password')}
             <input className="field block" type="password" value={password} onChange={event => setPassword(event.target.value)} autoComplete="new-password" minLength={8} required />
           </label>
-          <label htmlFor="access-new-user-role">
-            {t('Role')}
+          <div>
+            <label htmlFor="access-new-user-role">{t('Role')}</label>
             <select id="access-new-user-role" className="field block" value={newUserRole} disabled={!users.length} onChange={event => setRole(event.target.value as AccessRole)}>
               {roles.map(role => <option key={role} value={role}>{t(roleLabel[role])}</option>)}
             </select>
-          </label>
+          </div>
           <button className="btn btn-primary" disabled={busy || loading}>{t('Add user')}</button>
         </form>
         <div className="overflow-x-auto">
@@ -301,8 +301,8 @@ export default function AccessPage() {
           setFilters(draftFilters)
         }}>
           {(['actor', 'action', 'result'] as const).map(key => (
-            <label key={key} htmlFor={`access-filter-${key}`}>
-              {t(filterLabel[key])}
+            <div key={key}>
+              <label htmlFor={`access-filter-${key}`}>{t(filterLabel[key])}</label>
               {key === 'result' ? (
                 <select id="access-filter-result" className="field block" value={draftFilters.result} onChange={event => setDraftFilters({ ...draftFilters, result: event.target.value })}>
                   <option value="">{t('All results')}</option>
@@ -311,7 +311,7 @@ export default function AccessPage() {
               ) : (
                 <input id={`access-filter-${key}`} className="field block" value={draftFilters[key]} onChange={event => setDraftFilters({ ...draftFilters, [key]: event.target.value })} />
               )}
-            </label>
+            </div>
           ))}
           <button className="btn btn-default">{t('Apply filters')}</button>
         </form>
