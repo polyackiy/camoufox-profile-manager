@@ -247,6 +247,8 @@ class Device:
         dialog.get_by_label("Unlock password", exact=True).fill(self.password)
         if enable:
             dialog.get_by_label("Allow my trusted devices to receive", exact=False).check()
+        if label == "Resume pending transfer":
+            expect(dialog.get_by_text("Handoff in progress", exact=True)).to_be_visible()
         dialog.get_by_role("button", name=label, exact=True).click()
         if label == "Send to another device":
             self.page.get_by_role("dialog").filter(
@@ -269,7 +271,7 @@ class Probe(http.server.BaseHTTPRequestHandler):
 
     def do_GET(self):
         stage = parse_qs(urlsplit(self.path).query).get("stage", [""])[0]
-        if stage not in {"first", "second", "return"}:
+        if stage not in {"first", "second", "return", "restored"}:
             self.send_error(404)
             return
         authenticated = "installed-auth=synthetic" in self.headers.get("Cookie", "")
@@ -391,7 +393,8 @@ def exercise(owner, recipient, relay_url, registration, site):
     dialog = recipient.page.get_by_role("dialog", name="Profiles from trusted devices", exact=True)
     dialog.get_by_label("Unlock password", exact=True).fill(recipient.password)
     dialog.get_by_role("button", name="Add trusted profile to this device").click()
-    expect(dialog.get_by_text("Latest profile must be installed", exact=True)).to_be_visible()
+    expect(dialog.get_by_text("Sync status needs verification", exact=True)).to_be_visible()
+    expect(dialog.get_by_label("Unlock password", exact=True)).to_have_value("")
     dialog.get_by_label("Unlock password", exact=True).fill(recipient.password)
     dialog.get_by_role("button", name="Get latest profile", exact=True).click()
     expect(dialog.get_by_text("Ready on this device", exact=True)).to_be_visible()
@@ -405,13 +408,71 @@ def exercise(owner, recipient, relay_url, registration, site):
     after = observe(recipient, imported, site, "second")
     assert before == after, "Installed profile session or identity changed during transfer"
     print("Installed acceptance: recipient UI handoff", flush=True)
-    recipient.action("Send to another device", "Ready for another device")
+    # Closing a synchronized browser durably queues its work. The encrypted
+    # vault needs explicit unlock through the ordinary resume UI, not a second
+    # handoff command (which is offered only for the held/idle state).
+    recipient.action("Resume pending transfer", "Ready for another device")
     owner.action("Get latest profile", "Ready on this device")
     print("Installed acceptance: owner native Camoufox return", flush=True)
     final = observe(owner, local_id, site, "return")
     assert final.pop("state") == "second"
     before.pop("state")
     assert final == before, "Installed profile identity changed on return"
+    restored = owner.call(f"/profiles/{local_id}")
+    assert restored["fingerprint"] == pinned["fingerprint"]
+    assert restored["browser_settings"] == pinned["browser_settings"]
+
+    print("Installed acceptance: synchronized Trash and restore UI", flush=True)
+    owner.action("Resume pending transfer", "Ready for another device")
+    owner.action("Get latest profile", "Ready on this device")
+    dialog = owner.panel()
+    dialog.get_by_label("Unlock password", exact=True).fill(owner.password)
+    dialog.get_by_role("button", name="Move synchronized profile to Trash", exact=True).click()
+    owner.page.get_by_role(
+        "dialog", name="Move synchronized profile to Trash?", exact=True
+    ).get_by_role("button", name="Publish deletion", exact=True).click()
+    expect(dialog.get_by_text("Synchronized profile is in Trash", exact=True)).to_be_visible()
+    expect(dialog.get_by_label("Unlock password", exact=True)).to_have_value("")
+    owner.page.goto(owner.origin + "/trash/")
+    row = owner.page.get_by_role("row").filter(has_text=NAME)
+    expect(row.get_by_role("button", name="Restore", exact=True)).to_be_disabled()
+    expect(
+        row.get_by_role("button", name="Permanently delete " + NAME, exact=True)
+    ).to_be_disabled()
+    row.get_by_role("button", name="Device synchronization", exact=True).click()
+    dialog = owner.page.get_by_role("dialog", name="Synchronize " + NAME, exact=True)
+    dialog.get_by_label("Unlock password", exact=True).fill(owner.password)
+    dialog.get_by_role("button", name="Restore synchronized profile", exact=True).click()
+    owner.page.get_by_role("dialog", name="Restore synchronized profile?", exact=True).get_by_role(
+        "button", name="Restore and publish", exact=True
+    ).click()
+    expect(dialog.get_by_text("Ready on this device", exact=True)).to_be_visible()
+    expect(dialog.get_by_label("Unlock password", exact=True)).to_have_value("")
+
+    print("Installed acceptance: historical cleanup schedule and cancellation UI", flush=True)
+    dialog = owner.panel()
+    dialog.get_by_text("Historical storage cleanup", exact=True).click()
+    dialog.get_by_label("Unlock password", exact=True).fill(owner.password)
+    dialog.get_by_role("button", name="Load verified historical versions", exact=True).click()
+    versions = dialog.get_by_role("group", name="Old encrypted versions", exact=True)
+    expect(versions).to_be_visible()
+    expect(dialog.get_by_label("Unlock password", exact=True)).to_have_value("")
+    versions.get_by_role("checkbox").first.check()
+    dialog.get_by_label("Unlock password", exact=True).fill(owner.password)
+    dialog.get_by_role("button", name="Schedule selected cleanup", exact=True).click()
+    owner.page.get_by_role(
+        "dialog", name="Schedule permanent historical cleanup?", exact=True
+    ).get_by_role("button", name="Sign cleanup decision", exact=True).click()
+    expect(dialog.get_by_text("Cleanup scheduled", exact=True)).to_be_visible()
+    expect(dialog.get_by_label("Unlock password", exact=True)).to_have_value("")
+    dialog.get_by_label("Unlock password", exact=True).fill(owner.password)
+    dialog.get_by_role("button", name="Cancel historical cleanup", exact=True).click()
+    expect(dialog.get_by_text("Cleanup cancelled", exact=True)).to_be_visible()
+    expect(dialog.get_by_label("Unlock password", exact=True)).to_have_value("")
+    print("Installed acceptance: restored native Camoufox fourth launch", flush=True)
+    recovered = observe(owner, local_id, site, "restored")
+    assert recovered.pop("state") == "second"
+    assert recovered == before, "Installed profile session or identity changed after Trash restore"
     restored = owner.call(f"/profiles/{local_id}")
     assert restored["fingerprint"] == pinned["fingerprint"]
     assert restored["browser_settings"] == pinned["browser_settings"]
@@ -436,6 +497,8 @@ def main():
         "same_host": True,
         "onboarding": "real-administrator-cookie-API",
         "handoff": "real-bundled-UI",
+        "lifecycle": "UI-trash-restore-fourth-browser-launch",
+        "retention": "UI-schedule-and-cancel-no-collection",
     }
     try:
         with tempfile.TemporaryDirectory(prefix="installed-sync-") as temporary:

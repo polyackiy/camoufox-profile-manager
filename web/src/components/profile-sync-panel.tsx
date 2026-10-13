@@ -55,7 +55,12 @@ export function ProfileSyncPanel({ profile, running, onClose, onSaved }: { profi
     if (busy) return
     setBusy(true); setError(''); setNotice('')
     try { await action(); await load(); onSaved() }
-    catch { if (mounted.current) setError(t('Synchronization did not finish. Your existing profile is preserved. Refresh its status, then resume the pending operation; do not delete local data.')) }
+    catch {
+      if (mounted.current) setError(t('Synchronization did not finish. Your existing profile is preserved. Refresh its status, then resume the pending operation; do not delete local data.'))
+      // A rejected activation may have persisted a verified Trash or conflict fence.
+      // Refresh public state so the owner can choose its explicit recovery action.
+      try { await load() } catch { /* The visible error and manual refresh remain available. */ }
+    }
     finally { if (mounted.current) { setBusy(false); setPassword('') } }
   }
   async function perform(action: ProfileSyncAction) {

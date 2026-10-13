@@ -15,6 +15,7 @@ class SyncProfileUI(StageThreeUI):
         self.bindings = []
         self.available = []
         self.sync_fail = False
+        self.remote_trash = False
         self.vault_kind = "native"
         self.authority = True
         self.retention_decisions = []
@@ -112,6 +113,14 @@ class SyncProfileUI(StageThreeUI):
                 self.bindings = [self.binding("held")]
             elif path.endswith("/handoff"):
                 self.bindings = [self.binding("released")]
+            elif path.endswith("/acquire") and self.remote_trash:
+                item = self.binding("released")
+                item["lifecycle"] = {"state": "trashed", "revision_id": "revision-trash"}
+                item["local_trashed"] = False
+                self.bindings = [item]
+                return route.fulfill(
+                    status=409, json={"detail": "Explicit lifecycle choice required"}
+                )
             elif path.endswith("/acquire") or path.endswith("/retry"):
                 self.bindings = [self.binding("held")]
             elif path == "/sync/profiles/import":
@@ -315,6 +324,20 @@ class SyncProfileUI(StageThreeUI):
         self.bindings = [self.binding("held")]
         dialog = self.open_profile_sync()
         expect(dialog.get_by_text("Historical storage cleanup", exact=True)).to_have_count(0)
+
+    def test_discovered_remote_trash_shows_recovery_actions_after_rejected_acquire(self):
+        self.bindings = [self.binding("released")]
+        self.remote_trash = True
+        dialog = self.open_profile_sync()
+        dialog.get_by_role("button", name="Get latest profile").click()
+        expect(dialog.get_by_text("Synchronized profile is in Trash", exact=True)).to_be_visible()
+        expect(
+            dialog.get_by_role("button", name="Apply deletion on this device", exact=True)
+        ).to_be_visible()
+        expect(
+            dialog.get_by_role("button", name="Restore synchronized profile", exact=True)
+        ).to_be_visible()
+        expect(dialog.get_by_role("button", name="Get latest profile")).to_have_count(0)
 
 
 if __name__ == "__main__":
