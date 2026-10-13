@@ -44,7 +44,7 @@ _PROCESSES: list[subprocess.Popen] = []
 def tls_fixture(directory):
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "Ephemeral native CI relay")])
-    now = datetime.datetime.now(datetime.UTC)
+    now = datetime.datetime.now(datetime.timezone.utc)
     cert = (
         x509.CertificateBuilder()
         .subject_name(name)
@@ -467,6 +467,9 @@ def main():
             devices = []
             try:
                 with sync_playwright() as playwright:
+                    # Native KDF + profile capture/upload routinely exceeds the
+                    # five-second assertion default used by mocked UI tests.
+                    expect.set_options(timeout=120000)
                     browser = playwright.chromium.launch()
                     try:
                         phase = "installed-startup"
@@ -493,7 +496,21 @@ def main():
                 thread.join(timeout=10)
                 listener.close()
     except BaseException as exc:
-        result.update(phase=phase, error_type=type(exc).__name__)
+        frames = []
+        traceback = exc.__traceback__
+        while traceback is not None:
+            code = traceback.tb_frame.f_code
+            # Coordinates only: never capture exception messages, locals,
+            # request bodies, page contents or private desktop logs.
+            frames.append(
+                {
+                    "file": Path(code.co_filename).name,
+                    "function": code.co_name,
+                    "line": traceback.tb_lineno,
+                }
+            )
+            traceback = traceback.tb_next
+        result.update(phase=phase, error_type=type(exc).__name__, frames=frames[-12:])
         raise RuntimeError(
             f"Installed synchronization acceptance failed at {phase} ({type(exc).__name__}); private diagnostics not exported"
         ) from None
