@@ -5,6 +5,7 @@ import json
 import os
 import sqlite3
 import tempfile
+from contextlib import closing
 from pathlib import Path
 
 from camoufox_pm import __version__
@@ -65,7 +66,7 @@ async def _validate(record: dict):
     database = StorageManager(record["db_path"])
     await database.initialize()
     try:
-        with sqlite3.connect(record["db_path"]) as connection:
+        with closing(sqlite3.connect(record["db_path"])) as connection:
             if connection.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
                 raise ValueError("Migrated database integrity check failed")
     finally:

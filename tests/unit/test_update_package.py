@@ -214,6 +214,18 @@ def test_lying_central_count(package):
         extract_verified_package(target(archive), staging)
 
 
+def raw_name_archive(archive: Path, name: str) -> None:
+    # ZipInfo's constructor rewrites Windows backslashes and truncates NULs.
+    # Patch equal-length local + central names to exercise actual on-disk bytes.
+    raw_name = name.encode("ascii")
+    placeholder = b"n" * len(raw_name)
+    with zipfile.ZipFile(archive, "w") as zipped:
+        zipped.writestr(placeholder.decode("ascii"), b"browser")
+    data = archive.read_bytes()
+    assert data.count(placeholder) == 2
+    archive.write_bytes(data.replace(placeholder, raw_name))
+
+
 def test_authenticated_upstream_archive_exact_root(tmp_path):
     archive = tmp_path / "upstream.zip"
     with zipfile.ZipFile(archive, "w") as zipped:
@@ -232,12 +244,12 @@ def test_authenticated_upstream_archive_exact_root(tmp_path):
 
 
 @pytest.mark.parametrize(
-    "name", ["../escape", "folder/../escape", "folder\\escape", "C:/escape", "NUL"]
+    "name",
+    ["../escape", "folder/../escape", "folder\\escape", "C:/escape", "NUL", "folder\x00escape"],
 )
 def test_upstream_traversal_rejected(tmp_path, name):
     archive = tmp_path / "upstream.zip"
-    with zipfile.ZipFile(archive, "w") as zipped:
-        zipped.writestr(name, b"browser")
+    raw_name_archive(archive, name)
     verified = target(archive)
     verified.manifest["component"] = "camoufox"
     staging = tmp_path / "staging"
@@ -314,3 +326,19 @@ def test_upstream_entries_have_private_native_acl(tmp_path):
     verify_private_path(result.path)
     for candidate in result.path.rglob("*"):
         verify_private_path(candidate)
+
+
+@pytest.mark.parametrize(
+    "original, unsafe",
+    [(MANIFEST, "update-package.jso\x00"), ("payload/manager.exe", "payload\\manager.exe")],
+)
+def test_manager_raw_member_names_rejected(package, original, unsafe):
+    _, archive, staging = package
+    before, after = original.encode("ascii"), unsafe.encode("ascii")
+    assert len(before) == len(after)
+    data = archive.read_bytes()
+    assert data.count(before) == 2
+    archive.write_bytes(data.replace(before, after))
+    with pytest.raises(UpdateVerificationError):
+        extract_verified_package(target(archive), staging)
+    assert not list(staging.iterdir())

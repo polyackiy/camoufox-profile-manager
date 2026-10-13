@@ -136,10 +136,11 @@ def test_authenticated_runtime_pair_apply_and_new_manager_rollback(tmp_path, mon
     monkeypatch.setattr(runtime, "__version__", "1.0")
     script = b"""#!/usr/bin/env python3
 import json,sqlite3,sys
+from contextlib import closing
 from pathlib import Path
 receipt=Path(sys.argv[2]); request=json.loads(receipt.read_text())
 t=json.loads((receipt.parent/'transaction.json').read_text())
-with sqlite3.connect(t['db_path']) as db:
+with closing(sqlite3.connect(t['db_path'])) as db, db:
     db.execute('PRAGMA user_version=1')
 (Path(t['paths']['profiles'])/'identity').write_text('new identity')
 (Path(t['paths']['browser'])/'config.json').write_text('{"active_version":"tested beta pair"}')

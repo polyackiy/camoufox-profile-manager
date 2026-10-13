@@ -241,6 +241,16 @@ def _verify_links(root: Path, entries: tuple[PackageEntry, ...]) -> None:
                 raise UpdateVerificationError("Package symlink escapes tree")
 
 
+def _check_archive_names(members: list[zipfile.ZipInfo]) -> None:
+    # ZipInfo retains the decoded on-disk name before NUL truncation and Windows
+    # separator normalization. Never validate only its sanitized filename.
+    for member in members:
+        if member.orig_filename != member.filename:
+            raise UpdateVerificationError("Archive member name was normalized or truncated")
+        name = member.orig_filename
+        _safe_name(name[:-1] if name.endswith("/") else name)
+
+
 def _check_directory_bounds(stream, length: int) -> None:
     # Bound allocation before ZipFile constructs the central directory inventory.
     # This contract never needs a ZIP64 end record: <= 2 GiB and < 65535 entries.
@@ -309,6 +319,7 @@ def extract_verified_package(target: VerifiedTarget, staging: Path) -> VerifiedP
             stream.seek(0)
             with zipfile.ZipFile(stream) as archive:
                 members = archive.infolist()
+                _check_archive_names(members)
                 if len(members) > MAX_ENTRIES + 1 or len(
                     {member.filename for member in members}
                 ) != len(members):
@@ -433,6 +444,7 @@ def extract_verified_browser_archive(target: VerifiedTarget, staging: Path) -> V
             _authenticate_archive(target, stream)
             with zipfile.ZipFile(stream) as archive:
                 members = archive.infolist()
+                _check_archive_names(members)
                 if not 0 < len(members) <= MAX_ENTRIES or len(
                     {item.filename for item in members}
                 ) != len(members):

@@ -5,6 +5,7 @@ import os
 import sqlite3
 import subprocess
 import sys
+from contextlib import closing
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -43,10 +44,11 @@ def transaction(tmp_path, *, fail=False):
     executable.write_text(
         """#!/usr/bin/env python3
 import json,sys,sqlite3
+from contextlib import closing
 from pathlib import Path
 p=Path(sys.argv[2]); r=json.loads(p.read_text())
 t=json.loads((p.parent/'transaction.json').read_text())
-with sqlite3.connect(t['db_path']) as db:
+with closing(sqlite3.connect(t['db_path'])) as db, db:
     db.execute("INSERT INTO records VALUES ('migrated')")
 """
         + (
@@ -62,7 +64,7 @@ with sqlite3.connect(t['db_path']) as db:
         assert hashlib.sha256((path / "manager").read_bytes()).hexdigest() == digest
 
     database = tmp_path / "data.sqlite3"
-    with sqlite3.connect(database) as db:
+    with closing(sqlite3.connect(database)) as db, db:
         db.execute("CREATE TABLE records(value TEXT)")
         db.execute("INSERT INTO records VALUES ('original')")
     profiles = tmp_path / "profiles"
@@ -90,7 +92,7 @@ with sqlite3.connect(t['db_path']) as db:
 
 
 def values(database):
-    with sqlite3.connect(database) as db:
+    with closing(sqlite3.connect(database)) as db, db:
         return [row[0] for row in db.execute("SELECT value FROM records")]
 
 

@@ -136,6 +136,7 @@ async def test_installed_validation_command_with_real_paired_browser(tmp_path):
     import os
     import sqlite3
     import sys
+    from contextlib import closing
 
     from camoufox.multiversion import CONFIG_FILE, get_active_path, list_installed
 
@@ -196,7 +197,7 @@ async def test_installed_validation_command_with_real_paired_browser(tmp_path):
         assert json.loads((root / "validation.json").read_text()) == {
             "validated": "validation-smoke",
         }
-        with sqlite3.connect(database) as connection:
+        with closing(sqlite3.connect(database)) as connection:
             assert connection.execute("PRAGMA user_version").fetchone()[0] == CURRENT_SCHEMA
         assert gate.blocked, "Only the parent helper may release maintenance after acceptance"
     finally:
