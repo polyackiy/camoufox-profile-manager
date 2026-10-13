@@ -562,3 +562,43 @@ async def test_monitor_can_initiate_shared_cleanup_without_deadlock(monkeypatch)
     session.monitor_task = asyncio.create_task(manager._monitor("p", 123))
     await asyncio.wait_for(asyncio.gather(session.monitor_task, return_exceptions=True), 1)
     assert camoufox.exits == 1 and not manager.is_live("p")
+
+
+async def test_stopped_intent_is_durable_before_lease_release(installed):
+    from unittest.mock import AsyncMock
+
+    installed(FakeCamoufox())
+    events = []
+
+    async def release(*_):
+        events.append("release")
+
+    storage = type("Storage", (), {"release_lease": AsyncMock(side_effect=release)})()
+    manager = BrowserSessionManager(storage=storage, holder="holder")
+
+    async def stopped(profile_id):
+        assert profile_id == "p"
+        events.append("persisted")
+
+    manager.on_stopped = stopped
+    await manager.launch("p", {})
+    assert await manager.close_and_release("p")
+    assert events == ["persisted", "release"]
+
+
+async def test_failed_stopped_intent_retains_local_lease_for_retry(installed):
+    from unittest.mock import AsyncMock
+
+    installed(FakeCamoufox())
+    storage = type("Storage", (), {"release_lease": AsyncMock()})()
+    manager = BrowserSessionManager(storage=storage, holder="holder")
+
+    async def stopped(_):
+        raise OSError("disk full")
+
+    manager.on_stopped = stopped
+    await manager.launch("p", {})
+    with pytest.raises(OSError):
+        await manager.close_and_release("p")
+    storage.release_lease.assert_not_called()
+    assert "p" in manager.active_sessions

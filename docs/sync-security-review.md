@@ -1,9 +1,9 @@
-# S1 security review and validation record
+# Synchronization security review and validation record
 
 This review covers the experimental protocol, opaque-file codec and reference
 checkout state machine for [#83](https://github.com/polyackiy/camoufox-profile-manager/issues/83).
-It does not enable device synchronization. Enrollment, custody of device keys,
-closed-profile capture, relay authorization, durable apply and UI remain S2–S8.
+The original S1 record below is retained. The integrated S2–S8 implementation and
+its additional review findings are recorded at the end of this document.
 
 ## Review method and findings
 
@@ -146,3 +146,43 @@ have been added to CI; their results must be recorded before claiming platform
 acceptance. A control database cannot independently detect restoration of an entire
 old disk image. Freshness reconciliation, browser entry-point enforcement and
 journalled profile replacement remain mandatory integration gates.
+
+
+## Integrated implementation review (2026-10-13)
+
+Separate coding agents reviewed modules they did not author; findings were checked
+against executable regressions. This remains internal review, not an external
+cryptographic audit. The implementation is a preview; a stable-production security
+claim still requires the external gate above.
+
+| Finding | Resolution and regression evidence |
+| --- | --- |
+| ZIP64 directory preflight could allocate before limits | Reject ZIP64 before constructing ZipFile; snapshot parser tests |
+| Successful drip-feed reads bypassed total transfer timeout | Monotonic end-to-end RPC/transfer deadlines; client tests |
+| Aborted uploads released quota while partial/open files remained | Deterministic pending paths; live PID/birth identity reservation; relay tests |
+| Unauthenticated RPC bodies consumed unbounded concurrent work | Signature preauthentication, bounded RPC slots and total body deadline |
+| Newly observed signed history could be forgotten after a later failure | Persist every valid receipt/membership observation; older prefixes cannot restore launch permission |
+| New device could claim an old snapshot without its envelope | Authenticate selected publication and recipient availability before claim |
+| Unsupported browser/platform could claim before validation | Authenticate and validate compatibility before conditional claim; exact preflight checkpoint |
+| Administrator revoked during long apply could still commit | Recheck live authorization immediately before publication and final activation |
+| Ordinary unbound edit raced initial enrollment | Shared per-profile admission plus browser-operation leases; recheck binding under admission |
+| Completed/failing background work starved later profiles | Filter completed queue records and durably rotate bounded attempts |
+| Reconnecting an existing owner failed after membership advancement | Existing pinned owner conflict precedes genesis/capacity rules; exact membership reconciliation |
+| Membership mutation followed a delayed read without fresh authorization | Repeat authorization immediately before outbound membership mutation |
+
+Synchronized profile markers exist in both the browser directory and a separate
+private registry. Application rollback invalidates installed-generation proof
+before replacing data and retains protected history. Schema 3 makes schema-aware
+pre-sync managers refuse the current database. These fences cannot control raw
+Firefox launches, arbitrary filesystem copies or a deliberately restored complete
+old environment using software that predates the schema boundary.
+
+The supported initial transport captures complete closed profiles, with exact
+same-OS/architecture/browser compatibility. Unknown capabilities and external
+extension-library mappings fail closed. Team membership, cross-OS transfer,
+concurrent profile editing, delta synchronization and automatic authority transfer
+are not implied by this implementation.
+
+The native key-store/frozen crypto matrix and actual browser roundtrip matrix are
+separate: simulated key stores in browser tests do not prove native key-store
+behavior, and native crypto smokes do not prove browser state portability.

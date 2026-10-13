@@ -1,1 +1,1 @@
-"""Experimental sync protocol primitives; no runtime synchronization is enabled."""
+"""Opt-in experimental encrypted profile synchronization and recovery."""

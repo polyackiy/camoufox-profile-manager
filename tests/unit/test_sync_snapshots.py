@@ -453,3 +453,22 @@ def test_reopened_descriptor_still_rejects_post_capture_change(area, compat, mon
     with pytest.raises(s.SnapshotError, match="changed"):
         s.build_snapshot(Profile(name="Closed"), data, root / "bad.zip", compat)
     assert not (root / "bad.zip").exists()
+
+
+def test_local_sync_marker_excluded_but_nested_names_preserved(area, compat):
+    root, data = area
+    (data / ".camoufox-pm-sync.json").write_text("local authority")
+    (data / "nested").mkdir()
+    (data / "nested" / ".camoufox-pm-sync.json").write_text("ordinary nested file")
+    archive, stage = sample(area, compat)
+    with zipfile.ZipFile(archive) as source:
+        assert "data/.camoufox-pm-sync.json" not in source.namelist()
+        assert "data/nested/.camoufox-pm-sync.json" in source.namelist()
+
+
+@pytest.mark.parametrize("name", [".camoufox-pm-sync.json", "data/.camoufox-pm-sync.json"])
+def test_archive_cannot_supply_local_sync_marker(area, compat, name):
+    archive, stage = sample(area, compat)
+    rewrite(archive, lambda entries: entries + [(zipfile.ZipInfo(name), b"copied authority")])
+    with pytest.raises(s.SnapshotError, match="local synchronization marker"):
+        s.validate_snapshot(archive, stage, compat)

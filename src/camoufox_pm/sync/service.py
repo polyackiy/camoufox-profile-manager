@@ -129,6 +129,33 @@ class SyncService:
         except Exception:
             raise EnrollmentError("Protected sync keys are locked, missing or invalid") from None
 
+    def device_keys(
+        self,
+        user_id: str,
+        password: str | None = None,
+        *,
+        authorize: Callable[[], None] | None = None,
+    ) -> DeviceSecrets:
+        """Unlock routine device credentials without reading authority/recovery slots."""
+        record, state = self._read(user_id)
+        if state.phase not in {"ready", "freshness_unknown"}:
+            raise EnrollmentError("Device enrollment is incomplete")
+        try:
+            vault = self._vault(state, password)
+            device = DeviceSecrets.from_bytes(vault.get(state.device_id) or b"")
+            if (
+                device.certificate(state.root.owner_id, state.device_id)
+                not in state.membership.membership.devices
+            ):
+                raise ValueError
+        except Exception:
+            raise EnrollmentError("Protected device keys are locked, missing or invalid") from None
+        self._authorize(authorize)
+        current = self.control.get("installation")
+        if current is None or current.revision != record.revision:
+            raise EnrollmentError("Device enrollment changed during unlock")
+        return device
+
     @staticmethod
     def _authorize(authorize: Callable[[], None] | None) -> None:
         if authorize is not None:

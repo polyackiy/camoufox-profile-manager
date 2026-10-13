@@ -1,4 +1,4 @@
-"""Experimental opaque-file codec; not closed-profile capture or sync integration.
+"""Authenticated file codec used by the opt-in synchronization runtime.
 
 Callers supply independently authenticated context and writer/recipient keys. No
 membership, freshness, key storage or archive safety is inferred from a signature.

@@ -5,6 +5,7 @@ import { Check, Minus, Settings as SettingsIcon, TriangleAlert } from 'lucide-re
 
 import { useI18n } from '@/components/i18n-provider'
 import type { Translator } from '@/lib/i18n'
+import { SyncSettings } from '@/components/sync-settings'
 import { BrowserSetup } from '@/components/browser-setup'
 import { BackupSettings, UpdateSettings } from '@/components/recovery-settings'
 import { EmptyState } from '@/components/empty-state'
@@ -73,6 +74,7 @@ export default function SettingsPage() {
           <BrowserSetup />
           <UpdateSettings />
           <BackupSettings />
+          <SyncSettings />
 
           {/* Security first: these two decide whether this instance is safe to expose. */}
           <Group

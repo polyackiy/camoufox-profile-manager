@@ -69,6 +69,8 @@ sync = [
 
 [project.scripts]
 camoufox-pm = "camoufox_pm.cli:main"
+camoufox-sync-relay = "camoufox_pm.sync.relay_cli:main"
+camoufox-sync-recovery = "camoufox_pm.sync.recovery_workflow:main"
 
 [project.urls]
 Homepage = "https://github.com/polyackiy/camoufox-profile-manager"

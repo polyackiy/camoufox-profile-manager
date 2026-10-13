@@ -26,6 +26,7 @@ from .models import (
     normalize_tags,
 )
 from .profile_operations import profile_data_path, profile_operation, run_file_operation
+from .sync_guard import guard_profile, sync_mutation, sync_mutation_guard
 
 
 class ProfileManager:
@@ -33,6 +34,7 @@ class ProfileManager:
 
     def __init__(self, storage_manager: StorageManager, data_dir: str = "data"):
         self.storage = storage_manager
+        self.sync_queue_event = asyncio.Event()
         self.data_dir = Path(data_dir)
         self.profiles_dir = self.data_dir / "profiles"
         self.fingerprint_generator = FingerprintGenerator()
@@ -41,6 +43,7 @@ class ProfileManager:
         # renews this process's leases for as long as its browsers are open.
         self.lease_holder = make_lease_holder()
         self.browser_sessions = BrowserSessionManager(storage_manager, self.lease_holder)
+        self.browser_sessions.on_stopped = self._on_browser_stopped
 
         self.profiles_dir.mkdir(parents=True, exist_ok=True)
         logger.info(f"Initialized ProfileManager with data directory: {self.data_dir}")
@@ -185,6 +188,7 @@ class ProfileManager:
             logger.warning(f"Profile with ID {profile_id} not found")
         return profile
 
+    @sync_mutation_guard
     async def update_profile(
         self,
         profile_id: str,
@@ -350,24 +354,25 @@ class ProfileManager:
             if profile_id in seen:
                 continue
             seen.add(profile_id)
-            profile = await self.get_profile(profile_id)
-            if profile is None:
-                result["skipped"].append(
-                    {"id": profile_id, "reason": "Profile not found or in Trash"}
-                )
-                continue
-            try:
-                tags = normalize_tags([tag for tag in profile.tags if tag not in remove] + add)
-                updated = await self.storage.db.set_profile_tags(
-                    profile_id, tags, target["row_version"]
-                )
-                result["updated"].append(updated)
-            except StaleWriteError:
-                result["skipped"].append(
-                    {"id": profile_id, "reason": "Profile changed; reload before editing tags"}
-                )
-            except ValueError as exc:
-                result["skipped"].append({"id": profile_id, "reason": str(exc)})
+            async with sync_mutation(self, profile_id):
+                profile = await self.get_profile(profile_id)
+                if profile is None:
+                    result["skipped"].append(
+                        {"id": profile_id, "reason": "Profile not found or in Trash"}
+                    )
+                    continue
+                try:
+                    tags = normalize_tags([tag for tag in profile.tags if tag not in remove] + add)
+                    updated = await self.storage.db.set_profile_tags(
+                        profile_id, tags, target["row_version"]
+                    )
+                    result["updated"].append(updated)
+                except StaleWriteError:
+                    result["skipped"].append(
+                        {"id": profile_id, "reason": "Profile changed; reload before editing tags"}
+                    )
+                except ValueError as exc:
+                    result["skipped"].append({"id": profile_id, "reason": str(exc)})
         return result
 
     async def clone_profile(
@@ -448,6 +453,7 @@ class ProfileManager:
         logger.info(f"Profile cloned: {new_profile.id}")
         return new_profile
 
+    @sync_mutation_guard
     async def rotate_profile_fingerprint(self, profile_id: str) -> Profile | None:
         """Rotate a profile's fingerprint."""
         logger.info(f"Rotating fingerprint for profile {profile_id}")
@@ -645,6 +651,7 @@ class ProfileManager:
 
         return success
 
+    @sync_mutation_guard
     async def refresh_browser_version(self, profile_id: str) -> Profile | None:
         """Move a profile's pinned machine onto the installed browser version.
 
@@ -698,6 +705,7 @@ class ProfileManager:
         logger.info(f"Profile {profile_id} browser version refreshed: {before} -> {after}")
         return profile
 
+    @sync_mutation_guard
     async def reconcile_os(self, profile_id: str, keep_machine: bool) -> Profile | None:
         """Put a profile's OS setting and its pinned machine back in agreement.
 
@@ -784,22 +792,23 @@ class ProfileManager:
         not_found: list[str] = []
 
         for profile_id in profile_ids:
-            profile = await self.get_profile(profile_id)
-            if not profile:
-                not_found.append(profile_id)
-                continue
-            if not profile.browser_settings.clear_geography():
-                unchanged.append(profile_id)
-                continue
-            profile.updated_at = datetime.now()
-            # Version-checked for the same reason an edit is: this reads the
-            # row, changes it and writes it back, so a save that lands in
-            # between would otherwise be reverted without a word.
-            await self.storage.update_profile(profile, expected_row_version=profile.row_version)
-            await self.storage.log_usage(
-                UsageStats(profile_id=profile_id, action="clear_geography", details={})
-            )
-            cleared.append(profile_id)
+            async with sync_mutation(self, profile_id):
+                profile = await self.get_profile(profile_id)
+                if not profile:
+                    not_found.append(profile_id)
+                    continue
+                if not profile.browser_settings.clear_geography():
+                    unchanged.append(profile_id)
+                    continue
+                profile.updated_at = datetime.now()
+                # Version-checked for the same reason an edit is: this reads the
+                # row, changes it and writes it back, so a save that lands in
+                # between would otherwise be reverted without a word.
+                await self.storage.update_profile(profile, expected_row_version=profile.row_version)
+                await self.storage.log_usage(
+                    UsageStats(profile_id=profile_id, action="clear_geography", details={})
+                )
+                cleared.append(profile_id)
 
         logger.info(f"Cleared the geography of {len(cleared)} of {len(profile_ids)} profiles")
         return {"cleared": cleared, "unchanged": unchanged, "not_found": not_found}
@@ -908,6 +917,8 @@ class ProfileManager:
             if not profile:
                 raise ValueError(f"Profile with ID {profile_id} not found")
 
+            await guard_profile(self, profile_id, profile=profile)
+
             if self.browser_sessions.is_running(profile_id):
                 # Our own process, so the acquire above re-took our own lease
                 # and the running browser still owns it. Returning here must
@@ -991,7 +1002,9 @@ class ProfileManager:
             await proxy_check.fill_what_geoip_would_have(profile.proxy, options)
 
             session = await self.browser_sessions.launch(
-                profile_id, options, on_exit=self._on_browser_exit
+                profile_id,
+                options,
+                on_exit=self._on_browser_exit,
             )
         except (Exception, asyncio.CancelledError):
             # CancelledError is a BaseException, not an Exception: an HTTP client
@@ -1014,6 +1027,12 @@ class ProfileManager:
             "process_id": session.process_id,
             "camoufox_options": {"process_id": session.process_id, "options": options},
         }
+
+    async def _on_browser_stopped(self, profile_id: str) -> None:
+        from .sync_queue import queue_closed_profile
+
+        if await queue_closed_profile(self, profile_id):
+            self.sync_queue_event.set()
 
     async def _on_browser_exit(self, profile_id: str) -> None:
         """Record usage when a browser exits on its own (e.g. the user closes it)."""

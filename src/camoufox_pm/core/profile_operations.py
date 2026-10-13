@@ -50,8 +50,13 @@ async def run_file_operation(function, *args, **kwargs):
 
 
 @asynccontextmanager
-async def profile_operation(
-    manager, profile_id: str, include_deleted: bool = False, *, holder: str | None = None
+async def _profile_operation(
+    manager,
+    profile_id: str,
+    include_deleted: bool = False,
+    *,
+    holder: str | None = None,
+    sync_operation: bool = False,
 ):
     """Reserve one closed profile across processes, with renewal during long I/O."""
     profile = await manager.storage.get_profile(profile_id, include_deleted=include_deleted)
@@ -77,6 +82,10 @@ async def profile_operation(
         profile = await manager.storage.get_profile(profile_id, include_deleted=include_deleted)
         if profile is None:
             raise ValueError(f"Profile with ID {profile_id} not found")
+        if not sync_operation:
+            from .sync_guard import guard_profile
+
+            await guard_profile(manager, profile_id, profile=profile)
         yield profile
         if heartbeat.done():
             heartbeat.result()
@@ -87,3 +96,21 @@ async def profile_operation(
             await asyncio.gather(heartbeat, return_exceptions=True)
         finally:
             await manager.storage.release_lease(profile_id, holder)
+
+
+@asynccontextmanager
+async def profile_operation(
+    manager,
+    profile_id: str,
+    include_deleted: bool = False,
+    *,
+    holder: str | None = None,
+    sync_operation: bool = False,
+):
+    from .sync_admission import profile_admission
+
+    async with profile_admission(manager, profile_id):
+        async with _profile_operation(
+            manager, profile_id, include_deleted, holder=holder, sync_operation=sync_operation
+        ) as profile:
+            yield profile

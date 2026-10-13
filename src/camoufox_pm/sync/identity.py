@@ -292,6 +292,12 @@ def verify_membership(
             previous
         ):
             raise ValueError("stale or forked membership")
+        retained = {device.device_id: device for device in previous.membership.devices}
+        if any(
+            device.device_id in retained and retained[device.device_id] != device
+            for device in record.devices
+        ):
+            raise ValueError("retained device identity cannot change keys")
     elif trusted_digest is not None:
         if digest(signed) != trusted_digest:
             raise ValueError("membership differs from trusted checkpoint")

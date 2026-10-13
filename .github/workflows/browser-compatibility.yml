@@ -9,9 +9,9 @@ on:
         options: [all, ubuntu-latest, windows-latest, macos-latest]
         default: all
       suite:
-        description: Full acceptance, canvas restart diagnosis, or focused recovery smoke
+        description: Full acceptance, synchronization roundtrip, canvas diagnosis, or recovery smoke
         type: choice
-        options: [full, canvas, recovery]
+        options: [full, canvas, recovery, sync]
         default: full
       raster_mode:
         description: Diagnostic canvas backend override (default tests product behavior)
@@ -21,6 +21,7 @@ on:
   pull_request:
     paths:
       - 'src/camoufox_pm/core/**'
+      - 'src/camoufox_pm/sync/**'
       - 'tests/browser/**'
       - 'pyproject.toml'
       - 'uv.lock'
@@ -50,53 +51,53 @@ jobs:
       CPM_CANVAS_CACHE_PROBE: ${{ inputs.raster_mode == 'cache-lifecycle' && '1' || '0' }}
       CPM_BROWSER_WATCHDOG_SECONDS: '180'
       CPM_CANVAS_DIAGNOSTIC_DIR: canvas-diagnostics
-      CPM_BROWSER_TARGET: ${{ inputs.suite == 'canvas' && 'tests/browser/test_fingerprint_stability.py::test_stable_canvas_survives_a_relaunch' || inputs.suite == 'recovery' && 'tests/browser/test_update_recovery.py' || 'tests' }}
+      CPM_BROWSER_TARGET: ${{ inputs.suite == 'sync' && 'tests/browser/test_sync_roundtrip.py' || inputs.suite == 'canvas' && 'tests/browser/test_fingerprint_stability.py::test_stable_canvas_survives_a_relaunch' || inputs.suite == 'recovery' && 'tests/browser/test_update_recovery.py' || 'tests' }}
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
       - name: Install locked dependencies
-        run: uv sync --locked --extra dev --python 3.12
+        run: uv sync --locked --extra dev --extra sync --python 3.12
       - name: Install Linux browser libraries
         if: runner.os == 'Linux'
         run: |
-          uv run playwright install-deps firefox
+          uv run --no-sync playwright install-deps firefox
           sudo apt-get install -y xvfb libgl1-mesa-dri libegl1 mesa-utils
       - name: Install the upstream paired browser and resources
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: uv run python scripts/install_ci_browser.py
+        run: uv run --no-sync python scripts/install_ci_browser.py
       - name: Record the tested pair
-        run: uv run camoufox version
+        run: uv run --no-sync camoufox version
       - name: Install packaged native Firefox for Windows renderer diagnostics
         if: runner.os == 'Windows' && inputs.suite != 'recovery' && (inputs.raster_mode == 'native-firefox' || inputs.raster_mode == 'default' || inputs.raster_mode == '')
-        run: uv run playwright install firefox
+        run: uv run --no-sync playwright install firefox
       - name: Verify Windows native renderer convergence before manager acceptance
         if: runner.os == 'Windows' && inputs.suite != 'recovery' && (inputs.raster_mode == 'default' || inputs.raster_mode == '')
         # Plain Firefox reproduces the cold-host pixel transition too. Preserve
         # every baseline, warn on change, fail after at most three launches.
         # Manual cold diagnostics bypass this step; product launches never use it.
         # https://github.com/polyackiy/camoufox-profile-manager/actions/runs/38319076724
-        run: uv run python -m scripts.prepare_ci_windows_renderer --output canvas-diagnostics/windows-renderer-preflight
+        run: uv run --no-sync python -m scripts.prepare_ci_windows_renderer --output canvas-diagnostics/windows-renderer-preflight
       - name: Test real browsers against local synthetic sites (Linux)
         if: runner.os == 'Linux'
         env:
           LIBGL_ALWAYS_SOFTWARE: '1'
         # Even headless Firefox needs a display-backed software GL context for
         # the hardware identity assertions, as in upstream Camoufox CI.
-        run: xvfb-run -a uv run pytest "$CPM_BROWSER_TARGET" -m browser --no-network --junitxml=browser-results.xml
+        run: xvfb-run -a uv run --no-sync pytest "$CPM_BROWSER_TARGET" -m browser --no-network --junitxml=browser-results.xml
       - name: Test real browsers against local synthetic sites
         if: runner.os != 'Linux' && (runner.os != 'Windows' || (inputs.raster_mode != 'text-probes' && inputs.raster_mode != 'process-lifecycle' && inputs.raster_mode != 'native-firefox'))
         shell: bash
-        run: uv run pytest "$CPM_BROWSER_TARGET" -m browser --no-network --junitxml=browser-results.xml
+        run: uv run --no-sync pytest "$CPM_BROWSER_TARGET" -m browser --no-network --junitxml=browser-results.xml
       - name: Verify repeated Windows canvas restarts
-        if: runner.os == 'Windows' && inputs.suite != 'recovery' && inputs.raster_mode != 'text-probes' && inputs.raster_mode != 'process-lifecycle' && inputs.raster_mode != 'native-firefox'
+        if: runner.os == 'Windows' && inputs.suite != 'recovery' && inputs.suite != 'sync' && inputs.raster_mode != 'text-probes' && inputs.raster_mode != 'process-lifecycle' && inputs.raster_mode != 'native-firefox'
         shell: pwsh
         # A single clean run does not settle the previously observed drift.
         run: |
           foreach ($attempt in 1..3) {
-            uv run pytest tests/browser/test_fingerprint_stability.py::test_stable_canvas_survives_a_relaunch --no-network --junitxml="browser-canvas-$attempt.xml"
+            uv run --no-sync pytest tests/browser/test_fingerprint_stability.py::test_stable_canvas_survives_a_relaunch --no-network --junitxml="browser-canvas-$attempt.xml"
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
       - name: Compare independent Windows text rendering probes
@@ -108,7 +109,7 @@ jobs:
           result=0
           for mode in default gdi-classic natural-symmetric; do
             CPM_CANVAS_RASTER_MODE="$mode" CPM_CANVAS_DIAGNOSTIC_DIR="canvas-diagnostics/$mode" \
-              uv run pytest tests/browser/test_fingerprint_stability.py::test_stable_canvas_survives_a_relaunch --no-network --junitxml="browser-canvas-$mode.xml" || result=1
+              uv run --no-sync pytest tests/browser/test_fingerprint_stability.py::test_stable_canvas_survives_a_relaunch --no-network --junitxml="browser-canvas-$mode.xml" || result=1
           done
           exit "$result"
       - name: Compare native Firefox first, then the unchanged manager test
@@ -119,9 +120,9 @@ jobs:
         run: |
           result=0
           CPM_NATIVE_CANVAS_CONTROL=1 CPM_CANVAS_DIAGNOSTIC_DIR=canvas-diagnostics/native-firefox \
-            uv run pytest tests/browser/test_native_canvas_control.py --no-network --junitxml=browser-native-firefox.xml || result=1
+            uv run --no-sync pytest tests/browser/test_native_canvas_control.py --no-network --junitxml=browser-native-firefox.xml || result=1
           CPM_CANVAS_RASTER_MODE=default CPM_CANVAS_CACHE_PROBE=0 CPM_CANVAS_DIAGNOSTIC_DIR=canvas-diagnostics/manager-after-native \
-            uv run pytest tests/browser/test_fingerprint_stability.py::test_stable_canvas_survives_a_relaunch --no-network --junitxml=browser-manager-after-native.xml || result=1
+            uv run --no-sync pytest tests/browser/test_fingerprint_stability.py::test_stable_canvas_survives_a_relaunch --no-network --junitxml=browser-manager-after-native.xml || result=1
           exit "$result"
       - name: Compare new Python processes on the same Windows runner
         if: runner.os == 'Windows' && inputs.raster_mode == 'process-lifecycle'
@@ -133,7 +134,7 @@ jobs:
           result=0
           for process in 1 2; do
             CPM_CANVAS_RASTER_MODE=default CPM_CANVAS_CACHE_PROBE=0 CPM_CANVAS_DIAGNOSTIC_DIR="canvas-diagnostics/process-$process" \
-              uv run pytest tests/browser/test_fingerprint_stability.py::test_stable_canvas_survives_a_relaunch --no-network --junitxml="browser-canvas-process-$process.xml" || result=1
+              uv run --no-sync pytest tests/browser/test_fingerprint_stability.py::test_stable_canvas_survives_a_relaunch --no-network --junitxml="browser-canvas-process-$process.xml" || result=1
           done
           exit "$result"
       - name: Upload test results

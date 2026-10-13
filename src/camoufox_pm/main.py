@@ -64,6 +64,7 @@ async def lifespan(app: FastAPI):
     profile_manager = None
     scheduler = None
     backup_task = None
+    sync_task = None
     try:
         with maintenance_gate.operation():
             maintenance_gate.register_manager()
@@ -76,6 +77,13 @@ async def lifespan(app: FastAPI):
             sync.set_sync_directory(
                 Path(settings.db_path).expanduser().resolve().parent / "sync-control"
             )
+
+            def sync_runtime():
+                from camoufox_pm.sync.runtime import SyncRuntime
+
+                return SyncRuntime(profile_manager, maintenance_gate)
+
+            sync.set_sync_runtime_factory(sync_runtime)
 
             backup_manager = ProfileBackupManager(
                 profile_manager,
@@ -98,6 +106,11 @@ async def lifespan(app: FastAPI):
             await scheduler.start()
             set_scheduler(scheduler)
             backup_task = asyncio.create_task(back_up_idle_profiles(), name="profile-backups")
+            from camoufox_pm.core.sync_background import sync_queue_worker
+
+            sync_task = asyncio.create_task(
+                sync_queue_worker(profile_manager, maintenance_gate), name="profile-sync"
+            )
         logger.info("API ready")
         yield
     finally:
@@ -105,6 +118,10 @@ async def lifespan(app: FastAPI):
         # neither a heartbeat nor a recovery task holding the database open.
         logger.info("Shutting down API...")
         try:
+            if sync_task is not None:
+                sync_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await sync_task
             if backup_task is not None:
                 backup_task.cancel()
                 with suppress(asyncio.CancelledError):
@@ -120,6 +137,7 @@ async def lifespan(app: FastAPI):
                     logger.warning(f"Failed to close browsers on shutdown: {exc}")
                 await profile_manager.release_all_leases()
         finally:
+            sync.set_sync_runtime_factory(None)
             sync.set_sync_directory(None)
             recovery.set_backup_manager(None)
             await storage_manager.close()

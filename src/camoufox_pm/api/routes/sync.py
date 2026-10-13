@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Literal
 from urllib.parse import urlsplit
@@ -27,6 +28,7 @@ router = APIRouter()
 _service: Any = None
 _directory: Path | None = None
 _operation_in_progress = False
+_checkpoint_provider: Callable[[], tuple] | None = None
 _MAX_BODY = 128 * 1024
 _NO_STORE = {"Cache-Control": "no-store", "Pragma": "no-cache"}
 
@@ -42,6 +44,23 @@ def set_sync_directory(directory: Path | None) -> None:
     global _directory, _service
     _directory = directory
     _service = None
+
+
+def set_sync_checkpoint_provider(provider: Callable[[], tuple] | None) -> None:
+    """Install a trusted protected-state reader; never supplied by an HTTP request."""
+    global _checkpoint_provider
+    _checkpoint_provider = provider
+
+
+def _ceremonies(service):
+    from camoufox_pm.sync.ceremonies import DeviceCeremonies, protected_checkpoints
+
+    def checkpoints():
+        if _checkpoint_provider is not None:
+            return _checkpoint_provider()
+        return protected_checkpoints(service)
+
+    return DeviceCeremonies(service, checkpoints=checkpoints)
 
 
 def _resolve_service():
@@ -78,6 +97,38 @@ class EnrollmentBody(_Body):
 
 class PasswordBody(_Body):
     password: SecretStr | None = Field(default=None, min_length=1, max_length=1024)
+
+
+class PrepareBody(PasswordBody):
+    root: dict[str, Any]
+    device_label: str = Field(min_length=1, max_length=80)
+    vault_kind: Literal["native", "encrypted_file"]
+
+
+class ApproveBody(PasswordBody):
+    request: dict[str, Any]
+    confirmed_fingerprint: str = Field(min_length=64, max_length=64)
+
+
+class AcceptBody(PasswordBody):
+    approval: dict[str, Any]
+    confirmed_fingerprint: str = Field(min_length=64, max_length=64)
+
+
+class ConnectBody(PasswordBody):
+    registration_token: SecretStr = Field(min_length=1, max_length=4096)
+
+
+class RevokeBody(PasswordBody):
+    device_id: str = Field(min_length=36, max_length=36)
+
+
+class ShareProfilesBody(PasswordBody):
+    target_device_id: str = Field(min_length=36, max_length=36)
+
+
+class AcceptProfilesBody(_Body):
+    pack: dict[str, Any]
 
 
 class RecoveryBody(PasswordBody):
@@ -146,9 +197,30 @@ async def _body(request: Request, model: type[_Body]) -> Any:
             raise _error(413, "Enrollment request is too large")
         raw.extend(chunk)
     try:
-        # Every accepted body is a flat object of scalar values. Bound parser
-        # recursion without having to echo Pydantic's invalid secret input.
-        decoded = json.loads(raw, object_pairs_hook=_unique_pairs)
+        # Bound nested public ceremony objects before parsing; quoted braces do
+        # not count. Never echo validation input containing unlock credentials.
+        depth, quoted, escaped = 0, False, False
+        for char in raw:
+            if quoted:
+                if escaped:
+                    escaped = False
+                elif char == 92:
+                    escaped = True
+                elif char == 34:
+                    quoted = False
+            elif char == 34:
+                quoted = True
+            elif char in (91, 123):
+                depth += 1
+                if depth > 16:
+                    raise ValueError
+            elif char in (93, 125):
+                depth -= 1
+
+        def reject_constant(value):
+            raise ValueError("Invalid JSON constant")
+
+        decoded = json.loads(raw, object_pairs_hook=_unique_pairs, parse_constant=reject_constant)
         return model.model_validate(decoded)
     except (ValueError, TypeError, RecursionError):
         raise _error(422, "Invalid sync enrollment request") from None
@@ -173,7 +245,9 @@ async def _live_owner(request: Request, expected_id: str | None = None) -> str:
     return user["id"]
 
 
-async def _call(request: Request, user_id: str, method: str, *args, **kwargs):
+async def _call(
+    request: Request, user_id: str, method: str, *args, ceremony=False, profile_code=False, **kwargs
+):
     global _operation_in_progress
     if _service is None and _directory is None:
         raise _error(503, "Synchronization service is unavailable")
@@ -187,7 +261,33 @@ async def _call(request: Request, user_id: str, method: str, *args, **kwargs):
 
     def invoke():
         service = _resolve_service()
-        return getattr(service, method)(user_id, *args, authorize=authorize, **kwargs)
+        target = _ceremonies(service) if ceremony else service
+        authorize()
+        if profile_code:
+            from camoufox_pm.sync.profile_invitation import accept_profile_code, create_profile_code
+
+            operation = {
+                "create_profile_code": create_profile_code,
+                "accept_profile_code": accept_profile_code,
+            }[method]
+            result = operation(service, user_id, *args, authorize=authorize, **kwargs)
+        elif ceremony and method in {"draft_status", "resume_pairing", "membership_status"}:
+            result = _ceremony_state(target, user_id, method, args, authorize)
+        else:
+            if ceremony and method in {"prepare_pairing", "approve_request", "accept_approval"}:
+                from camoufox_pm.sync.identity import OwnerRoot, PairingApproval, PairingRequest
+
+                model = {
+                    "prepare_pairing": OwnerRoot,
+                    "approve_request": PairingRequest,
+                    "accept_approval": PairingApproval,
+                }[method]
+                arguments = (model.model_validate(args[0]), *args[1:])
+            else:
+                arguments = args
+            result = getattr(target, method)(user_id, *arguments, authorize=authorize, **kwargs)
+        authorize()
+        return result.model_dump(mode="json") if isinstance(result, BaseModel) else result
 
     try:
         # The synchronous service performs KDFs and isolated recovery verification.
@@ -272,3 +372,303 @@ async def abandon(request: Request):
     await _body(request, _Body)
     await _call(request, user_id, "abandon_enrollment")
     return _response({"success": True})
+
+
+def _ceremony_state(target, user_id, method, args, authorize):
+    """Expose only allowlisted public draft state after checking its local owner."""
+    if method == "membership_status":
+        target.service._read(user_id)
+        record = target.control.get("ceremony/membership")
+        if record is None:
+            return None
+        payload = record.payload
+        if payload.get("local_user_id") != user_id:
+            raise ValueError("Wrong ceremony owner")
+        if payload.get("kind") not in {"pairing", "revocation"} or payload.get("phase") not in {
+            "pending",
+            "published",
+        }:
+            raise ValueError("Invalid membership ceremony state")
+        return {"kind": payload["kind"], "phase": payload["phase"]}
+    if target.control.get("ceremony/pairing") is None:
+        if method == "draft_status":
+            return None
+        raise ValueError("No pairing draft")
+    _, draft = target._draft(user_id)
+    if method == "resume_pairing":
+        if draft.phase not in {"preparing", "pending"}:
+            raise ValueError("Pairing draft cannot be resumed")
+        return target.prepare_pairing(
+            user_id, draft.root, draft.device_label, draft.vault_kind, *args, authorize=authorize
+        )
+    from camoufox_pm.sync.identity import pairing_fingerprint
+
+    return {
+        "root": draft.root.model_dump(mode="json"),
+        "request": draft.request.model_dump(mode="json"),
+        "fingerprint": pairing_fingerprint(draft.request),
+        "phase": draft.phase,
+        "device_label": draft.device_label,
+        "vault_kind": draft.vault_kind,
+    }
+
+
+@router.get("/sync/pairing/owner-code")
+async def owner_code(request: Request):
+    user_id = await _live_owner(request)
+    return _response(await _call(request, user_id, "export_owner_code", ceremony=True))
+
+
+@router.get("/sync/pairing/draft")
+async def pairing_draft(request: Request):
+    user_id = await _live_owner(request)
+    return _response(await _call(request, user_id, "draft_status", ceremony=True))
+
+
+@router.get("/sync/membership/pending")
+async def membership_pending(request: Request):
+    user_id = await _live_owner(request)
+    return _response(await _call(request, user_id, "membership_status", ceremony=True))
+
+
+@router.post("/sync/pairing/prepare")
+async def pairing_prepare(request: Request):
+    user_id = await _live_owner(request)
+    body = await _body(request, PrepareBody)
+    return _response(
+        await _call(
+            request,
+            user_id,
+            "prepare_pairing",
+            body.root,
+            body.device_label,
+            body.vault_kind,
+            _password(body),
+            ceremony=True,
+        )
+    )
+
+
+@router.post("/sync/pairing/approve")
+async def pairing_approve(request: Request):
+    user_id = await _live_owner(request)
+    body = await _body(request, ApproveBody)
+    return _response(
+        await _call(
+            request,
+            user_id,
+            "approve_request",
+            body.request,
+            body.confirmed_fingerprint,
+            _password(body),
+            ceremony=True,
+        )
+    )
+
+
+@router.post("/sync/pairing/accept")
+async def pairing_accept(request: Request):
+    user_id = await _live_owner(request)
+    body = await _body(request, AcceptBody)
+    return _response(
+        await _call(
+            request,
+            user_id,
+            "accept_approval",
+            body.approval,
+            body.confirmed_fingerprint,
+            _password(body),
+            ceremony=True,
+        )
+    )
+
+
+@router.post("/sync/pairing/resume")
+async def pairing_resume(request: Request):
+    user_id = await _live_owner(request)
+    body = await _body(request, PasswordBody)
+    return _response(
+        await _call(request, user_id, "resume_pairing", _password(body), ceremony=True)
+    )
+
+
+@router.post("/sync/pairing/abandon")
+async def pairing_abandon(request: Request):
+    user_id = await _live_owner(request)
+    body = await _body(request, PasswordBody)
+    await _call(request, user_id, "abandon_pairing", _password(body), ceremony=True)
+    return _response({"success": True})
+
+
+@router.post("/sync/membership/resume")
+async def membership_resume(request: Request):
+    user_id = await _live_owner(request)
+    body = await _body(request, PasswordBody)
+    return _response(
+        await _call(request, user_id, "resume_membership", _password(body), ceremony=True)
+    )
+
+
+@router.get("/sync/devices")
+async def devices(request: Request):
+    user_id = await _live_owner(request)
+    return _response(await _call(request, user_id, "list_devices", ceremony=True))
+
+
+@router.post("/sync/devices/revoke")
+async def revoke_device(request: Request):
+    user_id = await _live_owner(request)
+    body = await _body(request, RevokeBody)
+    return _response(
+        await _call(
+            request, user_id, "revoke_device", body.device_id, _password(body), ceremony=True
+        )
+    )
+
+
+@router.post("/sync/relay/connect")
+async def connect_relay(request: Request):
+    user_id = await _live_owner(request)
+    body = await _body(request, ConnectBody)
+    return _response(
+        await _call(
+            request,
+            user_id,
+            "connect_relay",
+            body.registration_token.get_secret_value(),
+            _password(body),
+            ceremony=True,
+        )
+    )
+
+
+_runtime_factory: Callable[[], Any] | None = None
+
+
+def set_sync_runtime_factory(factory: Callable[[], Any] | None) -> None:
+    """Wire the manager's existing maintenance gate without importing main."""
+    global _runtime_factory
+    _runtime_factory = factory
+
+
+class PreserveCopyBody(_Body):
+    acknowledge_fork: Literal[True]
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+
+
+class ImportProfileBody(PasswordBody):
+    profile_id: str = Field(
+        pattern=r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    )
+
+
+async def _runtime_call(request: Request, user_id: str, method: str, *args, **kwargs):
+    global _operation_in_progress
+    if _runtime_factory is None:
+        raise _error(503, "Synchronization runtime is unavailable")
+    if _operation_in_progress:
+        raise _error(409, "Another synchronization ceremony is in progress")
+    _operation_in_progress = True
+
+    async def authorize():
+        await _live_owner(request, user_id)
+
+    async def invoke():
+        await authorize()
+        # Construction may open protected SQLite state, so keep it off the loop.
+        runtime = await run_file_operation(_runtime_factory)
+        runtime.service = await run_file_operation(_resolve_service)
+        runtime.cache = runtime.service.control.directory / "transfers"
+        result = await getattr(runtime, method)(user_id, *args, authorize=authorize, **kwargs)
+        await authorize()
+        return result
+
+    task = asyncio.create_task(invoke())
+    try:
+        try:
+            result = await asyncio.shield(task)
+        except asyncio.CancelledError:
+            # Keep admission reserved until network, key and disk workers drain.
+            # Repeated disconnect cancellation cannot release it prematurely.
+            while not task.done():
+                try:
+                    await asyncio.shield(task)
+                except asyncio.CancelledError:
+                    if task.cancelled():
+                        raise
+            task.result()
+            raise
+        return result
+    except HTTPException:
+        raise
+    except Exception:
+        raise _error(409, "Synchronization operation failed; inspect its state and retry") from None
+    finally:
+        _operation_in_progress = False
+
+
+@router.get("/sync/profiles")
+async def sync_profiles(request: Request):
+    user_id = await _live_owner(request)
+    return _response(await _runtime_call(request, user_id, "list_profiles"))
+
+
+@router.post("/sync/profiles/share")
+async def sync_share_profiles(request: Request):
+    user_id = await _live_owner(request)
+    body = await _body(request, ShareProfilesBody)
+    return _response(
+        await _call(
+            request,
+            user_id,
+            "create_profile_code",
+            body.target_device_id,
+            password=_password(body),
+            profile_code=True,
+        )
+    )
+
+
+@router.post("/sync/profiles/accept-code")
+async def sync_accept_profiles(request: Request):
+    user_id = await _live_owner(request)
+    body = await _body(request, AcceptProfilesBody)
+    return _response(
+        await _call(request, user_id, "accept_profile_code", body.pack, profile_code=True)
+    )
+
+
+@router.post("/sync/profiles/import")
+async def sync_import_profile(request: Request):
+    user_id = await _live_owner(request)
+    body = await _body(request, ImportProfileBody)
+    return _response(
+        await _runtime_call(
+            request, user_id, "bind_paired", body.profile_id, password=_password(body)
+        )
+    )
+
+
+@router.post("/sync/profiles/{local_id}/{action}")
+async def sync_profile_action(request: Request, local_id: str, action: str):
+    user_id = await _live_owner(request)
+    if len(local_id) != 8 or not local_id.isascii() or not local_id.isalnum():
+        raise _error(422, "Invalid local profile identifier")
+    if action == "preserve-copy":
+        copy_body = await _body(request, PreserveCopyBody)
+        return _response(
+            await _runtime_call(
+                request,
+                user_id,
+                "preserve_local_copy",
+                local_id,
+                acknowledge_fork=copy_body.acknowledge_fork,
+                name=copy_body.name,
+            )
+        )
+    if action not in {"enable", "handoff", "acquire", "retry", "recover"}:
+        raise _error(404, "Unknown synchronization operation")
+    body = await _body(request, PasswordBody)
+    return _response(
+        await _runtime_call(request, user_id, action, local_id, password=_password(body))
+    )

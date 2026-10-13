@@ -171,7 +171,11 @@ class UpdateTransaction:
             raise ValueError("Installed process did not acknowledge validation")
 
     def _restore(self):
+        from .sync_guard import invalidate_all_sync
+
+        self._offline()
         value = self.service.status()
+        invalidate_all_sync(Path(value["db_path"]).parent)
         restore_checkpoint(
             Path(value["checkpoint"]),
             db_path=Path(value["db_path"]),

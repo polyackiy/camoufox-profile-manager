@@ -288,5 +288,8 @@ def offline_restore(checkpoint_id: str, confirmed_timestamp: str):
             raise
         # Never release admission if replacement fails; retry this ID resumes the
         # checkpoint's restore journal and keeps the newer state retained.
+        from .sync_guard import invalidate_all_sync
+
+        invalidate_all_sync(database.parent)
         restore_checkpoint(root, db_path=database, paths=paths, maintenance_check=check)
         gate.release(owner)

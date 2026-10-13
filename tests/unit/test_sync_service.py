@@ -299,3 +299,23 @@ def test_recipient_key_write_failure_resumes_exact_ceremony(setup, tmp_path, mon
         consume()
     assert receiver.status("receiver-user")["phase"] == "preparing"
     assert consume()["phase"] == "freshness_unknown"
+
+
+def test_routine_device_unlock_never_reads_authority_slot(setup, monkeypatch):
+    svc, vault = setup
+    status = ready(svc)
+    original_get = vault.get
+    reads = []
+
+    def device_only(slot):
+        reads.append(slot)
+        if slot == status["owner_id"]:
+            pytest.fail("routine unlock must not read authority")
+        return original_get(slot)
+
+    monkeypatch.setattr(vault, "get", device_only)
+    keys = svc.device_keys("user-id")
+    assert (
+        keys.certificate(status["owner_id"], status["device_id"]).device_id == status["device_id"]
+    )
+    assert reads == [status["device_id"]]

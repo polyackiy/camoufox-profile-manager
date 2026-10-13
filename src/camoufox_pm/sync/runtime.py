@@ -1,0 +1,697 @@
+"""Closed-profile synchronization coordinated with local admission and durable state."""
+
+from __future__ import annotations
+
+import asyncio
+import inspect
+import platform
+from contextvars import ContextVar
+from functools import wraps
+from pathlib import Path
+from uuid import UUID, uuid4
+
+from camoufox_pm.core.profile_operations import (
+    profile_data_path,
+    profile_operation,
+    run_file_operation,
+)
+from camoufox_pm.core.sync_guard import mark_synchronized
+from camoufox_pm.core.update_permissions import create_private_directory, verify_private_path
+
+from .apply import apply_snapshot, recover_apply
+from .client import RelayClient
+from .engine import Binding, EngineError, SyncEngine
+from .protocol import SnapshotManifest
+from .quiescence import browser_profile_lock
+from .service import SyncService
+from .snapshots import Compatibility, build_snapshot
+from .transfer import SnapshotTransfer
+
+_authorization: ContextVar = ContextVar("sync_runtime_authorization", default=None)
+
+
+def authorized(function):
+    @wraps(function)
+    async def operation(self, user_id, *args, authorize=None, **kwargs):
+        token = _authorization.set(authorize)
+        try:
+            return await function(self, user_id, *args, **kwargs)
+        finally:
+            _authorization.reset(token)
+
+    return operation
+
+
+def _public(state):
+    value = state.model_dump(mode="json")
+    if state.pending:
+        value["pending"] = {"kind": state.pending.kind, "operation_id": state.pending.operation_id}
+    return value
+
+
+def installed_compatibility() -> Compatibility:
+    from camoufox.pkgman import installed_verstr
+
+    operating_system = {"Darwin": "macos", "Windows": "windows", "Linux": "linux"}.get(
+        platform.system()
+    )
+    architecture = {
+        "arm64": "aarch64",
+        "aarch64": "aarch64",
+        "amd64": "x86_64",
+        "x86_64": "x86_64",
+    }.get(platform.machine().lower())
+    if operating_system is None or architecture is None:
+        raise EngineError("This platform has no tested snapshot compatibility")
+    return Compatibility.model_validate(
+        {"browser_build": installed_verstr(), "os": operating_system, "architecture": architecture}
+    )
+
+
+class SyncRuntime:
+    """One explicit operation uses short-lived keys; locked vaults require user unlock.
+
+    The manager owns API admission. Independent storage checks here prevent background
+    work continuing after the enrolled administrator was removed or demoted.
+    """
+
+    def __init__(
+        self,
+        manager,
+        maintenance,
+        *,
+        client_factory=RelayClient,
+        compatibility=installed_compatibility,
+    ):
+        self.manager, self.maintenance = manager, maintenance
+        self.service = SyncService(
+            Path(manager.storage.db.db_path).absolute().parent / "sync-control"
+        )
+        self.client_factory, self.compatibility = client_factory, compatibility
+        self.cache = self.service.control.directory / "transfers"
+
+    async def _authorize(self, user_id: str, *, allow_revoked: bool = False):
+        callback = _authorization.get()
+        if callback is not None:
+            result = callback()
+            if inspect.isawaitable(result):
+                await result
+        users = await self.manager.storage.list_users()
+        if not any(
+            user.get("id") == user_id and user.get("role") == "administrator" for user in users
+        ):
+            raise EngineError("The enrolled administrator is no longer available")
+        if not allow_revoked:
+            self.service._read(user_id)
+        else:
+            from .identity import verify_membership
+            from .service import Enrollment
+
+            record = self.service.control.get("installation")
+            if record is None:
+                raise EngineError("Owner binding is unavailable")
+            owner = Enrollment.model_validate(record.payload)
+            verify_membership(owner.root, owner.membership, trusted_digest=owner.membership_digest)
+            if owner.local_user_id != user_id or owner.phase == "abandoned":
+                raise EngineError("Owner binding is unavailable")
+
+    async def _session(self, user_id: str, password: str | None):
+        await self._authorize(user_id)
+        keys = await run_file_operation(self.service.device_keys, user_id, password=password)
+        await self._authorize(user_id)
+        _, owner = self.service._read(user_id)
+        client = self.client_factory(owner.root, owner.device_id, keys)
+        loop = asyncio.get_running_loop()
+        callback = _authorization.get()
+
+        async def live_authorize():
+            token = _authorization.set(callback)
+            try:
+                await self._authorize(user_id)
+            finally:
+                _authorization.reset(token)
+
+        def transport_authorize():
+            try:
+                current = asyncio.get_running_loop()
+            except RuntimeError:
+                current = None
+            if current is loop:
+                raise EngineError("Relay mutation must run in a worker thread")
+            asyncio.run_coroutine_threadsafe(live_authorize(), loop).result()
+
+        client.authorize = transport_authorize
+        try:
+            return (
+                SyncEngine(self.service, user_id, client, authorize=transport_authorize),
+                keys,
+                client,
+            )
+        except BaseException:
+            client.close()
+            raise
+
+    def _directory(self):
+        if not self.cache.exists():
+            try:
+                create_private_directory(self.cache)
+            except FileExistsError:
+                pass
+        verify_private_path(self.cache)
+        directory = self.cache / str(uuid4())
+        create_private_directory(directory)
+        return directory
+
+    def _job_directory(self, local_id):
+        key = "runtime/work/" + local_id
+        previous = self.service.control.get(key)
+        if previous is not None:
+            identifier = previous.payload.get("directory")
+            if type(identifier) is not str or str(UUID(identifier)) != identifier:
+                raise EngineError("Invalid interrupted transfer directory")
+            old = self.cache / identifier / "snapshot.zip"
+            verify_private_path(old.parent)
+            self._cleanup(old.parent)
+        directory = self._directory()
+        payload = {"directory": directory.name}
+        if previous:
+            self.service.control.update(key, payload, previous.revision)
+        else:
+            self.service.control.create(key, payload)
+        return directory
+
+    @staticmethod
+    def _cleanup(directory):
+        if directory is not None:
+            verify_private_path(directory)
+            (directory / "snapshot.zip").unlink(missing_ok=True)
+            preflight = directory / "preflight"
+            if preflight.exists():
+                import shutil
+
+                verify_private_path(preflight)
+                shutil.rmtree(preflight)
+
+    def _capture(self, profile, directory, compatibility):
+        data = profile_data_path(self.manager, profile)
+        with browser_profile_lock(data):
+            return build_snapshot(profile, data, directory / "snapshot.zip", compatibility)
+
+    @authorized
+    async def enable(self, user_id: str, local_id: str, *, password: str | None = None):
+        engine, keys, client = await self._session(user_id, password)
+        directory = None
+        try:
+            with self.maintenance.operation():
+                async with profile_operation(
+                    self.manager, local_id, sync_operation=True
+                ) as profile:
+                    await self._authorize(user_id)
+                    job_key = "runtime/initial/" + local_id
+                    job = self.service.control.get(job_key)
+                    existing = self.service.control.get("profile/" + local_id)
+                    if existing and job is None:
+                        raise EngineError("Profile is already synchronized")
+                    if job is None:
+                        self.service.control.create(job_key, {"phase": "initializing"})
+                    elif job.payload.get("phase") not in {"initializing", "complete"}:
+                        raise EngineError("Invalid initialization state")
+                    compatibility = await run_file_operation(self.compatibility)
+                    directory = self._job_directory(local_id)
+                    await run_file_operation(self._capture, profile, directory, compatibility)
+                    await self._authorize(user_id)
+                    remote_id = (
+                        engine.status(local_id).checkpoint.profile_id
+                        if existing
+                        else engine.enable(local_id)
+                    )
+                    mark_synchronized(self.manager, profile, engine.root.owner_id, remote_id)
+                    state = engine.status(local_id)
+                    if state.pending is not None:
+                        await self._retry(engine, user_id, local_id)
+                        state = engine.status(local_id)
+                    if state.checkpoint.revision_id is not None:
+                        if not engine.may_launch(local_id):
+                            job = self.service.control.get(job_key)
+                            if (
+                                job.payload.get("revision") != state.checkpoint.revision_id
+                                or job.payload.get("row_version") != profile.row_version
+                            ):
+                                raise EngineError("Initial publication needs recovery")
+                            engine.record_applied(local_id, state.checkpoint.revision_id)
+                    else:
+                        if state.checkpoint.holder_device_id is None:
+                            state = await run_file_operation(engine.claim, local_id)
+                        if state.checkpoint.holder_device_id != engine.device_id:
+                            raise EngineError("Initial profile is held on another device")
+                        if state.checkpoint.revision_id is not None:
+                            raise EngineError("New profile unexpectedly has remote history")
+                        if not engine.may_launch(local_id):
+                            engine.record_applied(local_id, None)
+                        transfer = SnapshotTransfer(engine, keys)
+                        manifest, signature = await run_file_operation(
+                            transfer.encrypt,
+                            local_id,
+                            directory / "snapshot.zip",
+                            directory / "ciphertext",
+                        )
+                        await self._authorize(user_id)
+                        job = self.service.control.get(job_key)
+                        self.service.control.update(
+                            job_key,
+                            {
+                                "phase": "initializing",
+                                "revision": manifest.revision_id,
+                                "row_version": profile.row_version,
+                            },
+                            job.revision,
+                        )
+                        await run_file_operation(
+                            engine.publish, local_id, manifest, signature, directory / "ciphertext"
+                        )
+                        await self._authorize(user_id)
+                        engine.record_applied(local_id, manifest.revision_id)
+                    job = self.service.control.get(job_key)
+                    self.service.control.update(job_key, {"phase": "complete"}, job.revision)
+                    return _public(engine.status(local_id))
+        finally:
+            try:
+                self._cleanup(directory)
+            finally:
+                client.close()
+
+    @authorized
+    async def handoff(self, user_id: str, local_id: str, *, password: str | None = None):
+        engine, keys, client = await self._session(user_id, password)
+        directory = None
+        try:
+            with self.maintenance.operation():
+                async with profile_operation(
+                    self.manager, local_id, sync_operation=True
+                ) as profile:
+                    state = engine.status(local_id)
+                    if state.pending is not None:
+                        return await self._retry(engine, user_id, local_id)
+                    await self._authorize(user_id)
+                    if state.handoff and not state.needs_snapshot:
+                        state = await run_file_operation(engine.reconcile, local_id)
+                        if state.phase == "released":
+                            return self._finish_release(local_id, state)
+                        await self._authorize(user_id)
+                        return self._finish_release(
+                            local_id, await run_file_operation(engine.release, local_id)
+                        )
+                    if not state.handoff:
+                        engine.begin_handoff(local_id)
+                    compatibility = await run_file_operation(self.compatibility)
+                    directory = self._job_directory(local_id)
+                    await run_file_operation(self._capture, profile, directory, compatibility)
+                    manifest, signature = await run_file_operation(
+                        SnapshotTransfer(engine, keys).encrypt,
+                        local_id,
+                        directory / "snapshot.zip",
+                        directory / "ciphertext",
+                    )
+                    await self._authorize(user_id)
+                    await run_file_operation(
+                        engine.publish, local_id, manifest, signature, directory / "ciphertext"
+                    )
+                    await self._authorize(user_id)
+                    return self._finish_release(
+                        local_id, await run_file_operation(engine.release, local_id)
+                    )
+        finally:
+            try:
+                self._cleanup(directory)
+            finally:
+                client.close()
+
+    def _finish_release(self, local_id, state):
+        if state.phase == "released" and state.checkpoint.holder_device_id is None:
+            queued = self.service.control.get("runtime/dirty/" + local_id)
+            if queued is not None:
+                self.service.control.update(
+                    queued.key, {**queued.payload, "phase": "complete"}, queued.revision
+                )
+        return _public(state)
+
+    async def _retry(self, engine, user_id: str, local_id: str):
+        state = engine.status(local_id)
+        pending = state.pending
+        if pending is None:
+            await self._authorize(user_id)
+            state = await run_file_operation(engine.reconcile, local_id)
+            if state.handoff and not state.needs_snapshot:
+                await self._authorize(user_id)
+                state = await run_file_operation(engine.release, local_id)
+            return self._finish_release(local_id, state)
+        await self._authorize(user_id)
+        if pending.kind == "commit":
+            path = Path(pending.ciphertext_path or "")
+            # Never open arbitrary paths obtained from persisted operation metadata.
+            if (
+                path.name != "ciphertext"
+                or path.parent.parent != self.cache.absolute()
+                or path.parent.name != str(UUID(path.parent.name))
+            ):
+                raise EngineError("Pending encrypted snapshot path is invalid")
+            verify_private_path(path.parent)
+            manifest = SnapshotManifest.model_validate(pending.body["manifest"])
+            state = await run_file_operation(
+                engine.publish, local_id, manifest, pending.body["signature"], path
+            )
+            if state.handoff:
+                await self._authorize(user_id)
+                state = await run_file_operation(engine.release, local_id)
+            else:
+                state = engine.record_applied(local_id, manifest.revision_id)
+        elif pending.kind == "release":
+            state = await run_file_operation(engine.release, local_id)
+        elif pending.kind == "claim":
+            state = await run_file_operation(engine.claim, local_id)
+        else:
+            raise EngineError("Owner recovery is required for this pending operation")
+        return self._finish_release(local_id, state)
+
+    @authorized
+    async def acquire(self, user_id: str, local_id: str, *, password: str | None = None):
+        engine, keys, client = await self._session(user_id, password)
+        directory = None
+        try:
+            with self.maintenance.operation():
+                async with profile_operation(
+                    self.manager, local_id, sync_operation=True
+                ) as profile:
+                    from .snapshots import validate_snapshot
+
+                    state = await run_file_operation(engine.reconcile, local_id)
+                    if state.pending or state.checkpoint.holder_device_id not in {
+                        None,
+                        engine.device_id,
+                    }:
+                        raise EngineError("Profile is held elsewhere or a transfer is pending")
+                    if engine.may_launch(local_id):
+                        return _public(state)
+                    selected = state.checkpoint
+                    transfer = SnapshotTransfer(engine, keys)
+                    manifest, _, _, _ = await run_file_operation(
+                        transfer.selected, local_id, require_checkout=False
+                    )
+                    if not any(
+                        envelope.kind == "device" and envelope.recipient_id == engine.device_id
+                        for envelope in manifest.recipients
+                    ):
+                        raise EngineError(
+                            "Ask the source device to publish a new snapshot after pairing"
+                        )
+                    compatibility = await run_file_operation(self.compatibility)
+                    directory = self._job_directory(local_id)
+                    revision = await run_file_operation(
+                        transfer.download,
+                        local_id,
+                        directory / "ciphertext",
+                        directory / "snapshot.zip",
+                        require_checkout=False,
+                    )
+                    await run_file_operation(
+                        validate_snapshot,
+                        directory / "snapshot.zip",
+                        directory / "preflight",
+                        compatibility,
+                    )
+                    if revision != selected.revision_id:
+                        raise EngineError("Remote snapshot changed during preflight; retry")
+                    if selected.holder_device_id is None:
+                        await self._authorize(user_id)
+                        state = await run_file_operation(
+                            engine.claim, local_id, expected_checkpoint=selected
+                        )
+                    if state.checkpoint.revision_id != revision:
+                        raise EngineError("Remote snapshot changed before activation")
+                    expected_version = profile.row_version
+                await self._authorize(user_id)
+                compatibility = await run_file_operation(self.compatibility)
+                await apply_snapshot(
+                    self.manager,
+                    local_id,
+                    directory / "snapshot.zip",
+                    compatibility,
+                    self.service.control,
+                    revision,
+                    expected_version,
+                    maintenance=self.maintenance,
+                    authorize=lambda: self._authorize(user_id),
+                )
+                await self._authorize(user_id)
+                return await self._record_activation(engine, user_id, local_id, revision)
+        finally:
+            try:
+                self._cleanup(directory)
+            finally:
+                client.close()
+
+    @authorized
+    async def recover(self, user_id: str, local_id: str, *, password: str | None = None):
+        engine, _, client = await self._session(user_id, password)
+        directory = None
+        try:
+            result = await recover_apply(
+                self.manager,
+                local_id,
+                self.service.control,
+                maintenance=self.maintenance,
+                authorize=lambda: self._authorize(user_id),
+            )
+            await self._authorize(user_id)
+            state = await run_file_operation(engine.reconcile, local_id)
+            if (
+                result is None
+                or result.phase != "complete"
+                or state.checkpoint.revision_id != result.revision_id
+            ):
+                raise EngineError("Recovered snapshot is no longer the selected revision")
+            return await self._record_activation(engine, user_id, local_id, result.revision_id)
+        finally:
+            try:
+                self._cleanup(directory)
+            finally:
+                client.close()
+
+    async def _record_activation(self, engine, user_id, local_id, revision):
+        async with profile_operation(self.manager, local_id, sync_operation=True) as profile:
+            await self._authorize(user_id)
+            journal = self.service.control.get("apply/" + local_id)
+            if (
+                journal is None
+                or journal.payload.get("phase") != "complete"
+                or journal.payload.get("revision_id") != revision
+            ):
+                raise EngineError("Activation journal is not complete")
+            operation = journal.payload.get("operation_id")
+            if type(operation) is not str or str(UUID(operation)) != operation:
+                raise EngineError("Invalid activation identity")
+            expected = self.manager.profiles_dir.resolve() / ("sync-" + operation) / "data"
+            if (
+                profile_data_path(self.manager, profile) != expected
+                or profile.row_version != journal.payload.get("expected_row_version", -2) + 1
+            ):
+                raise EngineError("Local profile differs from activated snapshot")
+            state = await run_file_operation(engine.reconcile, local_id)
+            await self._authorize(user_id)
+            if state.checkpoint.revision_id != revision:
+                raise EngineError("Remote profile changed during activation")
+            return _public(engine.record_applied(local_id, revision))
+
+    @authorized
+    async def retry(self, user_id: str, local_id: str, *, password: str | None = None):
+        initial = self.service.control.get("runtime/initial/" + local_id)
+        if initial is not None and initial.payload.get("phase") == "initializing":
+            return await self.enable(
+                user_id, local_id, password=password, authorize=_authorization.get()
+            )
+        engine, _, client = await self._session(user_id, password)
+        try:
+            state = engine.status(local_id)
+            if state.pending is None and state.handoff and state.needs_snapshot:
+                return await self.handoff(
+                    user_id, local_id, password=password, authorize=_authorization.get()
+                )
+            with self.maintenance.operation():
+                async with profile_operation(self.manager, local_id, sync_operation=True):
+                    return await self._retry(engine, user_id, local_id)
+        finally:
+            client.close()
+
+    def _paired(self, user_id):
+        from .identity import PairingApproval, PairingRequest, pairing_fingerprint, verify_pairing
+
+        _, owner = self.service._read(user_id)
+        found = {}
+        for record in self.service.control.list("received/"):
+            value = record.payload
+            if value.get("phase") != "consumed" or value.get("local_user_id") != user_id:
+                continue
+            request = PairingRequest.model_validate(value["request"])
+            approval = PairingApproval.model_validate(value["approval"])
+            if request.device.device_id != owner.device_id:
+                continue
+            checkpoints = verify_pairing(
+                owner.root,
+                request,
+                approval,
+                approval.membership,
+                now=request.issued_at,
+                confirmed_fingerprint=pairing_fingerprint(request),
+            )
+            for checkpoint in checkpoints:
+                value = {
+                    "owner_id": owner.root.owner_id,
+                    "membership_epoch": approval.membership.membership.epoch,
+                    **checkpoint.model_dump(mode="json"),
+                }
+                if checkpoint.profile_id in found and found[checkpoint.profile_id] != value:
+                    raise EngineError("Conflicting paired checkpoints")
+                found[checkpoint.profile_id] = value
+        from .profile_invitation import trusted_profile_checkpoints
+
+        for identifier, checkpoint in trusted_profile_checkpoints(self.service, user_id).items():
+            if identifier in found and found[identifier] != checkpoint:
+                raise EngineError("Conflicting trusted profile checkpoints")
+            found[identifier] = checkpoint
+        return found
+
+    @authorized
+    async def list_profiles(self, user_id: str):
+        await self._authorize(user_id)
+        profiles = []
+        for record in self.service.control.list("profile/"):
+            state = Binding.model_validate(record.payload)
+            profile = await self.manager.storage.get_profile(state.local_id, include_deleted=True)
+            profiles.append(
+                {**_public(state), "name": profile.name if profile else "Unavailable local profile"}
+            )
+        available = [
+            {"profile_id": identifier, "checkpoint": checkpoint}
+            for identifier, checkpoint in self._paired(user_id).items()
+            if self.service.control.get("mapping/" + identifier) is None
+        ]
+        await self._authorize(user_id)
+        return {"profiles": profiles, "available": available}
+
+    @authorized
+    async def bind_paired(
+        self,
+        user_id: str,
+        remote_id: str,
+        *,
+        name: str = "Synchronized profile",
+        password: str | None = None,
+    ):
+        from camoufox_pm.core.models import Profile
+
+        if str(UUID(remote_id)) != remote_id or not UUID(remote_id).int:
+            raise EngineError("Invalid remote profile")
+        if type(name) is not str or not 1 <= len(name.strip()) <= 200:
+            raise EngineError("Profile name must contain 1 to 200 characters")
+        engine, _, client = await self._session(user_id, password)
+        try:
+            with self.maintenance.operation():
+                await self._authorize(user_id)
+                if remote_id not in self._paired(user_id):
+                    raise EngineError("Profile has no independently paired checkpoint")
+                key = "runtime/import/" + remote_id
+                job = self.service.control.get(key)
+                if job is None:
+                    profile = Profile(name=name.strip())
+                    job = self.service.control.create(
+                        key, {"local_id": profile.id, "phase": "preparing"}
+                    )
+                else:
+                    profile = Profile(id=job.payload["local_id"], name=name.strip())
+                    if job.payload.get("phase") not in {"preparing", "complete"}:
+                        raise EngineError("Invalid profile import state")
+                mapping = self.service.control.get("mapping/" + remote_id)
+                if mapping is None:
+                    engine.bind_paired(profile.id, remote_id)
+                elif mapping.payload != {"local_id": profile.id}:
+                    raise EngineError("Remote profile already has a different local mapping")
+                existing = await self.manager.storage.get_profile(profile.id, include_deleted=True)
+                if existing is None:
+                    directory = profile_data_path(self.manager, profile)
+                    if not directory.exists():
+                        create_private_directory(directory)
+                    mark_synchronized(self.manager, profile, engine.root.owner_id, remote_id)
+                    await self._authorize(user_id)
+                    await self.manager.storage.insert_profile_if_absent(profile)
+                else:
+                    mark_synchronized(self.manager, existing, engine.root.owner_id, remote_id)
+                await self._authorize(user_id)
+                job = self.service.control.get(key)
+                self.service.control.update(
+                    key, {"local_id": profile.id, "phase": "complete"}, job.revision
+                )
+                return _public(engine.status(profile.id))
+        finally:
+            client.close()
+
+    @authorized
+    async def preserve_local_copy(
+        self, user_id: str, local_id: str, *, acknowledge_fork: bool, name: str | None = None
+    ):
+        """Explicitly fork local bytes; never claim that they are the latest remote head.
+
+        The caller must explain that the original browser identity may still be
+        active on another device. This action retains the fingerprint and cookies.
+        """
+        import shutil
+
+        from camoufox_pm.core.models import Profile
+
+        from .snapshots import validate_snapshot
+
+        if acknowledge_fork is not True:
+            raise EngineError("Confirm that this copy may duplicate a session active elsewhere")
+        if name is not None and (type(name) is not str or not 1 <= len(name.strip()) <= 160):
+            raise EngineError("Recovered copy name must contain 1 to 160 characters")
+        await self._authorize(user_id, allow_revoked=True)
+        directory = target = None
+        published = False
+        try:
+            with self.maintenance.operation():
+                async with profile_operation(self.manager, local_id, sync_operation=True) as source:
+                    record = self.service.control.get("profile/" + local_id)
+                    if record is None:
+                        raise EngineError("Source profile has no synchronization binding")
+                    state = Binding.model_validate(record.payload)
+                    owner = self.service.control.get("installation")
+                    if (
+                        state.local_id != local_id
+                        or state.checkpoint.owner_id != owner.payload["root"]["owner_id"]
+                    ):
+                        raise EngineError("Source profile owner does not match")
+                    compatibility = await run_file_operation(self.compatibility)
+                    directory = self._job_directory(local_id)
+                    await run_file_operation(self._capture, source, directory, compatibility)
+                    target = self.manager.profiles_dir.resolve() / ("recovered-" + str(uuid4()))
+                    metadata = await run_file_operation(
+                        validate_snapshot, directory / "snapshot.zip", target, compatibility
+                    )
+                    values = metadata.profile.apply_fields()
+                    values["name"] = "Recovered copy — " + (
+                        name.strip() if name else source.name[:160]
+                    )
+                    profile = Profile(**values, storage_path=str(target / "data"))
+                    await self._authorize(user_id, allow_revoked=True)
+                    if not await self.manager.storage.insert_profile_if_absent(profile):
+                        raise EngineError("A new profile identity could not be reserved")
+                    published = True
+                    return {
+                        "local_id": profile.id,
+                        "name": profile.name,
+                        "synchronized": False,
+                        "source_local_id": local_id,
+                    }
+        finally:
+            self._cleanup(directory)
+            if target is not None and target.exists() and not published:
+                await run_file_operation(shutil.rmtree, target)
