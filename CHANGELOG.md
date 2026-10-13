@@ -7,10 +7,33 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
-- Add the experimental device-sync protocol foundation (#83): strict signed
-  manifests, encrypted streaming containers, checkout reference states and
-  adversarial tests. This optional developer layer does not yet enable syncing
-  profiles; device identity, relay and recovery integration remain planned.
+- Opt-in encrypted profile synchronization between one owner's trusted computers
+  (#82): protected device keys, verified recovery setup, fingerprint-confirmed
+  pairing, revocation and an independent self-hosted HTTPS relay.
+- Durable one-device checkout, close-triggered handoff, explicit retry, signed
+  history validation, journalled activation and lost-device recovery. Conflicts
+  preserve a separate local copy; updater rollback cannot restore stale ownership.
+- Owner workflows for sharing newly created profiles with already paired devices,
+  plus encrypted offline bundles and fresh local historical-copy recovery.
+- Byte-offset upload resume of identical saved ciphertext, signed recoverable
+  Trash and restore, and owner-approved historical cleanup with a seven-day
+  cancellation window. Current heads, signed history and local backups remain.
+- Bounded expiry of unfinished uploads, crash-recoverable cleanup fences and safe
+  client retry with a fresh encryption stream while retaining the original bytes.
+- Native crypto/key-store validation and real browser roundtrip tests for cookies,
+  localStorage, fingerprint and an explicitly selected stable canvas mode.
+
+### Security and compatibility
+- Synchronization is a **source preview**, not included in existing rc.4 assets.
+  Require the same supported OS, architecture and Camoufox build; assigned local
+  extensions block activation. Local roles and schedules are not replicated.
+- Internal security review findings are fixed and covered by regressions. An
+  external cryptographic audit and the remaining production gates in #90 are
+  still required before a generally available release. See the
+  [support matrix](docs/sync-support-matrix.md) and [setup guide](docs/sync-guide.md).
+- Committed relay history is retained unless the owner signs an explicit delayed
+  ciphertext cleanup decision; upload expiry removes only uncommitted uploads.
+  Revocation cannot erase previously downloaded sessions or stop an offline browser.
 
 ## [0.6.0-rc.4] - 2026-10-13
 

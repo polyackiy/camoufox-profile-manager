@@ -797,7 +797,7 @@ export default function ProfilesPage() {
           <tbody>
             {pageRows.map((profile, index) => {
               const syncBinding = syncBindings.find(binding => binding.local_id === profile.id)
-              const syncBlocked = !!syncBinding && syncBinding.phase !== 'held'
+              const syncBlocked = !!syncBinding && (syncBinding.phase !== 'held' || syncBinding.lifecycle?.state === 'trashed' || syncBinding.local_trashed === true)
               const isRunning = running.has(profile.id)
               const isBusy = busy.has(profile.id)
               return (
@@ -838,7 +838,7 @@ export default function ProfilesPage() {
                   </td>
                   <td className="py-2.5 pr-4">
                     <StatusCell status={profile.status} running={isRunning} />
-                    {syncBinding && <button className="mt-1 block text-left text-xs text-ink-dim underline underline-offset-2" onClick={() => setSyncFor(profile)}>{t(syncPhaseLabel(syncBinding.phase))}</button>}
+                    {syncBinding && <button className="mt-1 block text-left text-xs text-ink-dim underline underline-offset-2" onClick={() => setSyncFor(profile)}>{t(syncBinding.lifecycle?.state === 'trashed' ? 'Synchronized profile is in Trash' : syncPhaseLabel(syncBinding.phase))}</button>}
                   </td>
                   <td className="py-2.5 pr-4 text-ink-dim">{formatLastUsed(profile.last_used, locale)}</td>
                   <td className="py-2.5 pr-4">

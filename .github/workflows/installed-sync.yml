@@ -1,0 +1,85 @@
+name: Installed desktop synchronization
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/installed_sync_acceptance.py'
+      - 'tests/unit/test_installed_sync_acceptance.py'
+      - '.github/workflows/installed-sync.yml'
+      - 'packaging/camoufox-pm.spec'
+      - 'packaging/launch.py'
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: Native installed desktop platform
+        type: choice
+        options: [all, ubuntu-22.04, windows-2022, macos-15, macos-15-intel]
+        default: all
+
+permissions:
+  contents: read
+
+concurrency:
+  group: installed-sync-${{ github.ref }}-${{ inputs.platform }}
+  cancel-in-progress: true
+
+jobs:
+  acceptance:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${{ fromJSON((inputs.platform == 'all' || inputs.platform == '') && '["ubuntu-22.04","windows-2022","macos-15","macos-15-intel"]' || format('["{0}"]', inputs.platform)) }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          python-version: '3.12'
+      - name: Install locked build and acceptance dependencies
+        run: uv sync --locked --extra build --extra dev --extra sync
+      - name: Install Linux desktop runtime
+        if: runner.os == 'Linux'
+        run: |
+          uv run --no-sync playwright install-deps firefox chromium
+          sudo apt-get install -y xvfb libegl1 libgl1 libxkbcommon0 libxcb-cursor0 libnss3 libasound2 libxcomposite1 libxdamage1 libxrandr2 libxtst6 libgbm1 libgtk-3-0 libdbus-1-3 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-render-util0 libxcb-xinerama0 libxcb-xkb1 libxkbcommon-x11-0 libx11-xcb1
+          uv pip install PyQt6 PyQt6-WebEngine qtpy
+      - name: Install Windows installer compiler
+        if: runner.os == 'Windows'
+        run: choco install nsis --no-progress -y
+      - name: Install the upstream paired Camoufox browser
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: uv run --no-sync python scripts/install_ci_browser.py
+      - name: Install UI automation browser
+        run: uv run --no-sync playwright install chromium
+      - name: Verify native Windows renderer convergence
+        if: runner.os == 'Windows'
+        # Same bounded native Firefox preflight used by the browser matrix.
+        # It never changes product preferences or relaxes exact canvas equality.
+        run: |
+          uv run --no-sync playwright install firefox
+          uv run --no-sync python -m scripts.prepare_ci_windows_renderer --output canvas-diagnostics/windows-renderer-preflight
+      - name: Build normal desktop application and installer
+        run: uv run --no-sync python scripts/build_desktop.py --package
+      - name: Exercise two installed managers and their bundled UI (Linux)
+        if: runner.os == 'Linux'
+        env:
+          LIBGL_ALWAYS_SOFTWARE: '1'
+        run: xvfb-run -a uv run --no-sync python scripts/installed_sync_acceptance.py
+      - name: Exercise two installed managers and their bundled UI
+        if: runner.os != 'Linux'
+        run: uv run --no-sync python scripts/installed_sync_acceptance.py
+      - name: Upload secret-free acceptance result only
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: installed-sync-${{ matrix.os }}
+          path: installed-sync-results.json
+          if-no-files-found: warn

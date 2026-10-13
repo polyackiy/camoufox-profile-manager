@@ -294,7 +294,10 @@ class ProfileManager:
         """Move a profile into recoverable trash; legacy remove_data is ignored."""
         if not await self.get_profile(profile_id):
             return False
-        async with profile_operation(self, profile_id):
+        async with profile_operation(self, profile_id) as profile:
+            from .sync_guard import require_local_lifecycle
+
+            require_local_lifecycle(self, profile)
             return await self.storage.set_profile_trashed(profile_id, True)
 
     async def list_trashed_profiles(self) -> list[Profile]:
@@ -304,7 +307,10 @@ class ProfileManager:
         profile = await self.storage.get_profile(profile_id, include_deleted=True)
         if not profile or not profile.deleted_at:
             return None
-        async with profile_operation(self, profile_id, include_deleted=True):
+        async with profile_operation(self, profile_id, include_deleted=True) as profile:
+            from .sync_guard import require_local_lifecycle
+
+            require_local_lifecycle(self, profile)
             await self.storage.set_profile_trashed(profile_id, False)
         # Schedules stay paused until the user deliberately enables them again.
         return await self.get_profile(profile_id)
@@ -314,6 +320,9 @@ class ProfileManager:
         if not profile or not profile.deleted_at:
             return False
         async with profile_operation(self, profile_id, include_deleted=True) as profile:
+            from .sync_guard import require_local_lifecycle
+
+            require_local_lifecycle(self, profile)
             if not profile.deleted_at:
                 return False
             path = profile_data_path(self, profile)

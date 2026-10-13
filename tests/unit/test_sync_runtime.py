@@ -313,6 +313,30 @@ async def test_two_devices_real_relay_encrypted_handoff(
             await second.handoff("second-user", imported["local_id"])
             returned = await runtime.acquire("owner-user", area.profile.id)
         assert returned["phase"] == "held"
+        if not (pair_after_release or wrong_build or lost_device):
+            deleted = await runtime.trash("owner-user", area.profile.id, acknowledge_deletion=True)
+            assert deleted["phase"] == "released"
+            assert (
+                await area.manager.storage.get_profile(area.profile.id, include_deleted=True)
+            ).deleted_at
+            with pytest.raises(EngineError, match="Authenticated deletion"):
+                await second.acquire("second-user", imported["local_id"])
+            # Explicit confirmation preserves the recipient's local data in Trash.
+            await second.apply_trash("second-user", imported["local_id"], acknowledge_deletion=True)
+            assert (
+                await storage.get_profile(imported["local_id"], include_deleted=True)
+            ).deleted_at
+            restored = await runtime.restore(
+                "owner-user", area.profile.id, acknowledge_restore=True
+            )
+            assert restored["phase"] == "held"
+            assert restored["checkpoint"]["revision_id"] != deleted["checkpoint"]["revision_id"]
+            assert (await area.manager.storage.get_profile(area.profile.id)).deleted_at is None
+            assert not list(runtime.cache.glob("*/restored.zip"))
+            await runtime.handoff("owner-user", area.profile.id)
+            resumed = await second.acquire("second-user", imported["local_id"])
+            assert resumed["phase"] == "held"
+            assert (await storage.get_profile(imported["local_id"])).deleted_at is None
     finally:
         await storage.close()
         client.close()
@@ -531,3 +555,179 @@ async def test_expired_retry_encrypts_fresh_revision_and_retains_original(
     assert not list(runtime.cache.glob("*/snapshot.zip"))
     fresh = [p for p in runtime.cache.glob("*/ciphertext") if p != old_path]
     assert fresh and all(p.read_bytes() != old_bytes for p in fresh)
+
+
+@pytest.fixture
+async def lifecycle_runtime(runtime, tmp_path):
+    from fastapi.testclient import TestClient
+    from pydantic import SecretStr
+
+    from camoufox_pm.sync.ceremonies import DeviceCeremonies
+    from camoufox_pm.sync.client import RelayClient
+    from camoufox_pm.sync.relay import create_relay_app
+
+    runtime, _ = runtime
+    _, owner = runtime.service._read("owner-user")
+    token = "lifecycle-test-registration-token"
+    app = create_relay_app(
+        tmp_path.resolve() / "lifecycle-relay",
+        relay_url=owner.root.relay_url,
+        registration_token=SecretStr(token),
+    )
+    with TestClient(app, base_url=owner.root.relay_url) as http:
+        runtime.client_factory = lambda root, device_id, keys: RelayClient(
+            root, device_id, keys, transport=http._transport
+        )
+        DeviceCeremonies(
+            runtime.service, checkpoints=lambda: (), client_factory=runtime.client_factory
+        ).connect_relay("owner-user", token, authorize=lambda: None)
+        yield runtime
+
+
+@pytest.mark.parametrize("operation", ["trash", "restore"])
+@pytest.mark.parametrize("failure", ["before_intent", "after_commit"])
+async def test_lifecycle_publication_crash_resumes_exact_revision(
+    lifecycle_runtime, area, monkeypatch, operation, failure
+):
+    from camoufox_pm.sync.engine import SyncEngine
+
+    runtime = lifecycle_runtime
+    await runtime.enable("owner-user", area.profile.id)
+    if operation == "restore":
+        await runtime.trash("owner-user", area.profile.id, acknowledge_deletion=True)
+    original = SyncEngine.publish
+    failed = False
+
+    def interrupted(engine, *args, **kwargs):
+        nonlocal failed
+        if not failed:
+            failed = True
+            if failure == "after_commit":
+                original(engine, *args, **kwargs)
+            raise RuntimeError("interrupted lifecycle publication")
+        return original(engine, *args, **kwargs)
+
+    monkeypatch.setattr(SyncEngine, "publish", interrupted)
+    args = {"acknowledge_restore" if operation == "restore" else "acknowledge_deletion": True}
+    with pytest.raises(RuntimeError):
+        await getattr(runtime, operation)("owner-user", area.profile.id, **args)
+    job = runtime.service.control.get("lifecycle/" + area.profile.id).payload
+    target = job.get("publication", job["revision_id"])
+    result = await runtime.retry("owner-user", area.profile.id)
+    assert result["checkpoint"]["revision_id"] == target
+    assert result["phase"] == ("released" if operation == "trash" else "held")
+    assert (
+        runtime.service.control.get("lifecycle/" + area.profile.id).payload["phase"] == "complete"
+    )
+    profile = await area.manager.storage.get_profile(area.profile.id, include_deleted=True)
+    assert bool(profile.deleted_at) is (operation == "trash")
+    assert not list(runtime.cache.glob("*/snapshot.zip"))
+    assert not list(runtime.cache.glob("*/restored.zip"))
+
+
+@pytest.mark.parametrize("where", ["claim", "apply"])
+async def test_restore_resumes_after_checkout_or_activation_interruption(
+    lifecycle_runtime, area, monkeypatch, where
+):
+    from camoufox_pm.sync import runtime as module
+    from camoufox_pm.sync.engine import SyncEngine
+
+    runtime = lifecycle_runtime
+    await runtime.enable("owner-user", area.profile.id)
+    await runtime.trash("owner-user", area.profile.id, acknowledge_deletion=True)
+    failed = False
+    if where == "claim":
+        original = SyncEngine.claim
+
+        def interrupted(self, *args, **kwargs):
+            nonlocal failed
+            result = original(self, *args, **kwargs)
+            if not failed:
+                failed = True
+                raise RuntimeError("interrupted after checkout")
+            return result
+
+        monkeypatch.setattr(SyncEngine, "claim", interrupted)
+    else:
+        original = module.apply_snapshot
+
+        async def interrupted(*args, **kwargs):
+            nonlocal failed
+            result = await original(*args, **kwargs)
+            if not failed:
+                failed = True
+                raise RuntimeError("interrupted after activation")
+            return result
+
+        monkeypatch.setattr(module, "apply_snapshot", interrupted)
+    with pytest.raises(RuntimeError):
+        await runtime.restore("owner-user", area.profile.id, acknowledge_restore=True)
+    result = await runtime.retry("owner-user", area.profile.id)
+    assert result["phase"] == "held"
+    assert runtime.service.control.get("lifecycle/" + area.profile.id).payload["state"] == "active"
+
+
+async def test_synced_local_trash_bypass_and_missing_confirmation_are_rejected(
+    lifecycle_runtime, area
+):
+    from camoufox_pm.core.profile_manager import ProfileManager
+    from camoufox_pm.core.sync_guard import SyncBlocked
+
+    area.manager.get_profile = area.manager.storage.get_profile
+
+    runtime = lifecycle_runtime
+    await runtime.enable("owner-user", area.profile.id)
+    with pytest.raises(SyncBlocked):
+        await ProfileManager.delete_profile(area.manager, area.profile.id)
+    with pytest.raises(EngineError):
+        await runtime.trash("owner-user", area.profile.id, acknowledge_deletion=1)
+    assert await area.manager.storage.get_profile(area.profile.id)
+    await runtime.trash("owner-user", area.profile.id, acknowledge_deletion=True)
+    with pytest.raises(SyncBlocked):
+        await ProfileManager.restore_trashed_profile(area.manager, area.profile.id)
+    with pytest.raises(SyncBlocked):
+        await ProfileManager.permanently_delete_profile(area.manager, area.profile.id)
+
+
+@pytest.mark.parametrize("failure", ["before_commit", "after_record_applied"])
+async def test_restore_publication_activation_is_idempotent(
+    lifecycle_runtime, area, monkeypatch, failure
+):
+    from camoufox_pm.sync.engine import SyncEngine
+
+    runtime = lifecycle_runtime
+    await runtime.enable("owner-user", area.profile.id)
+    await runtime.trash("owner-user", area.profile.id, acknowledge_deletion=True)
+    failed = False
+    original_send = SyncEngine._send_pending
+    original_record = SyncEngine.record_applied
+    calls = 0
+
+    def interrupted_send(self, local_id):
+        nonlocal failed
+        if (
+            failure == "before_commit"
+            and self.status(local_id).pending.kind == "commit"
+            and not failed
+        ):
+            failed = True
+            raise RuntimeError("interrupted before commit")
+        return original_send(self, local_id)
+
+    def interrupted_record(self, *args):
+        nonlocal calls
+        result = original_record(self, *args)
+        calls += 1
+        if failure == "after_record_applied" and calls == 2:
+            raise RuntimeError("interrupted after restoration installed")
+        return result
+
+    monkeypatch.setattr(SyncEngine, "_send_pending", interrupted_send)
+    monkeypatch.setattr(SyncEngine, "record_applied", interrupted_record)
+    with pytest.raises(RuntimeError):
+        await runtime.restore("owner-user", area.profile.id, acknowledge_restore=True)
+    result = await runtime.retry("owner-user", area.profile.id)
+    assert result["phase"] == "held"
+    assert (
+        runtime.service.control.get("lifecycle/" + area.profile.id).payload["phase"] == "complete"
+    )

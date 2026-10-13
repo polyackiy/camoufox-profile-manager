@@ -58,6 +58,12 @@ def _present(path: Path) -> bool:
     return path.exists() or path.is_symlink()
 
 
+def require_local_lifecycle(manager, profile):
+    """Synced deletion/restoration must publish authenticated lifecycle revisions."""
+    if _inspect(manager, profile) is not None:
+        raise SyncBlocked("Use synchronized Trash or Restore; local lifecycle changes are blocked")
+
+
 def _inspect(manager, profile) -> tuple[Any, str] | None:
     """No absent-control initialization. A marker never grants any permission."""
     from camoufox_pm.sync.control import ControlStore

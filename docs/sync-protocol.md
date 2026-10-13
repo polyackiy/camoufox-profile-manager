@@ -1,10 +1,13 @@
 # Experimental snapshot protocol v1
 
-Status: implementation experiment for [S1 #83](https://github.com/polyackiy/camoufox-profile-manager/issues/83).
-This format is not a production compatibility promise. It does not enable sync,
-enrollment, a relay, or browser checkout. The overarching threat model and release
-gates are in [stage-four-sync.md](stage-four-sync.md). External cryptographic
-review and the remaining S2–S8 integration gates are required before enablement.
+Status: experimental wire protocol implemented by the opt-in synchronization
+preview, originally specified in [S1 #83](https://github.com/polyackiy/camoufox-profile-manager/issues/83).
+Enrollment, relay, checkout and profile application now integrate this format.
+The outer manifest remains version 1; encrypted archive lifecycle metadata has
+its own version boundary. This is not a production compatibility promise.
+The threat model and release gates are in [stage-four-sync.md](stage-four-sync.md);
+external cryptographic review and the remaining S8 acceptance gate are required
+before general production enablement.
 
 ## Wire manifest
 

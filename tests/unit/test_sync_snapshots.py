@@ -511,3 +511,15 @@ def test_snapshot_preserves_explicit_canvas_privacy_choice(area, compat, stable)
     assert restored.browser_settings == profile.browser_settings
     prefs = restored.to_camoufox_launch_options().get("firefox_user_prefs", {})
     assert (prefs.get("privacy.baselineFingerprintingProtection") is False) is stable
+
+
+@pytest.mark.parametrize("lifecycle", ["active", "trashed"])
+def test_lifecycle_snapshots_require_explicit_format_two(area, compat, lifecycle):
+    root, data = area
+    archive = root / "lifecycle.zip"
+    metadata = s.build_snapshot(Profile(name="Kept"), data, archive, compat, lifecycle=lifecycle)
+    assert metadata.format_version == 2 and metadata.lifecycle == lifecycle
+    restored = s.validate_snapshot(archive, root / "stage", compat)
+    assert restored == metadata
+    with pytest.raises(ValueError):
+        s.SnapshotMetadata.model_validate({**metadata.model_dump(), "format_version": 1})

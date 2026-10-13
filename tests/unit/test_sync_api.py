@@ -324,3 +324,28 @@ async def test_takeover_requires_strict_acknowledgement_and_live_cookie(runtime_
         ("abcd1234",),
         {"acknowledge_lost_device": True, "password": None},
     )
+
+
+@pytest.mark.parametrize(
+    "action,field",
+    [
+        ("trash", "acknowledge_deletion"),
+        ("apply-trash", "acknowledge_deletion"),
+        ("restore", "acknowledge_restore"),
+    ],
+)
+async def test_lifecycle_requires_explicit_boolean_and_cookie(runtime_api, action, field):
+    client, calls = runtime_api
+    url = f"/sync/profiles/abcd1234/{action}"
+    assert (await client.post(url, json={field: True})).status_code == 401
+    for value in (None, False, 1, "true"):
+        response = await client.post(url, json={field: value}, headers={"cookie": "test=owner"})
+        assert response.status_code == 422
+    response = await client.post(url, json={field: True}, headers={"cookie": "test=owner"})
+    assert response.status_code == 200
+    assert calls[-1] == (
+        action.replace("-", "_"),
+        "owner",
+        ("abcd1234",),
+        {field: True, "password": None},
+    )

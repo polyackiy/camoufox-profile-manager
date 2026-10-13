@@ -41,6 +41,11 @@ def main() -> None:
         action="store_true",
         help="Expire unpublished uploads older than seven days",
     )
+    parser.add_argument(
+        "--collect-retained",
+        action="store_true",
+        help="Execute only delayed owner-signed ciphertext retention decisions",
+    )
     parser.add_argument("--maintenance-limit", type=int, default=100)
     parser.add_argument("--origin", help="Public HTTPS origin, e.g. https://sync.example.org")
     parser.add_argument("--registration-token-file", type=Path)
@@ -49,6 +54,23 @@ def main() -> None:
     parser.add_argument("--port", type=int, default=9877)
     parser.add_argument("--development-loopback", action="store_true")
     args = parser.parse_args()
+    if args.expire_uploads and args.collect_retained:
+        parser.error("Choose one maintenance operation")
+    if args.collect_retained:
+        if args.generate_registration_token or not 1 <= args.maintenance_limit <= 1000:
+            parser.error("Maintenance requires limit 1..1000 and no token generation")
+        try:
+            from .relay_retention import collect_retained_ciphertext
+
+            result = collect_retained_ciphertext(args.data, limit=args.maintenance_limit)
+        except Exception:
+            parser.exit(
+                1, "Authorized retention maintenance failed; incomplete cleanup retains quota.\n"
+            )
+        print(
+            "Retention maintenance: " + ", ".join(f"{key}={value}" for key, value in result.items())
+        )
+        return
     if args.expire_uploads:
         if args.generate_registration_token or not 1 <= args.maintenance_limit <= 1000:
             parser.error("Maintenance requires limit 1..1000 and no token generation")

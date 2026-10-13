@@ -19,7 +19,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from camoufox_pm.core.archive_paths import portable_component
 from camoufox_pm.core.fingerprint_store import freeze
@@ -132,7 +132,8 @@ class FileEntry(_Strict):
 
 
 class SnapshotMetadata(_Strict):
-    format_version: Literal[1] = 1
+    format_version: Literal[1, 2] = 1
+    lifecycle: Literal["active", "trashed"] | None = None
     compatibility: Compatibility
     profile: PortableProfile
     files: dict[str, FileEntry]
@@ -143,6 +144,14 @@ class SnapshotMetadata(_Strict):
         if type(value) is not int:
             raise ValueError("Version must be an integer")
         return value
+
+    @model_validator(mode="after")
+    def lifecycle_version(self):
+        if (self.format_version == 1 and self.lifecycle is not None) or (
+            self.format_version == 2 and self.lifecycle is None
+        ):
+            raise ValueError("Lifecycle requires snapshot format version 2")
+        return self
 
 
 def _name(name: str) -> tuple[str, ...]:
@@ -222,7 +231,7 @@ def _metadata(profile: Profile, compatibility: Compatibility, files) -> Snapshot
 
 def _json(value: SnapshotMetadata) -> bytes:
     data = json.dumps(
-        value.model_dump(mode="json"),
+        value.model_dump(mode="json", exclude_none=True),
         ensure_ascii=True,
         separators=(",", ":"),
         sort_keys=True,
@@ -234,7 +243,12 @@ def _json(value: SnapshotMetadata) -> bytes:
 
 
 def _build_snapshot(
-    profile: Profile, data_dir: Path, destination: Path, compatibility: Compatibility
+    profile: Profile,
+    data_dir: Path,
+    destination: Path,
+    compatibility: Compatibility,
+    *,
+    lifecycle: Literal["active", "trashed"] | None = None,
 ) -> SnapshotMetadata:
     """Strict capture under an engine-held lease and independently proven quiescence.
 
@@ -346,6 +360,10 @@ def _build_snapshot(
                     ) != file_checkpoint:
                         raise SnapshotError("Profile changed during capture")
                 metadata = _metadata(profile, compatibility, files)
+                if lifecycle is not None:
+                    metadata = SnapshotMetadata.model_validate(
+                        {**metadata.model_dump(), "format_version": 2, "lifecycle": lifecycle}
+                    )
                 archive.writestr("snapshot.json", _json(metadata))
             output.flush()
             os.fsync(output.fileno())
@@ -543,7 +561,12 @@ def _validate_snapshot(source: Path, staging: Path, expected: Compatibility) -> 
 
 
 def build_snapshot(
-    profile: Profile, data_dir: Path, destination: Path, compatibility: Compatibility
+    profile: Profile,
+    data_dir: Path,
+    destination: Path,
+    compatibility: Compatibility,
+    *,
+    lifecycle: Literal["active", "trashed"] | None = None,
 ) -> SnapshotMetadata:
     """Internal lease-held, independently quiescent capture into private plaintext staging.
 
@@ -551,7 +574,7 @@ def build_snapshot(
     values, credentials or local paths. All failures preserve an existing destination.
     """
     try:
-        return _build_snapshot(profile, data_dir, destination, compatibility)
+        return _build_snapshot(profile, data_dir, destination, compatibility, lifecycle=lifecycle)
     except SnapshotError:
         raise
     except Exception:

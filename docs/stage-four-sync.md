@@ -80,7 +80,8 @@ with test vectors and independent security review. Proposed baseline:
 
 Enrollment requires confirmation on an already trusted owner device, verification
 of a QR/full public-key fingerprint through a separate trusted channel, and a
-short-lived single-use relay invitation. Do not trust a key merely because the
+short-lived, signed pairing request and single-use approval transferred through
+an independently trusted channel. Do not trust a key merely because the
 relay delivered it. Bind approval to the exact new device public keys, relay
 identity and owner identity; expire and consume the invitation atomically. The
 new device receives owner public trust, the current membership/head checkpoint and
@@ -277,7 +278,8 @@ The experimental foundation is specified in [sync-protocol.md](sync-protocol.md)
 and [sync-state-machine.md](sync-state-machine.md). The
 [owner bootstrap and compatibility contract](sync-trust-contract.md) defines the
 required S2/S3 behavior. Implementation now includes protected enrollment, pairing,
-closed snapshots, relay, durable checkout, transactional apply and owner UI. See the
+closed snapshots, resumable relay uploads, durable checkout, transactional apply,
+authenticated recoverable Trash, owner-approved delayed retention and owner UI. See the
 [security review and threat-to-test record](sync-security-review.md) for library
 choices, native proof, findings and remaining gates. Operational documentation is in
 [sync-relay.md](sync-relay.md), [sync-engine.md](sync-engine.md),

@@ -95,3 +95,23 @@ async def test_sync_schema_refuses_pre_sync_manager(tmp_path, monkeypatch):
         monkeypatch.setattr(schema_migrations, "CURRENT_SCHEMA", 2)
         with pytest.raises(ValueError, match="newer manager"):
             schema_migrations.check_schema(db)
+
+
+@pytest.mark.asyncio
+async def test_lifecycle_schema_refuses_pre_lifecycle_manager(tmp_path, monkeypatch):
+    from camoufox_pm.core import schema_migrations
+
+    path = tmp_path / "lifecycle.sqlite"
+    storage = StorageManager(str(path))
+    await storage.initialize()
+    await storage.close()
+    with closing(sqlite3.connect(path)) as db:
+        assert (
+            db.execute(
+                "SELECT version FROM manager_features WHERE feature='sync-lifecycle'"
+            ).fetchone()[0]
+            == 1
+        )
+        monkeypatch.setattr(schema_migrations, "CURRENT_SCHEMA", 3)
+        with pytest.raises(ValueError, match="newer manager"):
+            schema_migrations.check_schema(db)

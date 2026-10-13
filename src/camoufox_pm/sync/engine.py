@@ -976,6 +976,12 @@ def may_launch_from_control(service: SyncService, user_id: str, local_id: str) -
     """
     try:
         _local_id(local_id)
+        lifecycle = service.control.get("lifecycle/" + local_id)
+        if lifecycle is not None and (
+            lifecycle.payload.get("state") != "active"
+            or lifecycle.payload.get("phase") != "complete"
+        ):
+            return False
         restore_fence = service.control.get("sync/restore-fence")
         if restore_fence is not None and restore_fence.payload.get("phase") != "complete":
             return False
