@@ -9,6 +9,9 @@ on:
       - 'tests/unit/test_sync_*.py'
       - 'tests/vectors/sync/**'
       - 'scripts/smoke_sync_crypto.py'
+      - 'scripts/smoke_sync_recovery.py'
+      - 'scripts/smoke_sync_native_vault.py'
+      - 'packaging/sync-recovery.spec'
       - 'scripts/verify_sync_interop.py'
       - 'packaging/sync-crypto.spec'
       - 'packaging/openssl_bundle.py'
@@ -42,6 +45,20 @@ jobs:
         run: uv run --no-sync pytest tests/unit/test_sync_*.py --junitxml=sync-results.xml
       - name: Source codec smoke
         run: uv run --no-sync python scripts/smoke_sync_crypto.py
+      - name: Native credential store roundtrip and cleanup
+        if: runner.os == 'Windows' || runner.os == 'macOS'
+        run: uv run --no-sync python scripts/smoke_sync_native_vault.py
+      - name: Source recovery ceremony smoke
+        run: uv run --no-sync python scripts/smoke_sync_recovery.py
+      - name: Freeze recovery ceremony
+        run: uv run --no-sync pyinstaller --noconfirm --clean packaging/sync-recovery.spec
+      - name: Execute frozen recovery outside repository
+        shell: bash
+        run: |
+          executable="$GITHUB_WORKSPACE/dist/sync-recovery-smoke/sync-recovery-smoke"
+          if [ "$RUNNER_OS" = "Windows" ]; then executable="$executable.exe"; fi
+          cd "$RUNNER_TEMP"
+          uv run --project "$GITHUB_WORKSPACE" --no-sync python -c 'import subprocess,sys; subprocess.run([sys.argv[1]], check=True, timeout=60)' "$executable"
       - name: Freeze the actual crypto codec
         run: uv run --no-sync pyinstaller --noconfirm --clean packaging/sync-crypto.spec
       - name: Execute frozen codec outside the repository

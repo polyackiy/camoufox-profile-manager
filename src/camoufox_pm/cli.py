@@ -32,6 +32,10 @@ def _admitted_command(function):
 
 
 def main() -> None:
+    if sys.argv[1:] == ["--sync-recovery-verify"]:
+        from camoufox_pm.sync.recovery import recovery_worker_main
+
+        raise SystemExit(recovery_worker_main())
     # These fixed internal commands run before desktop bootstrap and DB startup.
     if len(sys.argv) >= 2 and sys.argv[1] == "--update-validate":
         if len(sys.argv) != 3:
