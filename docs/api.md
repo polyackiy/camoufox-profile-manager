@@ -452,8 +452,10 @@ POST   /api/v1/system/backups             {"profile_ids": ["id"], "reason": "man
 POST   /api/v1/system/backups/{id}/restore {"name": "Recovered profile"}
 GET    /api/v1/system/browser
 POST   /api/v1/system/browser/install
-GET    /api/v1/system/updates
-POST   /api/v1/system/updates/prepare
+GET    /api/v1/system/updates            ?channel=stable|preview
+POST   /api/v1/system/updates/prepare    ?channel=stable|preview
+GET    /api/v1/system/update-recovery
+POST   /api/v1/system/update-recovery/cancel
 ```
 
 These endpoints use the same authentication as the rest of the API and return
@@ -480,13 +482,26 @@ and repeated POSTs while downloading reuse it. Poll GET to observe completion.
 This delegates versioned installation to Camoufox and verifies a provided asset
 digest. Incomplete first-run resources are reported and can be retried.
 
-Update check queries the project's official GitHub release, returning
+Update check queries the project's official GitHub releases, returning
 `{current_version, latest_version, available, release_url, assets, error}`.
+The channel defaults to `stable`; `preview` must be selected explicitly and
+accepts published stable/RC tags, never drafts or downgrade offers. Use the same
+channel for preparation as the check.
 Prepare creates before-update backups and returns
 `{release_url, backup_count, message}` only if every profile was backed up.
 It fails with `409` for incomplete backups or no newer release, and `503` when
 the release check failed. It does not replace the running application: close it
 and install the chosen release with the operating system installer.
+
+Recovery status returns sanitized transaction state, optional manager/browser
+versions and timestamp, `maintenance_active`, `can_cancel`, and
+`automatic_install_available` (currently false). Recovery controls retain normal
+authentication but use read-only session validation during maintenance. Cancelling
+returns 409 after replacement starts or when a helper journal requires recovery.
+Ordinary API requests receive 503 with Retry-After during maintenance. After a
+restart with an interrupted transaction, use the [offline recovery CLI](update-recovery.md);
+the app refuses to open/migrate data before recovery. No HTTP route accepts
+arbitrary package paths, trust roots or restore destinations.
 
 ### Manual profile transfer
 

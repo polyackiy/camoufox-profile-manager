@@ -89,8 +89,9 @@ until [#61](https://github.com/polyackiy/camoufox-profile-manager/issues/61) is 
 
 Before replacement, enter a maintenance state shared by every cooperating
 process using the database. Pause schedules, reject mutations/new launches,
-and wait for in-flight operations to finish. Existing profile leases and the
-desktop instance lock alone do not provide this global gate today. Refuse to
+and wait for in-flight operations to finish. The implemented maintenance gate coordinates updated manager processes;
+older binaries must be closed separately and cannot be made to cooperate
+retroactively. Refuse to
 proceed while any browser or another process can write the profile directories.
 Ask the user to close profiles rather than terminating account sessions silently.
 
