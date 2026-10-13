@@ -3,8 +3,8 @@
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Query
-from fastapi.responses import Response
 
+from camoufox_pm.api.access import authorized_bytes_response, require_profile_access
 from camoufox_pm.api.dependencies import get_profile_manager
 from camoufox_pm.api.models.cookies import (
     CookieImportData,
@@ -48,6 +48,7 @@ async def _perform(operation):
     operation_id="preview_cookie_import",
 )
 async def preview_cookies(profile_id: str, request: CookiePreviewRequest):
+    await require_profile_access(profile_id, "edit")
     transfer = await service(profile_id)
     data = await _perform(transfer.preview(profile_id, request.text, request.format))
     return ApiResponse(success=True, message="Cookie input validated", data=data)
@@ -59,6 +60,7 @@ async def preview_cookies(profile_id: str, request: CookiePreviewRequest):
     operation_id="import_profile_cookies",
 )
 async def import_cookies(profile_id: str, request: CookieImportRequest):
+    await require_profile_access(profile_id, "edit")
     transfer = await service(profile_id)
     data = await _perform(
         transfer.import_cookies(
@@ -92,11 +94,13 @@ async def export_cookies(
     format: Literal["json", "netscape"] = Query("json"),
     row_version: int = Query(..., ge=0),
 ):
+    await require_profile_access(profile_id, "export")
     transfer = await service(profile_id)
     text = await _perform(transfer.export_cookies(profile_id, format, row_version))
     suffix = "json" if format == "json" else "txt"
-    return Response(
-        content=text,
+    return await authorized_bytes_response(
+        text.encode(),
+        [profile_id],
         media_type="application/json" if format == "json" else "text/plain",
         headers={
             "Content-Disposition": f'attachment; filename="cookies.{suffix}"',

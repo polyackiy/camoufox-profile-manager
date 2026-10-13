@@ -4,6 +4,7 @@ import hmac
 
 from fastapi import Header, HTTPException, Request
 
+from camoufox_pm.api.access import request_principal, request_session_hash
 from camoufox_pm.api.principal import Principal
 from camoufox_pm.config import get_settings
 from camoufox_pm.core import auth
@@ -88,12 +89,14 @@ async def require_auth(request: Request, x_api_key: str | None = Header(default=
     if _api_key_matches(x_api_key):
         principal = Principal("legacy_api_key")
         request.state.principal = principal
+        request_principal.set(principal)
         return principal
     storage = get_storage_manager()
     if await storage.count_users() == 0:
         if not get_settings().api_key:
             principal = Principal("anonymous_local")
             request.state.principal = principal
+            request_principal.set(principal)
             return principal
         raise HTTPException(status_code=401, detail="Invalid or missing API key")
     token = request.cookies.get(auth.SESSION_COOKIE)
@@ -109,8 +112,13 @@ async def require_auth(request: Request, x_api_key: str | None = Header(default=
             else await auth.validate_session(storage, token)
         )
         if username is not None:
-            principal = Principal("session", username=username)
+            user = await storage.get_user_by_username(username)
+            if user is None:
+                raise HTTPException(status_code=401, detail="Authentication required")
+            principal = Principal("session", username=username, role=user["role"])
+            request_session_hash.set(auth.hash_token(token))
             request.state.principal = principal
+            request_principal.set(principal)
             return principal
     raise HTTPException(
         status_code=401, detail="Authentication required: log in or send a valid API key"

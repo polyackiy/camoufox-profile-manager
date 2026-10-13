@@ -3,6 +3,11 @@
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
+from camoufox_pm.api.access import (
+    require_admin,
+    require_profile_access,
+    visible_profile_ids,
+)
 from camoufox_pm.api.dependencies import get_profile_manager
 from camoufox_pm.api.models.profiles import ProfileResponse
 from camoufox_pm.api.models.recovery import BackupListData, BackupRunData, TrashListData
@@ -36,6 +41,9 @@ class RestoreBackupRequest(BaseModel):
 @router.get("/trash/profiles", response_model=ApiResponse[TrashListData], operation_id="list_trash")
 async def list_trash():
     profiles = await get_profile_manager().list_trashed_profiles()
+    allowed = await visible_profile_ids()
+    if allowed is not None:
+        profiles = [profile for profile in profiles if profile.id in allowed]
     return ApiResponse(
         success=True,
         message="Trash",
@@ -49,6 +57,7 @@ async def list_trash():
     operation_id="restore_trashed_profile",
 )
 async def restore_trash(profile_id: str):
+    await require_profile_access(profile_id, "edit")
     profile = await get_profile_manager().restore_trashed_profile(profile_id)
     if profile is None:
         raise HTTPException(404, "Trashed profile not found")
@@ -65,6 +74,7 @@ async def restore_trash(profile_id: str):
     operation_id="permanently_delete_profile",
 )
 async def permanently_delete(profile_id: str, confirm: bool = Query(False)):
+    await require_profile_access(profile_id, "edit")
     if not confirm:
         raise HTTPException(400, "Permanent deletion requires confirm=true")
     try:
@@ -80,6 +90,7 @@ async def permanently_delete(profile_id: str, confirm: bool = Query(False)):
     "/system/backups", response_model=ApiResponse[BackupListData], operation_id="list_backups"
 )
 async def list_backups():
+    await require_admin()
     return ApiResponse(
         success=True,
         message="Profile backups",
@@ -91,6 +102,7 @@ async def list_backups():
     "/system/backups", response_model=ApiResponse[BackupRunData], operation_id="create_backups"
 )
 async def create_backups(request: CreateBackupsRequest):
+    await require_admin()
     result = await get_backup_manager().create_backups(request.profile_ids, request.reason)
     return ApiResponse(success=True, message="Backup run finished", data=result)
 
@@ -101,6 +113,7 @@ async def create_backups(request: CreateBackupsRequest):
     operation_id="restore_backup",
 )
 async def restore_backup(backup_id: str, request: RestoreBackupRequest):
+    await require_admin()
     try:
         profile = await get_backup_manager().restore_backup(backup_id, request.name)
     except FileNotFoundError as exc:

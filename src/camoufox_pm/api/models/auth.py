@@ -18,3 +18,7 @@ class AuthSessionResponse(BaseModel):
     )
     authenticated: bool = Field(..., description="Whether this request carries a valid session")
     username: str | None = Field(None, description="The logged-in user, when authenticated")
+
+    role: str | None = None
+    actor_kind: str | None = None
+    can_manage_access: bool = False

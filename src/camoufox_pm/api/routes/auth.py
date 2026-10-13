@@ -10,9 +10,10 @@ from typing import NoReturn
 from fastapi import APIRouter, HTTPException, Request, Response
 from loguru import logger
 
-from camoufox_pm.api.dependencies import get_storage_manager
+from camoufox_pm.api.dependencies import _api_key_matches, get_storage_manager
 from camoufox_pm.api.models.auth import AuthSessionResponse, LoginRequest
 from camoufox_pm.api.models.system import ApiResponse
+from camoufox_pm.api.principal import Principal
 from camoufox_pm.config import get_settings
 from camoufox_pm.core import auth
 
@@ -59,8 +60,12 @@ async def login(body: LoginRequest, request: Request, response: Response) -> Aut
     storage = get_storage_manager()
     user = await storage.get_user_by_username(body.username)
     if user is None:
+        await storage.append_audit(Principal("anonymous_local"), "login", None, "failure")
         await _reject_login(body.password, burn_hash=True)
     if not auth.verify_password(user["password_hash"], body.password):
+        await storage.append_audit(
+            Principal("session", user["username"], user["role"]), "login", None, "failure"
+        )
         await _reject_login(body.password, burn_hash=False)
     if auth.password_needs_rehash(user["password_hash"]):
         # Transparent upgrade to current argon2 parameters while we hold the
@@ -70,9 +75,15 @@ async def login(body: LoginRequest, request: Request, response: Response) -> Aut
     await storage.delete_expired_sessions()
     token = await auth.create_session(storage, user["id"])
     _set_session_cookie(request, response, token)
+    await storage.append_audit(Principal("session", user["username"], user["role"]), "login")
     logger.info(f"User {user['username']} logged in")
     return AuthSessionResponse(
-        user_auth_enabled=True, authenticated=True, username=user["username"]
+        user_auth_enabled=True,
+        authenticated=True,
+        username=user["username"],
+        role=user["role"],
+        actor_kind="session",
+        can_manage_access=user["role"] == "administrator",
     )
 
 
@@ -90,7 +101,11 @@ async def logout(request: Request, response: Response) -> ApiResponse[None]:
     """Invalidate the caller's session, if any."""
     token = request.cookies.get(auth.SESSION_COOKIE)
     if token:
-        await get_storage_manager().delete_session(auth.hash_token(token))
+        storage = get_storage_manager()
+        username = await auth.validate_session(storage, token)
+        await storage.delete_session(auth.hash_token(token))
+        if username:
+            await storage.append_audit(Principal("session", username), "logout")
     response.delete_cookie(auth.SESSION_COOKIE, path="/")
     return ApiResponse(success=True, message="Logged out", data=None)
 
@@ -113,8 +128,21 @@ async def get_auth_session(request: Request) -> AuthSessionResponse:
     token = request.cookies.get(auth.SESSION_COOKIE)
     if token:
         username = await auth.validate_session(storage, token)
+    user = await storage.get_user_by_username(username) if username else None
+    legacy = _api_key_matches(request.headers.get("X-API-Key"))
+    local = not user_auth_enabled and not get_settings().api_key
+    role = "administrator" if legacy or local else user["role"] if user else None
     return AuthSessionResponse(
+        role=role,
+        actor_kind="legacy_api_key"
+        if legacy
+        else "session"
+        if user
+        else "anonymous_local"
+        if local
+        else None,
+        can_manage_access=role == "administrator",
         user_auth_enabled=user_auth_enabled,
-        authenticated=username is not None,
+        authenticated=username is not None or legacy or local,
         username=username,
     )

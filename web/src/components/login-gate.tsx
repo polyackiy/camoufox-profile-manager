@@ -10,10 +10,12 @@ import { authAPI, type AuthSession } from '@/lib/api'
 interface AuthState {
   /** The logged-in user, or null when login is off or not yet established. */
   username: string | null
+  role: 'administrator' | 'operator' | 'viewer' | null
+  canManageAccess: boolean
   logout: () => Promise<void>
 }
 
-const AuthContext = createContext<AuthState>({ username: null, logout: async () => {} })
+const AuthContext = createContext<AuthState>({ username: null, role: null, canManageAccess: false, logout: async () => {} })
 
 export function useAuth(): AuthState {
   return useContext(AuthContext)
@@ -22,8 +24,8 @@ export function useAuth(): AuthState {
 /**
  * Blocks the app behind a login form when the instance has user accounts.
  * The gate is presentation only — the API guard is what actually protects
- * every request — so if the session probe itself fails (API down, old
- * backend), it fails open and lets the API's own errors surface.
+ * every request. An unavailable session probe keeps protected content hidden
+ * until the caller can be verified.
  */
 export function LoginGate({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<AuthSession | null>(null)
@@ -34,6 +36,7 @@ export function LoginGate({ children }: { children: React.ReactNode }) {
       setSession(await authAPI.session())
       setProbeFailed(false)
     } catch {
+      setSession(null)
       setProbeFailed(true)
     }
   }, [])
@@ -43,6 +46,12 @@ export function LoginGate({ children }: { children: React.ReactNode }) {
     // cannot see through the async boundary and assumes the worst.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     refresh()
+  }, [refresh])
+
+  useEffect(() => {
+    const denied = () => { setSession(null); void refresh() }
+    window.addEventListener('camoufox-access-denied', denied)
+    return () => window.removeEventListener('camoufox-access-denied', denied)
   }, [refresh])
 
   const logout = useCallback(async () => {
@@ -60,8 +69,10 @@ export function LoginGate({ children }: { children: React.ReactNode }) {
     return <LoginScreen onLoggedIn={setSession} />
   }
 
+  if (probeFailed) return <SessionUnavailable onRetry={refresh} />
+
   return (
-    <AuthContext.Provider value={{ username: session?.username ?? null, logout }}>
+    <AuthContext.Provider value={{ username: session?.username ?? null, role: session?.role ?? null, canManageAccess: session?.can_manage_access === true, logout }}>
       {children}
     </AuthContext.Provider>
   )
@@ -120,4 +131,9 @@ function LoginScreen({ onLoggedIn }: { onLoggedIn: (session: AuthSession) => voi
       </form>
     </div>
   )
+}
+
+function SessionUnavailable({ onRetry }: { onRetry: () => void }) {
+  const { t } = useI18n()
+  return <div className="p-6" role="alert"><p>{t('Unable to verify access')}</p><button className="btn btn-default mt-3" onClick={onRetry}>{t('Retry')}</button></div>
 }

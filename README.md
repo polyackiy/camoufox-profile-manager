@@ -55,6 +55,8 @@ from it in January still looks like the same computer in June.
   app binds to loopback and is open. Set `CPM_API_KEY` for machine clients, or
   create an account (`camoufox-pm user add`) and humans get a login screen —
   argon2id hashes, HttpOnly session cookies, a logout that really invalidates.
+  Administrators assign operator/viewer roles, profile access and separate export
+  grants from **Access**, with a searchable activity log. See [roles and access](docs/stage-three.md).
 - **Move a profile anywhere.** Export a profile with its fingerprint *and* its
   browser data into one archive, and import it on another machine.
 - **Cookie transfer** — import and export standard JSON or Netscape cookie files,
@@ -204,7 +206,8 @@ Generate an encryption key with:
 uv run python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 ```
 
-User accounts for the web UI are managed from the CLI: `camoufox-pm user add
+Create the first administrator from the CLI, then manage users, roles and profile
+grants in **Access** in the web UI. CLI account management remains available: `camoufox-pm user add
 <name>` creates one, and from then on the API and UI require a login (see
 [SECURITY.md](SECURITY.md#authentication)).
 

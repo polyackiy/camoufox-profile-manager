@@ -18,10 +18,12 @@ from camoufox_pm.api.dependencies import (
     set_storage_manager,
 )
 from camoufox_pm.api.errors import install_error_handlers
+from camoufox_pm.api.middleware.access import AccessMiddleware
 from camoufox_pm.api.middleware.logging import LoggingMiddleware
 from camoufox_pm.api.middleware.maintenance import MaintenanceMiddleware
 from camoufox_pm.api.models.system import ErrorResponse, HealthResponse
 from camoufox_pm.api.routes import (
+    access,
     auth,
     cookies,
     extensions,
@@ -147,6 +149,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.add_middleware(LoggingMiddleware)
+app.add_middleware(AccessMiddleware)
 app.add_middleware(MaintenanceMiddleware, gate=maintenance_gate)
 
 # Session-or-API-key guard; a no-op when neither users nor CPM_API_KEY exist.
@@ -161,6 +164,13 @@ for _prefix, _in_schema in (("/api/v1", True), ("/api", False)):
         auth.router,
         prefix=_prefix,
         tags=["Auth"],
+        include_in_schema=_in_schema,
+    )
+    app.include_router(
+        access.router,
+        prefix=_prefix,
+        tags=["Access"],
+        dependencies=protected,
         include_in_schema=_in_schema,
     )
     app.include_router(
@@ -232,7 +242,9 @@ async def health_check():
             status="healthy",
             api_version=__version__,
             database="connected",
-            profiles_count=len(profiles_list),
+            profiles_count=None
+            if await profile_mgr.storage.count_users() or get_settings().api_key
+            else len(profiles_list),
         )
     except Exception:
         # 503 rather than a healthy-looking 200, so load balancers and container

@@ -55,7 +55,9 @@ class HealthResponse(BaseModel):
     status: str = Field(..., description="healthy or unhealthy")
     api_version: str
     database: str = Field(..., description="connected or disconnected")
-    profiles_count: int
+    profiles_count: int | None = Field(
+        None, description="Profile count in open local mode; null when authentication is configured"
+    )
 
 
 class SystemStatusResponse(BaseModel):

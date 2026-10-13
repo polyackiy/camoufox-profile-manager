@@ -45,8 +45,11 @@ async def test_state_a_nothing_configured_stays_open(client):
     session = await client.get("/api/v1/auth/session")
     assert session.json() == {
         "user_auth_enabled": False,
-        "authenticated": False,
+        "authenticated": True,
         "username": None,
+        "role": "administrator",
+        "actor_kind": "anonymous_local",
+        "can_manage_access": True,
     }
 
 
@@ -87,6 +90,9 @@ async def test_login_grants_a_session_that_passes_the_guard(client):
         "user_auth_enabled": True,
         "authenticated": True,
         "username": "alice",
+        "role": "administrator",
+        "actor_kind": "session",
+        "can_manage_access": True,
     }
 
     set_cookie = login.headers["set-cookie"]

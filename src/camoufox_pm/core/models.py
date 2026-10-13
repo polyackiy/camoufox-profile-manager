@@ -427,6 +427,9 @@ class Schedule(BaseModel):
     model_config = ConfigDict(use_enum_values=True)
 
     id: str = Field(default_factory=generate_schedule_id)
+    actor_kind: Literal["session", "system", "legacy_api_key", "anonymous_local"] = "system"
+    actor_username: str | None = None
+    actor_user_id: str | None = None
     profile_id: str
     action: ScheduleAction
     kind: ScheduleKind

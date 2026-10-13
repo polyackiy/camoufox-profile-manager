@@ -79,3 +79,7 @@ jobs:
       - name: Test stage two workflows
         working-directory: .
         run: uv run python web/tests/stage_two_ui.py
+
+      - name: Stage three access UI contracts
+        working-directory: .
+        run: uv run python web/tests/stage_three_ui.py

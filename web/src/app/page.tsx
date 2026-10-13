@@ -26,6 +26,7 @@ import {
 } from 'lucide-react'
 
 import { useI18n } from '@/components/i18n-provider'
+import { useAuth } from '@/components/login-gate'
 import { BrowserSetup } from '@/components/browser-setup'
 import { EmptyState } from '@/components/empty-state'
 import { ConfirmDialog, Modal } from '@/components/modal'
@@ -65,6 +66,8 @@ const COLUMNS: { key: SortKey; label: string; className?: string }[] = [
 
 export default function ProfilesPage() {
   const { t, locale } = useI18n()
+  const { canManageAccess, role } = useAuth()
+  const can = (profile: Profile, permission: 'view' | 'edit' | 'launch' | 'export') => canManageAccess || profile.permissions?.[permission] === true
   const [profiles, setProfiles] = useState<Profile[]>([])
   const [groups, setGroups] = useState<Group[]>([])
   const [running, setRunning] = useState<Set<string>>(new Set())
@@ -117,6 +120,10 @@ export default function ProfilesPage() {
       }
       setProfiles(collected)
     } catch (err) {
+      setProfiles([])
+      setSelected(new Set())
+      setEditing(null)
+      setFormOpen(false)
       setError(String(err instanceof Error ? err.message : err))
     } finally {
       setLoading(false)
@@ -594,15 +601,16 @@ export default function ProfilesPage() {
         </select>
 
         <div className="ml-auto flex items-center gap-2">
-          {running.size > 0 && (
+          {running.size > 0 && (canManageAccess || role === 'operator') && (
             <button className="btn btn-default" onClick={askCloseAll}>
               <Square size={12} fill="currentColor" />
               {t('Close {count} running', { count: running.size })}
             </button>
           )}
-          <button className="btn btn-ghost" onClick={() => setExportOpen(true)} title={t('Export to Excel')}>
+          {profiles.some(profile => can(profile, 'export')) && <button className="btn btn-ghost" onClick={() => setExportOpen(true)} title={t('Export to Excel')}>
             <Download size={14} />
-          </button>
+          </button>}
+          {canManageAccess && <>
           <button
             className="btn btn-ghost"
             onClick={() => importRef.current?.click()}
@@ -641,11 +649,12 @@ export default function ProfilesPage() {
             <Plus size={14} strokeWidth={2.5} />
             {t('New profile')}
           </button>
+          </>}
         </div>
       </header>
 
       <section aria-label={t('Profile filters and saved views')} className="border-b border-line bg-surface px-5 py-3">
-        <SavedProfileViews config={viewConfig} onApply={applyView} />
+        {canManageAccess && <SavedProfileViews config={viewConfig} onApply={applyView} />}
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <label htmlFor="profile-group-filter" className="text-ink-dim">{t('Group')}</label>
           <select id="profile-group-filter" className="field h-[30px] w-[170px]" value={groupFilter ?? ''} onChange={event => setGroupFilter(event.target.value || null)}><option value="">{t('All groups')}</option><option value="__ungrouped__">{t('Ungrouped')}</option>{groupFilter && groupFilter !== '__ungrouped__' && !groups.some(group => group.id === groupFilter) && <option value={groupFilter}>{t('Unavailable group ({id})', { id: groupFilter })}</option>}{groups.map(group => <option key={group.id} value={group.id}>{group.name}</option>)}</select>
@@ -689,7 +698,7 @@ export default function ProfilesPage() {
         </div>
       )}
 
-      {!loading && !error && <BrowserSetup firstProfile={profiles.length === 0} onCreate={() => { setEditing(null); setFormOpen(true) }} />}
+      {canManageAccess && !loading && !error && <BrowserSetup firstProfile={profiles.length === 0} onCreate={() => { setEditing(null); setFormOpen(true) }} />}
 
       {error ? (
         <EmptyState
@@ -708,8 +717,8 @@ export default function ProfilesPage() {
         <EmptyState
           icon={<Users size={18} />}
           title={t('No profiles yet')}
-          body={t('A profile is one isolated browser identity — its own fingerprint, proxy, cookies and storage. Create one to get started.')}
-          action={
+          body={canManageAccess ? t('A profile is one isolated browser identity — its own fingerprint, proxy, cookies and storage. Create one to get started.') : t('Ask an administrator to grant you access to profiles.')}
+          action={canManageAccess && (
             <button
               className="btn btn-primary"
               onClick={() => {
@@ -720,7 +729,7 @@ export default function ProfilesPage() {
               <Plus size={14} strokeWidth={2.5} />
               {t('Create your first profile')}
             </button>
-          }
+          )}
         />
       ) : visible.length === 0 ? (
         <EmptyState
@@ -746,6 +755,7 @@ export default function ProfilesPage() {
                 <input
                   type="checkbox"
                   className="accent-signal"
+                  disabled={!canManageAccess && role !== 'operator'}
                   checked={allOnPageSelected}
                   aria-label={t('Select all on this page')}
                   onChange={() =>
@@ -793,6 +803,7 @@ export default function ProfilesPage() {
                     <input
                       type="checkbox"
                       className="accent-signal"
+                      disabled={!can(profile, 'edit')}
                       checked={selected.has(profile.id)}
                       aria-label={t('Select {name}', { name: profile.name })}
                       onChange={() =>
@@ -829,7 +840,7 @@ export default function ProfilesPage() {
                     <div className="flex items-center justify-end gap-1">
                       <button
                         className="btn btn-default h-7"
-                        disabled={isBusy}
+                        disabled={isBusy || !can(profile, 'launch')}
                         onClick={() => (isRunning ? stop(profile) : launch(profile))}
                       >
                         {isRunning ? (
@@ -886,7 +897,7 @@ export default function ProfilesPage() {
                           >
                             <MenuItem
                               icon={<Pencil size={13} />}
-                              label={t('Edit')}
+                              allowed={can(profile, 'edit')} label={t('Edit')}
                               autoFocus
                               onClick={() => {
                                 setEditing(profile)
@@ -896,7 +907,7 @@ export default function ProfilesPage() {
                             />
                             <MenuItem
                               icon={<Copy size={13} />}
-                              label={t('Duplicate')}
+                              allowed={canManageAccess} label={t('Duplicate')}
                               onClick={() => {
                                 clone(profile)
                                 closeMenu(profile.id)
@@ -904,7 +915,7 @@ export default function ProfilesPage() {
                             />
                             <MenuItem
                               icon={<Globe size={13} />}
-                              label={t('Check proxy')}
+                              allowed={can(profile, 'edit')} label={t('Check proxy')}
                               onClick={() => {
                                 // The set holds ids, not a count, so a second
                                 // check of the same row would clear the first
@@ -913,12 +924,12 @@ export default function ProfilesPage() {
                                 closeMenu(profile.id)
                               }}
                             />
-                            <MenuItem icon={<Cookie size={13} />} label={t('Cookies')} onClick={() => { setCookiesFor(profile); closeMenu(profile.id) }} />
-                            <MenuItem icon={<Bookmark size={13} />} label={t('Save as template')} onClick={() => { setTemplateFor(profile); closeMenu(profile.id) }} />
-                            <MenuItem icon={<Puzzle size={13} />} label={t('Extensions')} onClick={() => { setExtensionsFor(profile); closeMenu(profile.id) }} />
+                            <MenuItem icon={<Cookie size={13} />} allowed={can(profile, 'edit') || can(profile, 'export')} label={t('Cookies')} onClick={() => { setCookiesFor(profile); closeMenu(profile.id) }} />
+                            <MenuItem icon={<Bookmark size={13} />} allowed={canManageAccess} label={t('Save as template')} onClick={() => { setTemplateFor(profile); closeMenu(profile.id) }} />
+                            <MenuItem icon={<Puzzle size={13} />} allowed={can(profile, 'edit')} label={t('Extensions')} onClick={() => { setExtensionsFor(profile); closeMenu(profile.id) }} />
                             <MenuItem
                               icon={<PackageOpen size={13} />}
-                              label={t('Export…')}
+                              allowed={can(profile, 'export')} label={t('Export…')}
                               onClick={() => {
                                 exportArchive(profile)
                                 closeMenu(profile.id)
@@ -926,7 +937,7 @@ export default function ProfilesPage() {
                             />
                             <MenuItem
                               icon={<Trash2 size={13} />}
-                              label={t('Move to Trash')}
+                              allowed={can(profile, 'edit')} label={t('Move to Trash')}
                               danger
                               onClick={() => {
                                 askDelete(profile)
@@ -1098,13 +1109,16 @@ function MenuItem({
   onClick,
   danger,
   autoFocus,
+  allowed = true,
 }: {
   icon: React.ReactNode
   label: string
   onClick: () => void
   danger?: boolean
   autoFocus?: boolean
+  allowed?: boolean
 }) {
+  if (!allowed) return null
   return (
     <button
       role="menuitem"

@@ -4,6 +4,10 @@ from typing import Any
 
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile
 
+from camoufox_pm.api.access import (
+    require_admin,
+    require_profile_access,
+)
 from camoufox_pm.api.dependencies import get_profile_manager
 from camoufox_pm.api.models.extensions import ExtensionAssignmentRequest
 from camoufox_pm.api.models.system import ApiResponse
@@ -25,6 +29,7 @@ async def perform(operation):
     "/extensions", response_model=ApiResponse[dict[str, Any]], operation_id="list_extensions"
 )
 async def list_extensions():
+    await require_admin()
     return ApiResponse(
         success=True,
         data={"extensions": await ExtensionLibrary(get_profile_manager()).list()},
@@ -39,6 +44,7 @@ async def list_extensions():
     operation_id="upload_extension",
 )
 async def upload_extension(file: UploadFile = File(...)):
+    await require_admin()
     payload = bytearray()
     try:
         while chunk := await file.read(65536):
@@ -55,6 +61,7 @@ async def upload_extension(file: UploadFile = File(...)):
     "/extensions/{extension_id}", response_model=ApiResponse[None], operation_id="delete_extension"
 )
 async def delete_extension(extension_id: str, row_version: int = Query(..., ge=0)):
+    await require_admin()
     await perform(ExtensionLibrary(get_profile_manager()).delete(extension_id, row_version))
     return ApiResponse(
         success=True, data=None, message="Extension deleted; profiles keep their snapshot"
@@ -67,6 +74,7 @@ async def delete_extension(extension_id: str, row_version: int = Query(..., ge=0
     operation_id="profile_extensions",
 )
 async def profile_extensions(profile_id: str):
+    await require_profile_access(profile_id)
     return ApiResponse(
         success=True,
         data=await perform(ExtensionLibrary(get_profile_manager()).profile_extensions(profile_id)),
@@ -80,6 +88,7 @@ async def profile_extensions(profile_id: str):
     operation_id="assign_profile_extensions",
 )
 async def assign_profile_extensions(profile_id: str, request: ExtensionAssignmentRequest):
+    await require_profile_access(profile_id, "edit")
     return ApiResponse(
         success=True,
         data=await perform(

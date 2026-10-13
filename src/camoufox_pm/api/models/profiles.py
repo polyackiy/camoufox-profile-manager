@@ -140,6 +140,7 @@ class ProfileResponse(BaseModel):
 
     id: str
     name: str
+    permissions: dict[str, bool] = Field(default_factory=dict)
     tags: list[str] = Field(default_factory=list)
     group: str | None
     status: ProfileStatus
@@ -181,19 +182,31 @@ class ProfileResponse(BaseModel):
     @classmethod
     def from_profile(cls, profile: "Profile") -> "ProfileResponse":
         """Build the API view of a profile."""
+        from camoufox_pm.api.access import is_admin, profile_permissions
         from camoufox_pm.core import fingerprint_store
 
+        proxy_config = profile.proxy.model_dump() if profile.proxy else None
+        if not is_admin() and proxy_config:
+            proxy_config = {
+                key: value
+                for key, value in proxy_config.items()
+                if key not in {"username", "password", "ip_change_url"}
+            }
+            # Legacy proxy servers can contain URL userinfo as well.
+            if "@" in proxy_config.get("server", ""):
+                proxy_config["server"] = proxy_config["server"].rsplit("@", 1)[1]
         return cls(
             id=profile.id,
             name=profile.name,
+            permissions=profile_permissions(profile.id),
             group=profile.group,
             tags=profile.tags,
             status=profile.status,
             browser_settings=(
                 profile.browser_settings.model_dump() if profile.browser_settings else {}
             ),
-            proxy_config=profile.proxy.model_dump() if profile.proxy else None,
-            storage_path=profile.storage_path,
+            proxy_config=proxy_config,
+            storage_path=profile.storage_path if is_admin() else None,
             notes=profile.notes,
             created_at=profile.created_at,
             updated_at=profile.updated_at,
@@ -203,7 +216,16 @@ class ProfileResponse(BaseModel):
                 profile.fingerprint,
                 profile.browser_settings.os if profile.browser_settings else None,
             ),
-            proxy_check=profile.proxy_check,
+            proxy_check=(
+                profile.proxy_check
+                if is_admin() or profile.proxy_check is None
+                else profile.proxy_check.model_copy(
+                    update={
+                        "error": "The proxy check failed." if profile.proxy_check.error else None,
+                        "findings": [],
+                    }
+                )
+            ),
             row_version=profile.row_version,
         )
 

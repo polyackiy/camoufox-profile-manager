@@ -4,7 +4,7 @@ SQLite storage layer for the Camoufox profile management system.
 
 import json
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from loguru import logger
@@ -667,38 +667,157 @@ class DatabaseManager:
 
     # --- Users and sessions ---
 
-    async def create_user(self, user_id: str, username: str, password_hash: str) -> None:
+    async def create_user(
+        self,
+        user_id: str,
+        username: str,
+        password_hash: str,
+        role: str = "administrator",
+        actor=None,
+    ) -> None:
         """Create a user; raises ``ValueError`` when the username is taken."""
+        if role not in {"administrator", "operator", "viewer"}:
+            raise ValueError("Invalid role")
         try:
-            self._connection.execute(
-                "INSERT INTO users (id, username, password_hash, created_at) VALUES (?, ?, ?, ?)",
-                (user_id, username, password_hash, datetime.now().isoformat()),
-            )
+            with self._connection:
+                self._connection.execute(
+                    "INSERT INTO users (id, username, password_hash, created_at, role) VALUES (?, ?, ?, ?, ?)",
+                    (user_id, username, password_hash, datetime.now().isoformat(), role),
+                )
+                if actor is not None:
+                    self._audit(actor, "user.create", username, "success")
         except sqlite3.IntegrityError as exc:
             raise ValueError(f"User {username!r} already exists") from exc
-        self._connection.commit()
         # Deliberately logs the name only, never the hash.
         logger.info(f"User {username} created")
 
     async def get_user_by_username(self, username: str) -> dict | None:
         cursor = self._connection.execute(
-            "SELECT id, username, password_hash FROM users WHERE username = ?", (username,)
+            "SELECT id, username, password_hash, role FROM users WHERE username = ?", (username,)
         )
         row = cursor.fetchone()
         return dict(row) if row else None
 
-    async def update_user_password(self, username: str, password_hash: str) -> bool:
-        cursor = self._connection.execute(
-            "UPDATE users SET password_hash = ? WHERE username = ?", (password_hash, username)
-        )
-        self._connection.commit()
+    async def update_user_password(self, username: str, password_hash: str, actor=None) -> bool:
+        return await self.update_user_access(username, password_hash=password_hash, actor=actor)
+
+    def _protect_admin(self, username, role=None):
+        user = self._connection.execute(
+            "SELECT role FROM users WHERE username = ?", (username,)
+        ).fetchone()
+        if user and user["role"] == "administrator" and role != "administrator":
+            if (
+                self._connection.execute(
+                    "SELECT COUNT(*) FROM users WHERE role = 'administrator'"
+                ).fetchone()[0]
+                <= 1
+            ):
+                raise ValueError("Cannot remove the last administrator")
+
+    async def update_user_access(self, username, role=None, password_hash=None, actor=None):
+        with self._connection:
+            self._connection.execute("BEGIN IMMEDIATE")
+            if role is not None:
+                self._protect_admin(username, role)
+                self._connection.execute(
+                    "UPDATE users SET role = ? WHERE username = ?", (role, username)
+                )
+            user = self._connection.execute(
+                "SELECT id FROM users WHERE username = ?", (username,)
+            ).fetchone()
+            if not user:
+                return False
+            if password_hash is not None:
+                self._connection.execute(
+                    "UPDATE users SET password_hash = ? WHERE username = ?",
+                    (password_hash, username),
+                )
+            if password_hash is not None or role is not None:
+                self._connection.execute("DELETE FROM sessions WHERE user_id = ?", (user["id"],))
+            if actor is not None:
+                self._audit(actor, "user.update", username, "success")
+        return True
+
+    async def delete_user(self, username: str, actor=None) -> bool:
+        with self._connection:
+            self._connection.execute("BEGIN IMMEDIATE")
+            self._protect_admin(username)
+            cursor = self._connection.execute("DELETE FROM users WHERE username = ?", (username,))
+            if cursor.rowcount and actor is not None:
+                self._audit(actor, "user.delete", username, "success")
         return cursor.rowcount > 0
 
-    async def delete_user(self, username: str) -> bool:
-        """Delete a user; the foreign key cascades their open sessions away."""
-        cursor = self._connection.execute("DELETE FROM users WHERE username = ?", (username,))
-        self._connection.commit()
+    def _audit(self, actor, action, object_id, result):
+        self._connection.execute(
+            "INSERT INTO audit_events(actor_kind,actor_username,action,object_id,result,created_at) VALUES (?,?,?,?,?,?)",
+            (
+                actor.kind,
+                actor.username,
+                action,
+                object_id,
+                result,
+                datetime.now(timezone.utc).isoformat(),
+            ),
+        )
+        self._connection.execute(
+            "DELETE FROM audit_events WHERE id NOT IN (SELECT id FROM audit_events ORDER BY id DESC LIMIT 10000)"
+        )
+
+    async def append_audit(self, actor, action, object_id=None, result="success"):
+        with self._connection:
+            self._audit(actor, action, object_id, result)
+
+    async def list_audit(self, offset=0, limit=100, actor=None, action=None, result=None):
+        clauses, values = [], []
+        for column, value in (("actor_username", actor), ("action", action), ("result", result)):
+            if value is not None:
+                clauses.append(column + " = ?")
+                values.append(value)
+        where = " WHERE " + " AND ".join(clauses) if clauses else ""
+        rows = self._connection.execute(
+            "SELECT * FROM audit_events" + where + " ORDER BY id DESC LIMIT ? OFFSET ?",
+            (*values, min(max(limit, 1), 1000), min(max(offset, 0), 10000)),
+        )
+        return [dict(row) for row in rows]
+
+    async def count_audit(self, actor=None, action=None, result=None):
+        clauses, values = [], []
+        for column, value in (("actor_username", actor), ("action", action), ("result", result)):
+            if value is not None:
+                clauses.append(column + " = ?")
+                values.append(value)
+        where = " WHERE " + " AND ".join(clauses) if clauses else ""
+        return self._connection.execute(
+            "SELECT COUNT(*) FROM audit_events" + where, values
+        ).fetchone()[0]
+
+    async def set_profile_grant(self, username, profile_id, can_export=False, actor=None):
+        with self._connection:
+            self._connection.execute(
+                "INSERT INTO profile_grants(username,profile_id,can_export) VALUES (?,?,?) ON CONFLICT(username,profile_id) DO UPDATE SET can_export=excluded.can_export",
+                (username, profile_id, bool(can_export)),
+            )
+            if actor is not None:
+                self._audit(actor, "grant.set", f"{username}/{profile_id}", "success")
+
+    async def delete_profile_grant(self, username, profile_id, actor=None):
+        with self._connection:
+            cursor = self._connection.execute(
+                "DELETE FROM profile_grants WHERE username=? AND profile_id=?",
+                (username, profile_id),
+            )
+            if cursor.rowcount and actor is not None:
+                self._audit(actor, "grant.delete", f"{username}/{profile_id}", "success")
         return cursor.rowcount > 0
+
+    async def list_profile_grants(self, username):
+        return [
+            dict(row)
+            for row in self._connection.execute(
+                "SELECT profile_id,can_export FROM profile_grants WHERE username=? ORDER BY profile_id",
+                (username,),
+            )
+        ]
 
     async def count_users(self) -> int:
         cursor = self._connection.execute("SELECT COUNT(*) FROM users")
@@ -707,7 +826,7 @@ class DatabaseManager:
     async def list_users(self) -> list[dict]:
         """Usernames and creation times only — hashes stay in the table."""
         cursor = self._connection.execute(
-            "SELECT username, created_at FROM users ORDER BY created_at"
+            "SELECT username, created_at, role FROM users ORDER BY created_at"
         )
         return [dict(row) for row in cursor.fetchall()]
 
@@ -752,8 +871,8 @@ class DatabaseManager:
             """
             INSERT OR REPLACE INTO schedules (
                 id, profile_id, action, kind, interval_minutes, at_time, days,
-                run_minutes, enabled, next_run_at, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                run_minutes, enabled, next_run_at, created_at, updated_at, actor_kind, actor_username, actor_user_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
             (
                 schedule.id,
@@ -768,6 +887,9 @@ class DatabaseManager:
                 schedule.next_run_at.isoformat() if schedule.next_run_at else None,
                 schedule.created_at.isoformat(),
                 schedule.updated_at.isoformat(),
+                schedule.actor_kind,
+                schedule.actor_username,
+                schedule.actor_user_id,
             ),
         )
         self._connection.commit()
@@ -1018,6 +1140,9 @@ class DatabaseManager:
             ),
             created_at=datetime.fromisoformat(row["created_at"]),
             updated_at=datetime.fromisoformat(row["updated_at"]),
+            actor_kind=row["actor_kind"],
+            actor_username=row["actor_username"],
+            actor_user_id=row["actor_user_id"],
         )
 
     def _row_to_profile(self, row) -> Profile:
@@ -1140,18 +1265,46 @@ class StorageManager:
     async def delete_profile_group(self, group_id: str) -> bool:
         return await self.db.delete_profile_group(group_id)
 
+    async def count_audit(self, **kwargs):
+        return await self.db.count_audit(**kwargs)
+
+    async def update_user_access(self, username, role=None, password_hash=None, actor=None):
+        return await self.db.update_user_access(username, role, password_hash, actor)
+
+    async def append_audit(self, actor, action, object_id=None, result="success"):
+        return await self.db.append_audit(actor, action, object_id, result)
+
+    async def list_audit(self, **kwargs):
+        return await self.db.list_audit(**kwargs)
+
+    async def set_profile_grant(self, username, profile_id, can_export=False, actor=None):
+        return await self.db.set_profile_grant(username, profile_id, can_export, actor)
+
+    async def delete_profile_grant(self, username, profile_id, actor=None):
+        return await self.db.delete_profile_grant(username, profile_id, actor)
+
+    async def list_profile_grants(self, username):
+        return await self.db.list_profile_grants(username)
+
     # User and session methods
-    async def create_user(self, user_id: str, username: str, password_hash: str) -> None:
-        await self.db.create_user(user_id, username, password_hash)
+    async def create_user(
+        self,
+        user_id: str,
+        username: str,
+        password_hash: str,
+        role: str = "administrator",
+        actor=None,
+    ) -> None:
+        await self.db.create_user(user_id, username, password_hash, role, actor)
 
     async def get_user_by_username(self, username: str) -> dict | None:
         return await self.db.get_user_by_username(username)
 
-    async def update_user_password(self, username: str, password_hash: str) -> bool:
-        return await self.db.update_user_password(username, password_hash)
+    async def update_user_password(self, username: str, password_hash: str, actor=None) -> bool:
+        return await self.db.update_user_password(username, password_hash, actor)
 
-    async def delete_user(self, username: str) -> bool:
-        return await self.db.delete_user(username)
+    async def delete_user(self, username: str, actor=None) -> bool:
+        return await self.db.delete_user(username, actor)
 
     async def count_users(self) -> int:
         return await self.db.count_users()

@@ -155,8 +155,12 @@ def preflight(proxy: ProxyConfig) -> list[Finding]:
     if proxy.type == ProxyType.SOCKS5 and (proxy.username or proxy.password):
         try:
             validate_credentials(proxy.username, proxy.password)
-        except ValueError as exc:
-            findings.append(Finding("error", "proxy", str(exc)))
+        except ValueError:
+            findings.append(
+                Finding(
+                    "error", "proxy", "SOCKS5 username and password must each be 1–255 UTF-8 bytes."
+                )
+            )
     return findings
 
 
@@ -311,6 +315,16 @@ def _readable(error: Exception | None) -> str:
     """Turn an httpx failure into something worth showing a user."""
     if error is None:
         return "The proxy did not answer."
+    if isinstance(error, ConnectionError) and str(error) in {
+        "The proxy did not answer.",
+        "The proxy rejected the credentials.",
+        "The proxy refused the connection.",
+        "The proxy did not answer in time.",
+        "The proxy intercepts TLS, so its certificate could not be verified.",
+        "This proxy protocol cannot be checked; SOCKS4 is not supported.",
+        "Could not reach the internet through the proxy.",
+    }:
+        return str(error)
     if isinstance(error, httpx.HTTPStatusError):
         if error.response.status_code == 407:
             return "The proxy rejected the credentials."
@@ -320,7 +334,7 @@ def _readable(error: Exception | None) -> str:
         # common case of wrong credentials arrives here rather than above.
         if "407" in str(error):
             return "The proxy rejected the credentials."
-        return f"The proxy refused the connection: {error}"
+        return "The proxy refused the connection."
     if isinstance(error, httpx.TimeoutException):
         return "The proxy did not answer in time."
     if (
@@ -328,10 +342,10 @@ def _readable(error: Exception | None) -> str:
         or isinstance(error, httpx.ConnectError)
         and ("SSL" in str(error) or "CERTIFICATE" in str(error))
     ):
-        return f"The proxy intercepts TLS, so its certificate could not be verified: {error}"
+        return "The proxy intercepts TLS, so its certificate could not be verified."
     if isinstance(error, httpx.UnsupportedProtocol):
         return "This proxy protocol cannot be checked; SOCKS4 is not supported."
-    return f"Could not reach the internet through the proxy: {error}"
+    return "Could not reach the internet through the proxy."
 
 
 async def prepare_authenticated_socks_geoip(
@@ -425,7 +439,7 @@ async def check(
     try:
         ip, latency = await resolve_exit_ip(proxy, timeout=timeout)
     except ConnectionError as exc:
-        return ProxyCheckResult(reachable=False, error=str(exc), findings=findings)
+        return ProxyCheckResult(reachable=False, error=_readable(exc), findings=findings)
 
     try:
         # get_geolocation reads (and may download) the MaxMind database, so keep it

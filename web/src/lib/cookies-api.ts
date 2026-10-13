@@ -1,4 +1,4 @@
-import { API_BASE_URL, ApiRequestError, apiRequest, authHeaders } from './api'
+import { API_BASE_URL, ApiRequestError, apiRequest, authHeaders, notifyAccessDenied } from './api'
 
 export type CookieFormat = 'json' | 'netscape'
 export interface CookieSkip { row: number; reason: string }
@@ -36,6 +36,7 @@ export const cookiesAPI = {
       headers: authHeaders(), credentials: 'same-origin',
     })
     if (!response.ok) {
+      notifyAccessDenied(response.status)
       let message = 'Could not export cookies'
       let code: string | undefined
       try {

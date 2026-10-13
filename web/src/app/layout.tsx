@@ -17,11 +17,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en">
       <body>
         <I18nProvider>
-          <ToastProvider>
-            <LoginGate>
+          <LoginGate>
+            <ToastProvider>
               <AppShell>{children}</AppShell>
-            </LoginGate>
-          </ToastProvider>
+            </ToastProvider>
+          </LoginGate>
         </I18nProvider>
       </body>
     </html>
