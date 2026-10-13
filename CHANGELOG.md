@@ -6,6 +6,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- Add the experimental device-sync protocol foundation (#83): strict signed
+  manifests, encrypted streaming containers, checkout reference states and
+  adversarial tests. This optional developer layer does not yet enable syncing
+  profiles; device identity, relay and recovery integration remain planned.
+
 ## [0.6.0-rc.4] - 2026-10-13
 
 Unsigned desktop preview with profile access controls and integrated recovery.

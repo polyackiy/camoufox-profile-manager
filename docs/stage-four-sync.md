@@ -269,3 +269,11 @@ may introduce encrypted chunk deduplication only with a separate metadata-leakag
 analysis. Team sharing, organization key custody and per-member/per-profile
 revocation, remote managed browser execution, and cross-device schedule ownership
 are separate follow-up stages, not implicit extensions of local stage-three roles.
+
+## S1 implementation references
+
+The experimental foundation is specified in [sync-protocol.md](sync-protocol.md)
+and [sync-state-machine.md](sync-state-machine.md). See the
+[security review and threat-to-test record](sync-security-review.md) for library
+choices, native proof, findings and remaining gates. This implements protocol
+primitives only; it does not enable profile synchronization.
