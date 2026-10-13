@@ -34,6 +34,7 @@ from camoufox_pm.api.routes import (
     runtime,
     saved_filters,
     schedules,
+    sync,
     system,
     templates,
 )
@@ -72,6 +73,9 @@ async def lifespan(app: FastAPI):
             await profile_manager.initialize()
             set_storage_manager(storage_manager)
             set_profile_manager(profile_manager)
+            sync.set_sync_directory(
+                Path(settings.db_path).expanduser().resolve().parent / "sync-control"
+            )
 
             backup_manager = ProfileBackupManager(
                 profile_manager,
@@ -116,6 +120,7 @@ async def lifespan(app: FastAPI):
                     logger.warning(f"Failed to close browsers on shutdown: {exc}")
                 await profile_manager.release_all_leases()
         finally:
+            sync.set_sync_directory(None)
             recovery.set_backup_manager(None)
             await storage_manager.close()
             maintenance_gate.unregister_manager()
@@ -164,6 +169,13 @@ for _prefix, _in_schema in (("/api/v1", True), ("/api", False)):
         auth.router,
         prefix=_prefix,
         tags=["Auth"],
+        include_in_schema=_in_schema,
+    )
+    app.include_router(
+        sync.router,
+        prefix=_prefix,
+        tags=["Sync"],
+        dependencies=protected,
         include_in_schema=_in_schema,
     )
     app.include_router(

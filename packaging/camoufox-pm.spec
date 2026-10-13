@@ -50,6 +50,8 @@ datas += copy_metadata("playwright")
 datas += [(str(fpgen_data_dir() / STAMP), "fpgen/data")]
 binaries = []
 hiddenimports = collect_submodules("uvicorn")
+hiddenimports += collect_submodules("keyring.backends")
+datas += copy_metadata("keyring")
 if sys.platform.startswith("linux"):
     hiddenimports += ["webview.platforms.qt", "PyQt6.QtWebEngineWidgets", "PyQt6.QtWebEngineCore"]
 

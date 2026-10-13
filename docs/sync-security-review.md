@@ -122,3 +122,27 @@ as [upstream explicitly documents](https://github.com/pyca/cryptography/security
 The Intel native run above bundled the matching OpenSSL 3.6.3 library pair.
 A successful roundtrip establishes packaging compatibility, not security of
 arbitrary system libraries on downstream source-build hosts.
+
+## S2/S3 implementation review, 2026-10-13
+
+The next implementation adds cookie-only administrator enrollment, immutable local
+account binding, protected native/encrypted vault adapters, journalled bootstrap,
+single-use pairing transactions, isolated-process recovery verification, strict
+portable snapshots and native Firefox profile locking. The relay, durable transfer
+engine and user-facing synchronization flow are separate integration work; these
+modules alone do not constitute completed synchronization.
+
+Independent agent review of modules authored by other workers found and fixed a
+ZIP64 preflight bypass: Python's ZIP reader could use ZIP64 directory values instead
+of the previously checked ordinary end-of-directory fields. The snapshot format
+now rejects ZIP64 before constructing `ZipFile`; the regression asserts that the
+parser is never invoked. Fixed-size KDF parameters, key separation, stable-user
+checks, invitation CAS and sanitized errors have negative tests.
+
+No additional confirmed high-severity findings were reported in these reviewed
+modules. This is an internal implementation review, not an external professional
+cryptographic audit. Native credential-store and frozen windowed recovery checks
+have been added to CI; their results must be recorded before claiming platform
+acceptance. A control database cannot independently detect restoration of an entire
+old disk image. Freshness reconciliation, browser entry-point enforcement and
+journalled profile replacement remain mandatory integration gates.

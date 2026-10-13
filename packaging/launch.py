@@ -6,6 +6,13 @@ if __name__ == "__main__":
 
     freeze_support()
 
+    import sys
+
+    if sys.argv[1:] == ["--sync-recovery-verify"]:
+        from camoufox_pm.sync.recovery import recovery_worker_main
+
+        raise SystemExit(recovery_worker_main())
+
     from camoufox_pm.desktop import finish_packaged_desktop, main
 
     main()

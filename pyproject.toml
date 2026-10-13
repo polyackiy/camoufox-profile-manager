@@ -64,6 +64,7 @@ dev = [
 sync = [
     "cryptography>=50.0.2,<51",
     "pynacl>=1.6.2,<1.7",
+    "keyring>=25.7,<26",
 ]
 
 [project.scripts]

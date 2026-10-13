@@ -58,7 +58,7 @@ jobs:
           enable-cache: true
           python-version: "3.12"
       - name: Install dependencies
-        run: uv sync --extra build
+        run: uv sync --extra build --extra sync
       - name: Install Linux webview runtime and package tools
         if: runner.os == 'Linux'
         run: |
