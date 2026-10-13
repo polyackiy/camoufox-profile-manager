@@ -176,3 +176,53 @@ production/development transport boundaries. They do not constitute an external
 cryptographic audit or prove freshness against a compromised relay. End-to-end
 browser quiescence, client recovery journals, device key storage, user-interface
 integration and packaged acceptance remain separate release gates.
+
+## Unpublished-upload expiry
+
+Uncommitted uploads receive a durable seven-day grace period from reservation.
+Run bounded maintenance under the relay's own OS account, for example from an
+operator-controlled daily scheduler:
+
+```sh
+camoufox-sync-relay --data /srv/camoufox/data --expire-uploads --maintenance-limit 100
+```
+
+This local command needs filesystem authority, not a registration token; there
+is no public cleanup endpoint. The limit is 1–1000 examined records per run.
+Output contains aggregate counts only. Repeat maintenance while eligible records
+remain; inspect failures rather than removing files manually. Until maintenance
+runs, an overdue ready upload may still win a commit. Commit and expiry compete
+through the same SQLite writer transaction.
+
+Expiry first durably fences eligible objects as `expiring`, preserving their
+quota. It skips workers whose PID and process creation time are still live, and
+fails closed when process liveness cannot be established. It then removes the
+exact pending/final files, flushes the directory, and changes the record to
+`expired` with zero reserved bytes. A deletion failure or crash retains the fence
+and reservation for a later sweep. Revision IDs remain permanently occupied.
+`blob_status` reports `expiring` with its reserved length or `expired` with length
+zero; the original writer and ciphertext hash remain. An explicit client retry
+must reconcile before replacing an expired pending transfer with a freshly
+encrypted revision; old ciphertext is retained locally. A partially uploaded byte
+stream is not resumed by offset.
+
+Stop all old-version workers before upgrading the relay. Schema v2 migrates v1
+transactionally and grants pre-existing unpublished uploads a full seven-day
+period from migration; preserve a complete database/object backup first. Clock
+rollback below the retained high-water mark stops new expiry decisions; already
+fenced `expiring` cleanup can finish without trusting the clock. Restoring both
+metadata and time state from an old backup cannot prove current time or freshness;
+normal independent client history checks remain required.
+
+This cleanup never selects committed revisions, including old ancestors, and
+never deletes transition history. Signed profile deletion/Trash and delayed
+committed-history garbage collection remain separate work; committed retention
+continues to be indefinite and quota-bounded.
+
+Explicit authenticated cancellation uses the same crash-safe sequence with an
+`aborting` fence and terminal `aborted` status. Only the original currently
+enrolled writer may request it. Both transactions recheck the authenticated
+device certificate. A retry or operator maintenance can finish an interrupted
+cancellation; its retained quota is released only after successful deletion and
+flush. Maintenance's `expired` count includes completed prior cancellations.
+Neither `aborting` nor `expiring` permits commit or replacement upload.

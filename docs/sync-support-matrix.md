@@ -26,6 +26,50 @@ protocol. Native vault smoke tests create isolated test credentials and remove
 them afterward; they do not establish behavior of every locked, enterprise-managed
 or headless credential store.
 
+## Integrated native crypto and vault evidence
+
+The [integrated security matrix](https://github.com/polyackiy/camoufox-profile-manager/actions/runs/38463363361)
+passes at `0e89885a92342e2e508742b7f71925e901c2d4dd` on Ubuntu, Windows,
+macOS Apple Silicon and macOS Intel. This run includes the full sync unit/negative
+suite, source and frozen-codec/recovery checks, and the independent CIRCL HPKE
+comparison. Native credential-store checks pass for Windows Credential Manager
+and both macOS Keychain targets; Linux Secret Service remains untested without
+a desktop session. These results supersede the foundation-only evidence for the
+integrated implementation, while preserving the same limits on what a smoke test
+establishes.
+
+## Integrated application evidence
+
+The [application CI run](https://github.com/polyackiy/camoufox-profile-manager/actions/runs/38463364451)
+for `0e89885a92342e2e508742b7f71925e901c2d4dd` passes on Python 3.10–3.13,
+including lint/type checks, frontend production/static builds, and all desktop,
+access-control and synchronization UI contract suites. One Python 3.12 proxy
+concurrency fixture initially raced its wall-clock sleeps; the failed job passed
+on retry. The follow-up fixture uses explicit events and retains the original
+assertions; production proxy behavior was unchanged.
+
+The [update recovery matrix](https://github.com/polyackiy/camoufox-profile-manager/actions/runs/38463364405)
+passes on Ubuntu, Windows, macOS Apple Silicon and macOS Intel at that commit.
+Local final implementation validation passed 1,934 tests with 8 environment skips;
+the subsequent canvas-setting fixture adds two passing cases.
+
+## Integrated browser evidence
+
+The [dedicated native synchronization run](https://github.com/polyackiy/camoufox-profile-manager/actions/runs/38463356209)
+passed on Linux, Windows and macOS Apple Silicon for commit
+`0e89885a92342e2e508742b7f71925e901c2d4dd`, using Camoufox
+`v156.0.1-beta.36`. Two independent manager data directories on each runner transfer
+a real browser profile through the production authenticated relay/client code and
+back again. The test checks an HttpOnly authenticated cookie, localStorage changes,
+pinned fingerprint and exact canvas output with **stable canvas explicitly enabled**.
+Both values of the canvas privacy setting also roundtrip in unit tests; normal
+session randomization is not silently disabled.
+
+This establishes same-runner transfer behavior under the listed native platforms.
+It does not establish identical rendering across every physical GPU, font stack or
+managed desktop, cross-OS/architecture compatibility, or an installed manager GUI
+roundtrip. Native-vault and frozen-codec validation remain separate evidence.
+
 ## Browser and runtime coverage
 
 | Behavior | Evidence / limit |
@@ -33,7 +77,7 @@ or headless credential store.
 | Signed relay requests, replay rejection, membership changes, checkout CAS | Automated unit/ASGI tests with real cryptography and persistent SQLite |
 | Encrypted two-device handoff, immutable ciphertext and received snapshot validation | Runtime integration tests using real relay/client code and synthetic profile data |
 | Crash recovery, local pointer activation, lease/maintenance fencing and stale rows | Fault-injection tests; native filesystem/lock behavior also requires the platform matrix on the final commit |
-| Actual Camoufox cookie, localStorage, fingerprint and canvas transfer | Dedicated `tests/browser/test_sync_roundtrip.py` added; native sync browser matrix evidence is pending for the completed integration |
+| Actual Camoufox cookie, localStorage, fingerprint and canvas transfer | Passed on Linux, Windows and macOS Apple Silicon in the dedicated run above; same runner, separate manager data directories |
 | Browser compatibility workflow unrelated to the new sync roundtrip | Must not be counted as proof of successful sync handoff |
 | Historical recovery | Real cryptographic/archive negative tests and fresh local profile import tests; explicitly historical, with no recovered-current-checkout claim |
 | Browser closed upload queue | Requires a running manager and accessible native vault; encrypted-file vault waits for explicit password entry |

@@ -190,3 +190,19 @@ are not implied by this implementation.
 The native key-store/frozen crypto matrix and actual browser roundtrip matrix are
 separate: simulated key stores in browser tests do not prove native key-store
 behavior, and native crypto smokes do not prove browser state portability.
+
+## Upload expiry follow-up
+
+Uncommitted uploads have a durable expiry deadline and a bounded local maintenance
+command. A persisted cleanup fence precedes file removal; quota is retained until
+removal and directory fsync succeed. Committed history is retained. Recovery can
+finish a previously fenced cleanup after a crash without using a backwards clock
+to make new expiry decisions.
+
+An explicit client retry accepts an expiry report only after reconciling signed
+history before and after that report, checking the exact pending intent and the
+unchanged locally held checkout. It archives the old intent and keeps its
+ciphertext, then creates a fresh revision/key/stream. A missing response, changed
+head, late signed commit, lost authorization or malformed expiry report cannot
+silently reset ownership or replace the pending operation. Unit tests cover these
+races; separate-agent review checks the new cleanup and retry boundaries.

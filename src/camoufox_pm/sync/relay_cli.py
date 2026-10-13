@@ -36,6 +36,12 @@ def read_registration_token(path: Path) -> str:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Self-hosted encrypted Camoufox PM sync relay")
     parser.add_argument("--data", type=Path, default=Path("sync-relay-data"))
+    parser.add_argument(
+        "--expire-uploads",
+        action="store_true",
+        help="Expire unpublished uploads older than seven days",
+    )
+    parser.add_argument("--maintenance-limit", type=int, default=100)
     parser.add_argument("--origin", help="Public HTTPS origin, e.g. https://sync.example.org")
     parser.add_argument("--registration-token-file", type=Path)
     parser.add_argument("--generate-registration-token", type=Path, metavar="NEW_FILE")
@@ -43,6 +49,19 @@ def main() -> None:
     parser.add_argument("--port", type=int, default=9877)
     parser.add_argument("--development-loopback", action="store_true")
     args = parser.parse_args()
+    if args.expire_uploads:
+        if args.generate_registration_token or not 1 <= args.maintenance_limit <= 1000:
+            parser.error("Maintenance requires limit 1..1000 and no token generation")
+        try:
+            from camoufox_pm.sync.relay import expire_uncommitted_uploads
+
+            result = expire_uncommitted_uploads(args.data, limit=args.maintenance_limit)
+        except Exception:
+            parser.exit(
+                1, "Relay upload maintenance failed; incomplete cleanup retains reservations.\n"
+            )
+        print("Upload maintenance: " + ", ".join(f"{key}={value}" for key, value in result.items()))
+        return
     if args.generate_registration_token:
         try:
             with os.fdopen(create_private_file(args.generate_registration_token), "wb") as output:

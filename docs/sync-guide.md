@@ -131,3 +131,9 @@ local unsent copy. Revocation and takeover cannot stop an offline browser or rec
 existing website sessions. A history conflict, incompatible browser or unavailable
 key keeps recovery blocked; preserve the data and use a separate local copy or
 [historical recovery](sync-recovery-guide.md) instead of deleting either side.
+
+Before publishing revocation, the manager makes a bounded attempt to verify
+profile heads while the device is still authorized. If some heads cannot be
+verified, revocation still proceeds and displays a recovery warning. An old-epoch
+head advertised only after revocation is not automatically trusted; use an
+independent retained checkpoint or explicit historical-copy recovery.
