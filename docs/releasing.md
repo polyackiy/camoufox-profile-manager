@@ -89,12 +89,16 @@ assets before signing; changing an installed app's icon invalidates its signatur
 
 ## Update boundaries
 
-Settings checks only the configured project's GitHub releases. Update preparation
-creates a backup first, then offers the project release URL for a supported
-installer. Users download it, close the manager and install it. The app does not
-cryptographically verify installer signatures, swap its running executable,
-guarantee rollback of app binaries, or bypass OS
-security prompts. Keep archives and `secret.key` outside the installation folder.
+Settings checks only the configured project's GitHub releases. Unsigned public
+previews prepare a backup and offer the project release URL; users close the
+manager and install manually. Keep complete pre-upgrade checkpoints and matching
+installers: older managers must not open a newer database schema.
+
+The integrated updater includes verified target preparation, complete checkpoints,
+offline replacement, migration, validation and recovery. Automatic installation
+remains disabled until production TUF trust, platform publisher policy and signed
+package-to-package acceptance are provisioned. It does not bypass OS security
+prompts. See [the current recovery implementation](update-recovery.md).
 
 ## Publishing to PyPI (optional)
 
@@ -109,12 +113,12 @@ OIDC rather than a PyPI API token. Desktop installation does not require PyPI.
 - [0.6.0 stable-release readiness](https://github.com/polyackiy/camoufox-profile-manager/milestone/1)
 - [Signing and notarization #61](https://github.com/polyackiy/camoufox-profile-manager/issues/61)
 - [Clean-system acceptance #62](https://github.com/polyackiy/camoufox-profile-manager/issues/62)
-- [Verified automatic updates #63](https://github.com/polyackiy/camoufox-profile-manager/issues/63) (later work)
+- [Verified automatic updates #63](https://github.com/polyackiy/camoufox-profile-manager/issues/63) (production trust and signed acceptance remain open)
 
 Use the [desktop acceptance protocol and recorded preview evidence](desktop-acceptance.md)
-for #61/#62. The [automatic updater proposal](automatic-updates.md) maps #63 to
-authentication, whole-installation checkpoints and interrupted-update recovery;
-it does not describe shipped behavior.
+for #61/#62. The [automatic updater design](automatic-updates.md) records the architecture;
+[update-recovery.md](update-recovery.md) distinguishes implemented recovery from
+the production signing and trust gates that remain open.
 
 Prerelease tags are excluded from the optional PyPI publish job. The application's
 stable update checker also intentionally excludes prereleases; preview testers
