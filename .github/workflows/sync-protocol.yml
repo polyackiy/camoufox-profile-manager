@@ -1,0 +1,76 @@
+name: Sync protocol security
+
+on:
+  pull_request:
+    paths:
+      - 'src/camoufox_pm/sync/**'
+      - 'tests/unit/test_sync_*.py'
+      - 'tests/vectors/sync/**'
+      - 'scripts/smoke_sync_crypto.py'
+      - 'scripts/verify_sync_interop.py'
+      - 'packaging/sync-crypto.spec'
+      - 'packaging/openssl_bundle.py'
+      - '.github/workflows/sync-protocol.yml'
+      - 'pyproject.toml'
+      - 'uv.lock'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sync-protocol-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native:
+    name: Sync crypto (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-15, macos-15-intel]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+      - run: uv sync --locked --extra dev --extra sync --extra build --python 3.12
+      - name: Protocol, cryptography and state negative tests
+        shell: bash
+        run: uv run --no-sync pytest tests/unit/test_sync_*.py --junitxml=sync-results.xml
+      - name: Source codec smoke
+        run: uv run --no-sync python scripts/smoke_sync_crypto.py
+      - name: Freeze the actual crypto codec
+        run: uv run --no-sync pyinstaller --noconfirm --clean packaging/sync-crypto.spec
+      - name: Execute frozen codec outside the repository
+        shell: bash
+        run: |
+          executable="$GITHUB_WORKSPACE/dist/sync-crypto-smoke/sync-crypto-smoke"
+          if [ "$RUNNER_OS" = "Windows" ]; then executable="$executable.exe"; fi
+          cd "$RUNNER_TEMP"
+          "$executable"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: sync-protocol-${{ matrix.os }}
+          path: sync-results.xml
+  interop:
+    name: Independent HPKE implementation
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.25.x'
+          cache: false
+      - run: uv sync --locked --extra sync --python 3.12
+      - name: Verify CIRCL HPKE output using the Python codec
+        run: uv run --no-sync python scripts/verify_sync_interop.py
+      - uses: actions/upload-artifact@v7
+        with:
+          name: sync-hpke-known-answer
+          path: |
+            sync-hpke-vector.json
+            tests/vectors/sync/hpke_interop/go.sum
