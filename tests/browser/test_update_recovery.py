@@ -126,3 +126,86 @@ async def test_complete_profile_checkpoint_restores_real_session_and_identity(
             await close_manager()
 
     await asyncio.wait_for(exercise(), timeout=180)
+
+
+@pytest.mark.browser
+@pytest.mark.asyncio
+async def test_installed_validation_command_with_real_paired_browser(tmp_path):
+    """CI-only: run the actual fresh-process validation against disposable data."""
+    import json
+    import os
+    import sqlite3
+    import sys
+    from contextlib import closing
+
+    from camoufox.multiversion import CONFIG_FILE, get_active_path, list_installed
+
+    from camoufox_pm import __version__
+    from camoufox_pm.core.schema_migrations import CURRENT_SCHEMA
+    from camoufox_pm.core.update_permissions import create_private_file
+
+    if os.environ.get("GITHUB_ACTIONS") != "true":
+        pytest.skip("Uses the disposable CI browser cache, never a developer's active config")
+    active = get_active_path()
+    paired = next(item for item in list_installed() if item.path == active)
+    before = CONFIG_FILE.read_bytes() if CONFIG_FILE.exists() else None
+    database = tmp_path / "profiles.db"
+    storage = StorageManager(str(database))
+    await storage.initialize()
+    await storage.close()
+    root = tmp_path / "control"
+    gate = MaintenanceGate(root / "maintenance.sqlite3")
+    gate.acquire("validation-smoke")
+    manifest = {
+        "version": __version__,
+        "schema_result": CURRENT_SCHEMA,
+        "browser_version": paired.version.full_string,
+    }
+    record = {
+        "transaction_id": "validation-smoke",
+        "manifest": manifest,
+        "db_path": str(database),
+        "paths": {},
+    }
+    for name, value in (
+        ("transaction.json", record),
+        (
+            "validation.json",
+            {
+                "transaction_id": record["transaction_id"],
+                "manifest": manifest,
+            },
+        ),
+    ):
+        with os.fdopen(create_private_file(root / name), "w") as stream:
+            json.dump(value, stream)
+    environment = dict(os.environ, CPM_UPDATE_STATE_DIR=str(root), CPM_DB_PATH=str(database))
+    process = None
+    try:
+        process = await asyncio.create_subprocess_exec(
+            sys.executable,
+            "-m",
+            "camoufox_pm.cli",
+            "--update-validate",
+            str(root / "validation.json"),
+            env=environment,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=150)
+        assert process.returncode == 0, (stdout + stderr).decode(errors="replace")
+        assert json.loads((root / "validation.json").read_text()) == {
+            "validated": "validation-smoke",
+        }
+        with closing(sqlite3.connect(database)) as connection:
+            assert connection.execute("PRAGMA user_version").fetchone()[0] == CURRENT_SCHEMA
+        assert gate.blocked, "Only the parent helper may release maintenance after acceptance"
+    finally:
+        if process is not None and process.returncode is None:
+            process.kill()
+            await process.wait()
+        gate.release("validation-smoke")
+        if before is None:
+            CONFIG_FILE.unlink(missing_ok=True)
+        else:
+            CONFIG_FILE.write_bytes(before)

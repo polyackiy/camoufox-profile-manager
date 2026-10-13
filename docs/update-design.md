@@ -1,9 +1,10 @@
 # Coordinated manager and browser updates
 
 Design follow-up: [#63](https://github.com/polyackiy/camoufox-profile-manager/issues/63).
-This describes the intended update system. See [implementation status](update-recovery.md)
-for shipped recovery primitives and remaining release gates. The current manager checks releases,
-backs up profiles and opens the installer download; it does not yet replace itself.
+This describes the update architecture. See [implementation status](update-recovery.md)
+for the integrated transaction and remaining production release gates. Unsigned
+public previews retain manual installation until trust provisioning and signed
+platform acceptance are complete.
 
 ## One compatible pair
 

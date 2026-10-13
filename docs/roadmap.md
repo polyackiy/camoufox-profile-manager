@@ -24,8 +24,9 @@ managed [Firefox extensions](extensions.md), and [tags/saved views](profile-orga
 See [stage-two.md](stage-two.md) for the acceptance record and linked GitHub work.
 The [Camoufox compatibility review](camoufox-compatibility.md) records the tested
 wrapper/browser pair. Team permissions and cross-device synchronisation require
-a separate design. [Coordinated manager/browser updates](update-design.md) are
-planned separately from the implemented backup/download update flow.
+a separate design. [Coordinated manager/browser updates](update-recovery.md) now have an integrated
+checkpoint, helper, validation and rollback transaction. Public unsigned previews
+retain manual installation until production signing and platform acceptance.
 
 ## Since 0.2.0
 

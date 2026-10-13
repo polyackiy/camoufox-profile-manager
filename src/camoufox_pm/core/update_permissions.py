@@ -72,6 +72,102 @@ def _verify_sddl(
         raise PermissionProtectionError("Private Windows DACL lacks required trustees")
 
 
+def _verify_installation_sddl(sddl: str, user_sid: str) -> None:
+    """Public binaries may be readable; unrelated principals must never write.
+
+    This policy is deliberately separate from credential/cache confidentiality.
+    Native read_sddl canonicalizes owner/trustee aliases to exact binary SIDs.
+    Unknown ACE types, rights, flags and descriptor components fail closed.
+    """
+    aliases = {
+        "SY": "S-1-5-18",
+        "BA": "S-1-5-32-544",
+        "WD": "S-1-1-0",
+        "BU": "S-1-5-32-545",
+        "AU": "S-1-5-11",
+        "OW": "S-1-3-4",
+        "CO": "S-1-3-0",
+    }
+    trusted = {user_sid, "S-1-5-18", "S-1-5-32-544"}
+    match = re.fullmatch(r"O:([^:]+)D:([^()]*)(.*)", sddl)
+    if not match or aliases.get(match[1], match[1]) not in trusted:
+        raise PermissionProtectionError("Windows installation parent has an untrusted owner")
+    flags, aces = match[2], match[3]
+    if flags.replace("P", "").replace("AI", "").replace("AR", ""):
+        raise PermissionProtectionError("Windows installation DACL has unsupported flags")
+    parsed = re.findall(r"\(([^()]*)\)", aces)
+    if not parsed or "".join(f"({ace})" for ace in parsed) != aces:
+        raise PermissionProtectionError("Windows installation DACL has invalid ACEs")
+    rights_map = {
+        "FA": 0x1F01FF,
+        "FR": 0x120089,
+        "FW": 0x120116,
+        "FX": 0x1200A0,
+        "GA": 0x10000000,
+        "GR": 0x80000000,
+        "GW": 0x40000000,
+        "GX": 0x20000000,
+        "RC": 0x20000,
+        "SD": 0x10000,
+        "WD": 0x40000,
+        "WO": 0x80000,
+    }
+    known = 0xF01F01FF
+    readonly = 0xA01200A9
+    for ace in parsed:
+        parts = ace.split(";")
+        if len(parts) != 6:
+            raise PermissionProtectionError("Windows installation DACL has unsupported ACEs")
+        kind, ace_flags, rights, object_guid, inherited_guid, trustee = parts
+        trustee = aliases.get(trustee, trustee)
+        if (
+            kind != "A"
+            or object_guid
+            or inherited_guid
+            or ace_flags.replace("OI", "")
+            .replace("CI", "")
+            .replace("ID", "")
+            .replace("IO", "")
+            .replace("NP", "")
+            or not re.fullmatch(r"S-[0-9]+(?:-[0-9]+)+", trustee)
+        ):
+            raise PermissionProtectionError("Windows installation DACL has unsupported ACEs")
+        if re.fullmatch(r"0x[0-9a-fA-F]{1,8}", rights):
+            mask = int(rights, 16)
+        else:
+            tokens = re.findall(r"..", rights)
+            if (
+                not tokens
+                or "".join(tokens) != rights
+                or any(token not in rights_map for token in tokens)
+            ):
+                raise PermissionProtectionError("Windows installation DACL has unknown rights")
+            mask = 0
+            for token in tokens:
+                mask |= rights_map[token]
+        owner_rights = trustee == "S-1-3-4"
+        creator_owner_inherited = trustee == "S-1-3-0" and "IO" in ace_flags
+        # OWNER_RIGHTS means the descriptor's already trusted owner. A
+        # CREATOR_OWNER inherit-only ACE never grants access to this parent;
+        # unrelated principals cannot create children under the other ACEs.
+        if mask & ~known or (
+            trustee not in trusted
+            and not owner_rights
+            and not creator_owner_inherited
+            and mask & ~readonly
+        ):
+            raise PermissionProtectionError(
+                "Windows installation parent grants unrelated write access"
+            )
+
+
+def verify_windows_installation_parent(path: Path) -> None:
+    """Inspect binary installation ACLs without changing their permissions."""
+    reject_reparse_paths(path)
+    api = _WindowsSecurity()
+    _verify_installation_sddl(api.read_sddl(path), api.user_sid)
+
+
 def _canonical_sddl(value: str, owner_sid: str, trustees: list[str]) -> str:
     """Replace display aliases with identities read from the binary descriptor."""
     value = re.sub(r"^O:[^:]+(?=D:)", f"O:{owner_sid}", value)

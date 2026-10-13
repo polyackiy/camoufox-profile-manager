@@ -4,8 +4,9 @@ import { useCallback, useEffect, useState } from 'react'
 import { Archive, Download, ExternalLink, LoaderCircle, RotateCcw } from 'lucide-react'
 import { useI18n } from '@/components/i18n-provider'
 import { Modal } from '@/components/modal'
+import { VerifiedUpdateSettings } from '@/components/verified-update-settings'
 import { useToast } from '@/components/toast'
-import { recoveryAPI, systemAPI, type AppUpdate, type BackupInfo, type UpdateRecovery } from '@/lib/api'
+import { recoveryAPI, systemAPI, type AppUpdate, type BackupInfo } from '@/lib/api'
 
 function message(error: unknown): string { return error instanceof Error ? error.message : String(error) }
 
@@ -18,21 +19,6 @@ export function UpdateSettings() {
   const [error, setError] = useState<string | null>(null)
   const [prepared, setPrepared] = useState<{ url: string; count: number } | null>(null)
   const [preview, setPreview] = useState(false)
-  const [recovery, setRecovery] = useState<UpdateRecovery | null>(null)
-  const [recoveryError, setRecoveryError] = useState<string | null>(null)
-
-  async function refreshRecovery() {
-    try { setRecovery(await systemAPI.updateRecovery()); setRecoveryError(null) }
-    catch (err) { setRecoveryError(message(err)) }
-  }
-
-  async function cancelPreparation() {
-    setPreparing(true)
-    try { setRecovery(await systemAPI.cancelUpdatePreparation()); setRecoveryError(null) }
-    catch (err) { setRecoveryError(message(err)) }
-    finally { setPreparing(false) }
-  }
-
   async function check() {
     setChecking(true); setError(null); setPrepared(null)
     try {
@@ -73,16 +59,8 @@ export function UpdateSettings() {
       </div>}
       <details className="mt-4 border-t border-line pt-3">
         <summary className="cursor-pointer font-medium">{t('Update recovery')}</summary>
-        <p className="mt-2 text-ink-dim">{t('Automatic replacement is not enabled for this preview. Profile backups do not include the complete application database or encryption key. Keep your existing data folder when installing a new release.')}</p>
-        <button className="btn btn-default mt-3" disabled={preparing} onClick={refreshRecovery}>{t('Check recovery status')}</button>
-        {recovery && <div className="mt-3" role="status">
-          <p>{recovery.maintenance_active ? t('Update maintenance is active. Profile changes and launches are paused.') : t('No update maintenance is active.')}</p>
-          {recovery.target_version && <p className="mt-1 text-ink-dim">{t('Target manager: {manager}; Camoufox: {browser}.', { manager: recovery.target_version, browser: recovery.browser_version })}</p>}
-          {recovery.created_at && <p className="mt-1 text-ink-dim">{t('Prepared at {date}.', { date: new Date(recovery.created_at).toLocaleString() })}</p>}
-          {recovery.can_cancel && <><p className="mt-2 text-ink-dim">{t('Cancel preparation to resume normal work. No installed application or profile data will be replaced.')}</p><button className="btn btn-default mt-2" disabled={preparing} onClick={cancelPreparation}>{preparing ? t('Working…') : t('Cancel update preparation')}</button></>}
-          {recovery.maintenance_active && !recovery.can_cancel && <p className="mt-2 text-ink-dim">{t('Close the manager and use the documented offline recovery procedure before resuming work.')}</p>}
-        </div>}
-        {recoveryError && <p className="mt-3 text-danger" role="alert">{recoveryError}</p>}
+        <p className="mt-2 text-ink-dim">{t('Verified updates create a complete recovery point. Profile backups cover individual profiles; keep your existing data folder when using a manual installer.')}</p>
+        <VerifiedUpdateSettings preview={preview} />
       </details>
     </div>
   </section>

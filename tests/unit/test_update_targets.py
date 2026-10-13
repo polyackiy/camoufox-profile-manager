@@ -166,7 +166,9 @@ def signed_repository(tmp_path, monkeypatch, custom):
     monkeypatch.setattr(
         tuf,
         "Updater",
-        lambda *args, **kwargs: real_updater(*args, **kwargs, fetcher=LocalTransport()),
+        lambda *args, **kwargs: real_updater(
+            *args, **({**kwargs, "fetcher": kwargs.get("fetcher") or LocalTransport()})
+        ),
     )
     client = VerifiedTargetClient(
         tmp_path / "metadata",
@@ -295,3 +297,25 @@ def test_native_root_history_link_lexical_contract(text, windows, accepted):
     from camoufox_pm.core.update_targets import _valid_root_history_link
 
     assert _valid_root_history_link(text, windows=windows) is accepted
+
+
+def test_offline_reauthenticates_cached_metadata_and_archive(signed_repository, policy):
+    client, files, _, _, content = signed_repository
+    verified = client.download("manager.zip", policy)
+    files.clear()  # The offline helper must work without network transport.
+    again = client.download("manager.zip", policy, offline=True, cached_target=verified.path)
+    assert again.path.read_bytes() == content
+    verified.path.write_bytes(b"tampered")
+    with pytest.raises(UpdateVerificationError):
+        client.download("manager.zip", policy, offline=True, cached_target=verified.path)
+
+
+def test_stable_manager_can_pin_exact_beta_browser(policy, custom):
+    browser_policy = replace(
+        policy, component="camoufox", version="156.0b2", browser_version="156.0b2"
+    )
+    custom["camoufox_pm"].update(component="camoufox", version="156.0b2", browser_version="156.0b2")
+    assert validate_manifest(custom, "manager.zip", browser_policy)["version"] == "156.0b2"
+    manager_policy = replace(policy, browser_version="156.0b2")
+    custom["camoufox_pm"].update(component="manager", version=policy.version)
+    assert validate_manifest(custom, "manager.zip", manager_policy)["browser_version"] == "156.0b2"

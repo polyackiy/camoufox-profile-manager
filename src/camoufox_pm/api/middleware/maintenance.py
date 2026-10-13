@@ -21,7 +21,7 @@ class MaintenanceMiddleware:
         controls = {
             f"{prefix}/system/update-recovery{suffix}"
             for prefix in ("/api", "/api/v1")
-            for suffix in ("", "/cancel")
+            for suffix in ("", "/cancel", "/apply", "/resume", "/rollback")
         }
         if path in controls or not path.startswith("/api/"):
             return await self.app(scope, receive, send)

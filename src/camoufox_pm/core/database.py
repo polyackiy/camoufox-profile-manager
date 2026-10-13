@@ -76,12 +76,21 @@ class DatabaseManager:
             return
         self._connection = sqlite3.connect(str(self.db_path), timeout=30.0)
         self._connection.row_factory = sqlite3.Row
+        from .schema_migrations import check_schema, complete_migration
+
+        try:
+            check_schema(self._connection)
+        except Exception:
+            self._connection.close()
+            self._connection = None
+            raise
         self._connection.execute("PRAGMA foreign_keys = ON")
         self._connection.execute("PRAGMA journal_mode = WAL")
 
         await self._create_tables()
         await self._migrate()
         await self._create_indexes()
+        complete_migration(self._connection)
         logger.info("Database initialized")
 
     async def _migrate(self):

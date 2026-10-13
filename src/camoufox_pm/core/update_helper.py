@@ -6,13 +6,20 @@ callbacks. No HTTP endpoint may accept paths or verification callbacks from user
 The retained package and failed replacement are never deleted automatically.
 """
 
+import hashlib
 import json
 import os
+import stat
 from collections.abc import Callable
 from pathlib import Path
 from uuid import uuid4
 
-from .update_permissions import create_private_file, verify_private_path
+from .update_permissions import (
+    create_private_directory,
+    create_private_file,
+    verify_private_path,
+    verify_windows_installation_parent,
+)
 
 
 class ReplacementError(RuntimeError):
@@ -42,6 +49,79 @@ def _plain_directory(path: Path) -> Path:
     return path.resolve()
 
 
+def validate_installation_parent(parent: Path) -> Path:
+    """Allow user-writable standard app directories without chmodding them."""
+    parent = _plain_directory(parent)
+    info = parent.stat()
+    if os.name == "nt":
+        verify_windows_installation_parent(parent)
+        if not os.access(parent, os.W_OK):
+            raise ReplacementError("Installation requires elevation; use the manual installer")
+        # os.access on Windows ignores many ACL distinctions. Demonstrate actual
+        # directory creation/removal with a private, empty same-parent probe.
+        probe = parent / f".cpm-update-probe-{uuid4().hex}"
+        try:
+            create_private_directory(probe)
+            probe.rmdir()
+        except (OSError, RuntimeError) as exc:
+            raise ReplacementError(
+                "Installation requires elevation; use the manual installer"
+            ) from exc
+    elif (
+        info.st_uid not in (0, os.getuid())
+        or info.st_mode & 0o002
+        or not os.access(parent, os.W_OK)
+    ):
+        raise ReplacementError("Installation parent must be trusted and user-writable")
+    if os.name != "nt" and info.st_mode & 0o020:
+        import grp
+
+        try:
+            group = grp.getgrgid(info.st_gid).gr_name
+        except KeyError as exc:
+            raise ReplacementError("Installation parent has an unknown writable group") from exc
+        if group not in {"root", "wheel", "admin"}:
+            raise ReplacementError("Installation parent has an untrusted writable group")
+    return parent
+
+
+def _tree_inventory(root: Path) -> dict[str, list[str | int]]:
+    inventory: dict[str, list[str | int]] = {}
+    for directory, dirs, files in os.walk(root, followlinks=False):
+        for name in dirs + files:
+            path = Path(directory) / name
+            info = path.lstat()
+            relative = path.relative_to(root).as_posix()
+            if getattr(info, "st_file_attributes", 0) & 0x400:
+                raise ReplacementError("Retained application contains a reparse point")
+            if stat.S_ISLNK(info.st_mode):
+                target = os.readlink(path)
+                if not path.resolve().is_relative_to(root.resolve()):
+                    raise ReplacementError("Retained application link escapes installation")
+                inventory[relative] = ["link", target]
+            elif stat.S_ISDIR(info.st_mode):
+                inventory[relative] = ["directory", stat.S_IMODE(info.st_mode)]
+            elif stat.S_ISREG(info.st_mode):
+                digest = hashlib.sha256()
+                with path.open("rb") as stream:
+                    for block in iter(lambda: stream.read(1024 * 1024), b""):
+                        digest.update(block)
+                inventory[relative] = [
+                    "file",
+                    stat.S_IMODE(info.st_mode),
+                    info.st_size,
+                    digest.hexdigest(),
+                ]
+            else:
+                raise ReplacementError("Retained application contains a special file")
+    return inventory
+
+
+def _verify_retained(record: dict, root: Path) -> None:
+    if record.get("previous_inventory") != _tree_inventory(root):
+        raise ReplacementError("Retained application changed; manual recovery is required")
+
+
 class DirectoryReplacement:
     """Journalled same-volume swap; the caller owns a cross-process offline lock.
 
@@ -57,8 +137,7 @@ class DirectoryReplacement:
         self.root = _plain_directory(journal_dir)
         verify_private_path(self.root)
         # The installation may be temporarily absent after a power failure.
-        self.installation = _plain_directory(installation.parent) / installation.name
-        verify_private_path(self.installation.parent)
+        self.installation = validate_installation_parent(installation.parent) / installation.name
         if self.root == self.installation or self.root.is_relative_to(self.installation):
             raise ReplacementError("The journal must be outside the installation")
         self.offline = offline
@@ -116,7 +195,13 @@ class DirectoryReplacement:
         parent = self.installation.parent
         return tuple(parent / f"{prefix}-{suffix}" for suffix in ("new", "old", "failed"))  # type: ignore[return-value]
 
-    def prepare(self, staged: Path, *, verify_package: Callable[[Path], None]) -> None:
+    def prepare(
+        self,
+        staged: Path,
+        *,
+        verify_package: Callable[[Path], None],
+        transaction_id: str | None = None,
+    ) -> None:
         self.offline()
         if self.journal.exists():
             raise ReplacementError("A replacement journal already exists")
@@ -134,7 +219,14 @@ class DirectoryReplacement:
             raise ReplacementError("Stage the verified application on the installation volume")
         verify_package(staged)
         self.offline()
-        record = {"id": uuid4().hex, "installation": str(installed)}
+        record = {
+            "id": uuid4().hex,
+            "installation": str(installed),
+            "staged": str(staged),
+            "previous_inventory": _tree_inventory(installed),
+        }
+        if transaction_id is not None:
+            record["transaction_id"] = transaction_id
         new, _, _ = self._paths(record)
         # Publishing the preparation record before the rename makes an interrupted
         # preparation distinguishable from an installation replacement.
@@ -145,22 +237,43 @@ class DirectoryReplacement:
     def apply(self, *, verify_package: Callable[[Path], None]) -> None:
         self.offline()
         record = self._read()
-        if record["state"] != "prepared":
-            raise ReplacementError("Only a prepared replacement can be applied")
+        state = record["state"]
+        if state == "validating":
+            verify_package(_plain_directory(self.installation))
+            return
+        if state not in {"prepared", "moving_old", "old_retained", "moving_new"}:
+            raise ReplacementError("Replacement cannot be applied in this state")
         new, old, _ = self._paths(record)
-        _plain_directory(self.installation)
-        _plain_directory(new)
-        if old.exists():
-            raise ReplacementError("Retained application path is occupied")
-        # Recheck immediately before use; the earlier download check is insufficient.
-        verify_package(new)
-        self._write(record, "moving_old")
-        self.installation.rename(old)
-        _sync(old.parent)
-        self._write(record, "old_retained")
-        self._write(record, "moving_new")
-        new.rename(self.installation)
-        _sync(new.parent)
+        if state == "prepared" and not new.exists():
+            staged = _plain_directory(Path(record["staged"]))
+            verify_package(staged)
+            self.offline()
+            staged.rename(new)
+            _sync(new.parent)
+        if state in {"prepared", "moving_old"}:
+            verify_package(_plain_directory(new))
+            if old.exists():
+                if self.installation.exists():
+                    raise ReplacementError("Ambiguous interrupted replacement")
+            else:
+                _plain_directory(self.installation)
+                _verify_retained(record, self.installation)
+                self._write(record, "moving_old")
+                self.offline()
+                self.installation.rename(old)
+                _sync(old.parent)
+            self._write(record, "old_retained")
+        if new.exists():
+            if self.installation.exists():
+                raise ReplacementError("Replacement destination is occupied")
+            verify_package(_plain_directory(new))
+            self._write(record, "moving_new")
+            self.offline()
+            new.rename(self.installation)
+            _sync(new.parent)
+        elif not self.installation.is_dir():
+            raise ReplacementError("New application is missing")
+        verify_package(_plain_directory(self.installation))
         self._write(record, "validating")
 
     def accept(self, *, validate: Callable[[Path], None]) -> None:
@@ -171,7 +284,13 @@ class DirectoryReplacement:
         validate(_plain_directory(self.installation))
         self._write(record, "accepted")
 
-    def rollback(self, *, restore_data: Callable[[], None], allow_accepted: bool = False) -> None:
+    def rollback(
+        self,
+        *,
+        restore_data: Callable[[], None],
+        allow_accepted: bool = False,
+        verify_retained: Callable[[Path], None] | None = None,
+    ) -> None:
         """Recover interrupted swaps; data restore must itself be restartable.
 
         After acceptance the caller must obtain explicit informed confirmation
@@ -187,6 +306,11 @@ class DirectoryReplacement:
         _, old, failed = self._paths(record)
         if state in {"prepared", "moving_old"} and not old.exists():
             _plain_directory(self.installation)
+            _verify_retained(record, self.installation)
+            if verify_retained is not None:
+                verify_retained(self.installation)
+            self._write(record, "restoring_data")
+            restore_data()
             self._write(record, "rolled_back")
             return
         if state != "restoring_data":
@@ -194,6 +318,9 @@ class DirectoryReplacement:
                 self._write(record, "rolling_back")
             if old.exists():
                 _plain_directory(old)
+                _verify_retained(record, old)
+                if verify_retained is not None:
+                    verify_retained(old)
                 if self.installation.exists():
                     _plain_directory(self.installation)
                     if failed.exists():
@@ -205,6 +332,12 @@ class DirectoryReplacement:
                 _sync(old.parent)
             elif not (state == "restoring_old" and self.installation.is_dir()):
                 raise ReplacementError("Retained package is missing; manual recovery required")
+            _verify_retained(record, self.installation)
+            if verify_retained is not None:
+                verify_retained(self.installation)
             self._write(record, "restoring_data")
+        _verify_retained(record, self.installation)
+        if verify_retained is not None:
+            verify_retained(self.installation)
         restore_data()
         self._write(record, "rolled_back")

@@ -173,3 +173,75 @@ def test_private_executable_keeps_owner_execute(tmp_path):
     protect_path(path)
     assert path.stat().st_mode & 0o777 == 0o700
     verify_private_path(path)
+
+
+def test_standard_binary_parent_acl_allows_admin_system_owner_and_public_reads():
+    from camoufox_pm.core.update_permissions import _verify_installation_sddl
+
+    sddl = f"O:{USER}D:AI(A;OICI;FA;;;BA)(A;OICI;FA;;;SY)(A;OICI;FA;;;{USER})(A;OICI;FRFX;;;BU)"
+    _verify_installation_sddl(sddl, USER)
+    # The binary-directory policy never changes the stricter private policy.
+    with pytest.raises(PermissionProtectionError):
+        _verify_sddl(sddl, USER, require_protected=False)
+
+
+@pytest.mark.parametrize(
+    "rights", ["FW", "FA", "GW", "GA", "SD", "WD", "WO", "0x40", "0x10000", "0x40000"]
+)
+def test_binary_parent_acl_denies_unrelated_mutation(rights):
+    from camoufox_pm.core.update_permissions import _verify_installation_sddl
+
+    with pytest.raises(PermissionProtectionError, match="unrelated write"):
+        _verify_installation_sddl(f"O:{USER}D:AI(A;OICI;FA;;;{USER})(A;OICI;{rights};;;BU)", USER)
+
+
+@pytest.mark.parametrize(
+    "ace",
+    [
+        "(D;;FW;;;BU)",
+        "(OA;;FR;;;BU)",
+        "(A;CR;FR;;;BU)",
+        "(A;;ZZ;;;BU)",
+        "(A;;0x02000000;;;BU)",
+        "(A;;FR;;;UNKNOWN)",
+    ],
+)
+def test_binary_parent_acl_rejects_unknown_ace_semantics(ace):
+    from camoufox_pm.core.update_permissions import _verify_installation_sddl
+
+    with pytest.raises(PermissionProtectionError):
+        _verify_installation_sddl(f"O:{USER}D:AI(A;OICI;FA;;;{USER}){ace}", USER)
+
+
+@pytest.mark.parametrize("owner", ["BA", "SY"])
+def test_administrative_binary_parent_owner_allowed(owner):
+    from camoufox_pm.core.update_permissions import _verify_installation_sddl
+
+    _verify_installation_sddl(f"O:{owner}D:AI(A;OICI;FA;;;{USER})(A;OICI;0x1200a9;;;WD)", USER)
+
+
+def test_observed_windows_default_parent_owner_rights_acl():
+    from camoufox_pm.core.update_permissions import _verify_installation_sddl
+
+    _verify_installation_sddl(
+        f"O:{USER}D:P(A;OICI;FA;;;S-1-5-18)(A;OICI;FA;;;S-1-5-32-544)(A;OICI;FA;;;S-1-3-4)", USER
+    )
+
+
+def test_creator_owner_full_access_allowed_only_inherit_only():
+    from camoufox_pm.core.update_permissions import _verify_installation_sddl
+
+    _verify_installation_sddl(f"O:{USER}D:AI(A;OICI;FA;;;{USER})(A;OICIIO;GA;;;CO)", USER)
+    with pytest.raises(PermissionProtectionError, match="unrelated write"):
+        _verify_installation_sddl(f"O:{USER}D:AI(A;OICI;FA;;;{USER})(A;OICI;GA;;;CO)", USER)
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Native default Windows ACL boundary")
+def test_native_default_binary_parent_acl_kept_unchanged(tmp_path):
+    from camoufox_pm.core.update_helper import validate_installation_parent
+
+    api = _WindowsSecurity()
+    before = api.read_sddl(tmp_path)
+    assert validate_installation_parent(tmp_path) == tmp_path.resolve()
+    assert api.read_sddl(tmp_path) == before
+    assert not list(tmp_path.iterdir())

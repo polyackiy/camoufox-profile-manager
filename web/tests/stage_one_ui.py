@@ -4,6 +4,7 @@ Run after `NEXT_EXPORT=1 npm run build:static`:
   .venv/bin/python web/tests/stage_one_ui.py
 Requires Playwright Chromium (`playwright install chromium`).
 """
+import ast
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -61,6 +62,7 @@ class DesktopUI(unittest.TestCase):
         self.profiles = []
         self.backups = []
         self.update_recovery = {"state": "idle", "maintenance_active": False, "automatic_install_available": False, "can_cancel": False}
+        self.update_action_failure = False
         self.trash = []
         self.config = {"version": "0.5.0", "host": "127.0.0.1", "port": 8000, "database_path": "/local/profiles.db", "api_key_set": False, "user_auth_enabled": False, "encryption_enabled": True, "cors_origins": [], "camoufox_available": True, "uptime_seconds": 60}
         self.page.route("**/api/v1/**", self.route)
@@ -100,6 +102,15 @@ class DesktopUI(unittest.TestCase):
             self.browser_state = {**self.browser_state, "state": "downloading", "progress": 35, "message": "Downloading browser"}
             data, envelope = self.browser_state, True
         elif path == "/system/update-recovery":
+            data = self.update_recovery
+        elif path == "/system/update-recovery/download":
+            self.update_recovery = {**self.update_recovery, "state": "staged", "can_apply": True, "transaction_id": "verified-transaction", "target_version": "0.7.0", "browser_version": "156.0.1-beta.36"}
+            data = self.update_recovery
+        elif path in {"/system/update-recovery/apply", "/system/update-recovery/rollback", "/system/update-recovery/resume"}:
+            if self.update_action_failure:
+                route.fulfill(status=409, content_type="application/json", body=json.dumps({"detail": "Recovery request was rejected. Refresh and try again."}))
+                return
+            self.update_recovery = {**self.update_recovery, "state": "handoff_requested", "request_pending": True}
             data = self.update_recovery
         elif path == "/system/update-recovery/cancel":
             self.update_recovery = {**self.update_recovery, "state": "cancelled", "maintenance_active": False, "can_cancel": False}
@@ -232,6 +243,157 @@ class DesktopUI(unittest.TestCase):
         expect(self.page.get_by_text("No update maintenance is active.")).to_be_visible()
         expect(self.page.get_by_role("button", name="Cancel update preparation")).not_to_be_visible()
         self.assertFalse(any("/restore" in path for _, path, _ in self.calls))
+
+    def open_update_recovery(self, **changes):
+        self.update_recovery = {"state": "idle", "maintenance_active": False, "automatic_install_available": True, "can_cancel": False, "can_download": True, **changes}
+        self.page.goto(f"{self.origin}/settings/")
+        self.page.get_by_text("Update recovery", exact=True).click()
+        expect(self.page.get_by_role("button", name="Check recovery status", exact=True)).to_be_enabled()
+
+    def test_verified_policy_disabled_keeps_manual_download_available(self):
+        self.open_update_recovery(can_download=False, automatic_install_available=False, disabled_reason="No trusted TUF root is configured")
+        expect(self.page.get_by_text("No trusted TUF root is configured", exact=False)).to_be_visible()
+        expect(self.page.get_by_role("button", name="Download verified update", exact=True)).not_to_be_visible()
+        self.page.get_by_role("button", name="Check for updates", exact=True).click()
+        self.page.get_by_role("button", name="Back up and prepare update", exact=True).click()
+        expect(self.page.get_by_role("link", name="Open release downloads")).to_be_visible()
+        self.assertFalse(any(path.endswith("/download") for _, path, _ in self.calls))
+
+    def test_verified_preview_download_requires_restart_acknowledgement(self):
+        self.open_update_recovery()
+        self.page.get_by_label("Include preview releases (opt-in)").check()
+        self.page.get_by_role("button", name="Download verified update", exact=True).click()
+        expect(self.page.get_by_text("The verified update is ready to install.", exact=True)).to_be_visible()
+        body = next(json.loads(body) for method, path, body in self.calls if method == "POST" and path.endswith("/download"))
+        self.assertEqual(body, {"channel": "preview"})
+        self.page.get_by_role("button", name="Restart and install update", exact=True).click()
+        dialog = self.page.get_by_role("dialog", name="Restart and install update", exact=True)
+        expect(dialog).to_contain_text("A complete recovery point is created")
+        confirm = dialog.get_by_role("button", name="Confirm restart", exact=True)
+        expect(confirm).to_be_disabled()
+        self.assertFalse(any(path.endswith("/apply") for _, path, _ in self.calls))
+        dialog.get_by_label("I understand and want to continue.").check()
+        confirm.click()
+        expect(dialog).not_to_be_visible()
+        expect(self.page.get_by_text("The manager is closing for the update.", exact=False)).to_be_visible()
+        body = next(json.loads(body) for method, path, body in self.calls if method == "POST" and path.endswith("/apply"))
+        self.assertEqual(body, {"transaction_id": "verified-transaction"})
+        expect(self.page.get_by_role("button", name="Restart and install update", exact=True)).to_be_disabled()
+
+    def test_verified_rollback_confirms_exact_timestamp(self):
+        checkpoint = "2026-10-13T10:23:45.123456+00:00"
+        self.open_update_recovery(state="staged", can_apply=True, can_rollback=True, transaction_id="new-staged-transaction", rollback_transaction_id="rollback-transaction", checkpoint_timestamp=checkpoint)
+        self.page.get_by_role("button", name="Restore previous version", exact=True).click()
+        dialog = self.page.get_by_role("dialog", name="Restore previous version", exact=True)
+        expect(dialog).to_contain_text("The newer state is retained for recovery.")
+        confirm = dialog.get_by_role("button", name="Confirm restore", exact=True)
+        expect(confirm).to_be_disabled()
+        dialog.get_by_label("I understand and want to continue.").check()
+        confirm.click()
+        body = next(json.loads(body) for method, path, body in self.calls if method == "POST" and path.endswith("/rollback"))
+        self.assertEqual(body, {"transaction_id": "rollback-transaction", "confirm_timestamp": checkpoint})
+
+    def test_verified_rollback_rejects_changed_checkpoint(self):
+        self.open_update_recovery(state="replacing", maintenance_active=True, can_download=False, can_rollback=True, transaction_id="rollback-transaction", checkpoint_timestamp="2026-10-13T10:00:00Z")
+        self.page.get_by_role("button", name="Restore previous version", exact=True).click()
+        dialog = self.page.get_by_role("dialog", name="Restore previous version", exact=True)
+        dialog.get_by_label("I understand and want to continue.").check()
+        self.update_recovery["checkpoint_timestamp"] = "2026-10-13T11:00:00Z"
+        expect(dialog.get_by_role("alert")).to_contain_text("The recovery state changed.")
+        expect(dialog.get_by_role("button", name="Confirm restore", exact=True)).to_be_disabled()
+        self.assertFalse(any(path.endswith("/rollback") for _, path, _ in self.calls))
+
+    def test_verified_action_failure_preserves_confirmation(self):
+        self.update_action_failure = True
+        self.open_update_recovery(state="staged", can_apply=True, transaction_id="verified-transaction")
+        self.page.get_by_role("button", name="Restart and install update", exact=True).click()
+        dialog = self.page.get_by_role("dialog", name="Restart and install update", exact=True)
+        dialog.get_by_label("I understand and want to continue.").check()
+        dialog.get_by_role("button", name="Confirm restart", exact=True).click()
+        expect(dialog.get_by_role("alert")).to_contain_text("Recovery request was rejected.")
+        expect(dialog.get_by_role("button", name="Confirm restart", exact=True)).to_be_enabled()
+        expect(dialog.get_by_label("I understand and want to continue.")).to_be_checked()
+
+    def test_verified_invalid_timestamp_hides_rollback(self):
+        self.open_update_recovery(state="committed", can_rollback=True, transaction_id="rollback-transaction", checkpoint_timestamp="invalid-date")
+        expect(self.page.get_by_role("button", name="Restore previous version", exact=True)).not_to_be_visible()
+        self.assertNotIn("Invalid Date", self.page.locator("body").inner_text())
+
+    def test_verified_update_status_is_localized(self):
+        self.open_update_recovery(state="staged", can_apply=True, transaction_id="verified-transaction")
+        self.page.get_by_label("Language", exact=True).select_option("zh-CN")
+        expect(self.page.get_by_role("heading", name="已验证更新与回滚", exact=True)).to_be_visible()
+        expect(self.page.get_by_text("已验证更新已准备就绪，可以安装。", exact=True)).to_be_visible()
+        self.page.get_by_role("button", name="重启并安装更新", exact=True).click()
+        dialog = self.page.get_by_role("dialog", name="重启并安装更新", exact=True)
+        expect(dialog.get_by_role("button", name="确认重启", exact=True)).to_be_disabled()
+        expect(dialog.get_by_label("我已了解并希望继续。")).to_be_visible()
+
+    def test_verified_failed_handoff_can_be_retried(self):
+        self.open_update_recovery(state="prepared", can_resume=True, maintenance_active=True, can_download=False, request_pending=True, transaction_id="retry-transaction", error="Offline update interrupted; review recovery options")
+        self.page.get_by_role("button", name="Retry interrupted update", exact=True).click()
+        body = next(json.loads(body) for method, path, body in self.calls if method == "POST" and path.endswith("/resume"))
+        self.assertEqual(body, {"transaction_id": "retry-transaction"})
+
+    def open_native_recovery(self, **changes):
+        status = {"state": "committed", "can_rollback": True, "can_resume": False, "can_cancel": False, "maintenance_active": False, "transaction_id": "new-staged-transaction", "rollback_transaction_id": "retained-transaction", "checkpoint_timestamp": "2026-10-13T10:23:45.123456+00:00", **changes}
+        source = Path(__file__).resolve().parents[2] / "src/camoufox_pm/desktop_recovery.py"
+        module = ast.parse(source.read_text())
+        html = next(ast.literal_eval(node.value) for node in module.body if isinstance(node, ast.Assign) and any(isinstance(target, ast.Name) and target.id == "RECOVERY_HTML" for target in node.targets))
+        self.page.evaluate("""s => {
+          window.nativeStatus=s;window.nativeCalls=[];window.nativeOpenCount=0;
+          window.pywebview={api:{status:async()=>window.nativeStatus,
+            action:async(...args)=>{window.nativeCalls.push(args);window.nativeStatus={...window.nativeStatus,state:'handoff_requested',request_pending:true,error:null};return window.nativeStatus;},
+            open_manager:async()=>{window.nativeOpenCount++;}}};
+        }""", status)
+        self.page.set_content(html)
+        self.page.evaluate("window.dispatchEvent(new Event('pywebviewready'))")
+        expect(self.page.locator("#state")).not_to_have_text("Reading recovery status…")
+        return status
+
+    def test_native_rollback_confirms_retained_id_and_exact_timestamp(self):
+        status = self.open_native_recovery()
+        self.page.get_by_role("button", name="Restore previous version", exact=True).click()
+        confirm = self.page.get_by_role("button", name="Confirm restore", exact=True)
+        expect(confirm).to_be_disabled()
+        expect(self.page.locator("#acknowledge")).to_be_focused()
+        self.assertEqual(self.page.evaluate("window.nativeCalls"), [])
+        self.page.get_by_label("I understand that later changes will no longer be active.").check()
+        confirm.click()
+        self.assertEqual(self.page.evaluate("window.nativeCalls"), [["rollback", "retained-transaction", status["checkpoint_timestamp"]]])
+
+    def check_native_stale_confirmation(self, key, value):
+        self.open_native_recovery()
+        self.page.get_by_role("button", name="Restore previous version", exact=True).click()
+        self.page.get_by_label("I understand that later changes will no longer be active.").check()
+        self.page.evaluate("([key,value])=>{window.nativeStatus[key]=value}", [key, value])
+        self.page.get_by_role("button", name="Refresh status", exact=True).click()
+        expect(self.page.get_by_role("alert")).to_contain_text("The recovery state changed.")
+        expect(self.page.get_by_role("button", name="Confirm restore", exact=True)).to_be_disabled()
+        self.assertEqual(self.page.evaluate("window.nativeCalls"), [])
+        self.page.get_by_role("button", name="Cancel restore", exact=True).click()
+        self.page.get_by_role("button", name="Restore previous version", exact=True).click()
+        expect(self.page.get_by_role("button", name="Confirm restore", exact=True)).to_be_disabled()
+        expect(self.page.locator("#acknowledge")).not_to_be_checked()
+
+    def test_native_rollback_rejects_changed_transaction(self):
+        self.check_native_stale_confirmation("rollback_transaction_id", "changed-transaction")
+
+    def test_native_rollback_rejects_changed_timestamp(self):
+        self.check_native_stale_confirmation("checkpoint_timestamp", "2026-10-13T11:00:00Z")
+
+    def test_native_unknown_state_and_invalid_timestamp_hide_unsafe_actions(self):
+        self.open_native_recovery(state="unknown-future-state", checkpoint_timestamp="invalid-date")
+        expect(self.page.get_by_role("button", name="Open manager", exact=True)).not_to_be_visible()
+        expect(self.page.get_by_role("button", name="Restore previous version", exact=True)).not_to_be_visible()
+        self.assertNotIn("Invalid Date", self.page.locator("body").inner_text())
+
+    def test_native_failed_handoff_offers_retry_but_keeps_manager_closed(self):
+        self.open_native_recovery(state="prepared", can_resume=True, maintenance_active=True, request_pending=True, error="Offline update interrupted; review recovery options")
+        expect(self.page.get_by_role("button", name="Open manager", exact=True)).not_to_be_visible()
+        expect(self.page.get_by_role("alert")).to_contain_text("Offline update interrupted")
+        self.page.get_by_role("button", name="Retry interrupted update", exact=True).click()
+        self.assertEqual(self.page.evaluate("window.nativeCalls"), [["resume", "new-staged-transaction", None]])
 
     def test_permanent_delete_requires_name_confirmation(self):
         self.trash = [{"id": "trashed", "name": "Recoverable", "deleted_at": "2026-01-01T00:00:00Z"}]

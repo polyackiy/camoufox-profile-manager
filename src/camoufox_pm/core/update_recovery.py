@@ -19,18 +19,23 @@ from .update_permissions import create_private_file
 from .update_service import UpdateService
 
 
-def configured_layout(*, require_existing: bool = True):
+def configured_layout(
+    *, require_existing: bool = True, configuration_directory: Path | None = None
+):
     from camoufox.multiversion import CONFIG_FILE
     from camoufox.pkgman import INSTALL_DIR
 
     settings = get_settings()
+    configuration_directory = (
+        Path(configuration_directory) if configuration_directory is not None else Path.cwd()
+    )
     database = Path(settings.db_path).expanduser().resolve()
     key = database.parent / "secret.key"
     paths = {
         "profiles": database.parent / "profiles",
         "browser": Path(INSTALL_DIR),
         "secret_key": key,
-        "environment": Path.cwd() / ".env",
+        "environment": configuration_directory / ".env",
     }
     required = ["profiles", "browser"]
     if require_existing and not CONFIG_FILE.exists():
@@ -45,7 +50,7 @@ def configured_layout(*, require_existing: bool = True):
             raise ValueError(
                 "Local and configured encryption keys differ; this layout requires manual recovery"
             )
-    if Path.cwd().joinpath(".env").exists():
+    if configuration_directory.joinpath(".env").exists():
         required.append("environment")
     effective_key = settings.secret_key or (key.read_text().strip() if key.exists() else "")
     reference = hashlib.sha256(effective_key.encode()).hexdigest()

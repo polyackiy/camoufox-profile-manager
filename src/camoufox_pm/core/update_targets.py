@@ -9,7 +9,7 @@ from __future__ import annotations
 import os
 import re
 import stat
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from urllib.parse import urlsplit
 from uuid import uuid4
@@ -108,7 +108,11 @@ def validate_manifest(custom: dict, target_path: str, policy: UpdatePolicy) -> d
     try:
         version = Version(manifest["version"])
         Version(manifest["browser_version"])
-        if policy.channel == "stable" and (version.is_prerelease or version.is_devrelease):
+        if (
+            policy.component == "manager"
+            and policy.channel == "stable"
+            and (version.is_prerelease or version.is_devrelease)
+        ):
             raise UpdateVerificationError("Stable updates cannot install preview versions")
         if Version(policy.updater_version) < Version(manifest["minimum_updater"]):
             raise UpdateVerificationError("Updater is too old for this target")
@@ -186,7 +190,15 @@ class VerifiedTargetClient:
         self.metadata_base_url = metadata_base_url
         self.target_base_url = target_base_url
 
-    def download(self, target_path: str, policy: UpdatePolicy) -> VerifiedTarget:
+    def download(
+        self,
+        target_path: str,
+        policy: UpdatePolicy,
+        *,
+        discover: bool = False,
+        offline: bool = False,
+        cached_target: Path | None = None,
+    ) -> VerifiedTarget:
         path = PurePosixPath(target_path)
         if (
             not target_path
@@ -243,11 +255,32 @@ class VerifiedTargetClient:
                 if hasattr(os, "getuid") and info.st_uid != os.getuid():
                     raise UpdateVerificationError("Update directory is owned by another account")
             _metadata_permissions(self.metadata_dir, protect=False)
+            from tuf.ngclient.fetcher import FetcherInterface
+
+            metadata_dir = self.metadata_dir
+
+            class OfflineFetcher(FetcherInterface):
+                def _fetch(self, url):
+                    from tuf.api.exceptions import DownloadHTTPError
+
+                    name = urlsplit(url).path.rsplit("/", 1)[-1]
+                    if re.fullmatch(r"[1-9][0-9]*\.root\.json", name):
+                        raise DownloadHTTPError("Offline root rotation disabled", 404)
+                    # TUF cache stores role names without consistent-snapshot prefixes.
+                    name = re.sub(r"^[0-9]+\.", "", name)
+                    cached = metadata_dir / name
+                    if not cached.is_file() or cached.is_symlink():
+                        raise UpdateVerificationError(
+                            "Offline authenticated metadata is incomplete"
+                        )
+                    return iter([cached.read_bytes()])
+
             updater = Updater(
                 str(self.metadata_dir),
                 self.metadata_base_url,
                 target_base_url=self.target_base_url,
                 config=UpdaterConfig(max_root_rotations=32, max_delegations=16),
+                fetcher=OfflineFetcher() if offline else None,
                 bootstrap=bootstrap,
             )
             updater.refresh()
@@ -258,10 +291,32 @@ class VerifiedTargetClient:
                 raise UpdateVerificationError("Target is absent from authenticated metadata")
             if type(target.length) is not int or not 0 < target.length <= policy.max_target_bytes:
                 raise UpdateVerificationError("Target exceeds the download size limit")
+            if discover:
+                signed = target.custom.get("camoufox_pm", {})
+                try:
+                    if not offline and Version(signed["version"]) <= Version(policy.version):
+                        raise UpdateVerificationError(
+                            "Target must be newer than the installed manager"
+                        )
+                    policy = replace(
+                        policy, version=signed["version"], browser_version=signed["browser_version"]
+                    )
+                except (KeyError, TypeError, InvalidVersion) as exc:
+                    raise UpdateVerificationError("Invalid authenticated channel target") from exc
             manifest = validate_manifest(target.custom, target_path, policy)
             staged = self.staging_dir / f"verified-update-{uuid4().hex}"
             os.close(create_private_file(staged))
-            updater.download_target(target, filepath=str(staged))
+            if offline:
+                if cached_target is None:
+                    raise UpdateVerificationError(
+                        "Offline update requires an authenticated cached target"
+                    )
+                target.verify_length_and_hashes(cached_target.read_bytes())
+                import shutil
+
+                shutil.copyfile(cached_target, staged)
+            else:
+                updater.download_target(target, filepath=str(staged))
             protect_path(staged)
             with staged.open("r+b") as downloaded:
                 os.fsync(downloaded.fileno())
