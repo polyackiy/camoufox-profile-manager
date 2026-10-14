@@ -31,7 +31,9 @@ jobs:
   native:
     name: Sync crypto (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 15
+    # Full fault tests plus both frozen smoke builds can exceed 15 minutes
+    # on Windows hosted runners. Keep all checks and operation deadlines intact.
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
