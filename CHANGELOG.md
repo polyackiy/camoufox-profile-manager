@@ -6,6 +6,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.6.0-rc.5] - 2026-10-14
+
+Unsigned desktop testing preview with experimental, explicitly enabled synchronization.
+
 ### Added
 - Opt-in encrypted profile synchronization between one owner's trusted computers
   (#82): protected device keys, verified recovery setup, fingerprint-confirmed
@@ -24,7 +28,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   localStorage, fingerprint and an explicitly selected stable canvas mode.
 
 ### Security and compatibility
-- Synchronization is a **source preview**, not included in existing rc.4 assets.
+- Synchronization is **experimental and off until explicitly configured**.
+  Included in rc.5 desktop installers; rc.4 assets do not contain this feature.
   Require the same supported OS, architecture and Camoufox build; assigned local
   extensions block activation. Local roles and schedules are not replicated.
 - Internal security review findings are fixed and covered by regressions. An

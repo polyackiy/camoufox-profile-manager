@@ -13,7 +13,7 @@ Each profile is **one long-lived machine**. It keeps the same fingerprint every
 session, along with its own cookies, storage and history, so an account opened
 from it in January still looks like the same computer in June.
 
-> **Desktop preview:** [download v0.6.0-rc.4](https://github.com/polyackiy/camoufox-profile-manager/releases/tag/v0.6.0-rc.4) from **Assets**. macOS
+> **Desktop preview:** [download v0.6.0-rc.5](https://github.com/polyackiy/camoufox-profile-manager/releases/tag/v0.6.0-rc.5) from **Assets**. macOS
 > Apple Silicon and Intel, Windows x64, and Ubuntu/Debian x64 builds are produced
 > by CI. Signing is conditional; unsigned builds can show OS security warnings.
 > See [Getting started](docs/getting-started.md) / [Начало работы](docs/getting-started.ru.md).
@@ -57,7 +57,7 @@ from it in January still looks like the same computer in June.
   argon2id hashes, HttpOnly session cookies, a logout that really invalidates.
   Administrators assign operator/viewer roles, profile access and separate export
   grants from **Access**, with a searchable activity log. See [roles and access](docs/stage-three.md).
-- **Encrypted device synchronization (source preview).** Opt in to closed-profile
+- **Encrypted device synchronization (experimental, opt-in).** Opt in to closed-profile
   handoff through your self-hosted relay, approve trusted devices, and retain
   local recovery copies. Same tested OS/architecture/browser build only; local
   roles and schedules stay local. See [synchronization setup](docs/sync-guide.md)
