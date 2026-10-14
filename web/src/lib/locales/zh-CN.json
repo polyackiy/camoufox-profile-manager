@@ -941,5 +941,6 @@
   "Schedule permanent historical cleanup?": "安排永久清理历史版本？",
   "After the cancellation period, the relay operator can permanently remove the selected old encrypted versions. They will no longer be available for historical recovery unless you saved an offline bundle. Current profiles and local backups are retained. This cannot erase copies already downloaded by other devices.": "取消期限过后，中继运营者可以永久删除所选的旧加密版本。除非已保存离线包，否则这些版本将无法用于历史恢复。当前配置文件和本地备份仍然保留。这无法删除其他设备已下载的副本。",
   "Sign cleanup decision": "签署清理决定",
-  "Check for restoration": "检查是否已恢复"
+  "Check for restoration": "检查是否已恢复",
+  "Experimental preview — off until you set up trusted devices and explicitly enable each profile. Use test profiles; an external security audit is still pending.": "实验性预览：仅在设置可信设备并逐个明确启用配置文件后开启。请使用测试配置文件；独立安全审计尚未完成。"
 }

@@ -2,10 +2,14 @@
 
 [Русский](sync-guide.ru.md)
 
-Synchronization is a source preview for one owner and trusted personal devices.
+Synchronization is experimental and available in the **v0.6.0-rc.5 desktop preview**
+for one owner and trusted personal devices. It is off until you explicitly set it
+up and enable individual profiles.
 It uses a self-hosted relay and transfers complete, closed profiles. It does not
-require a vendor account. Existing desktop release assets predate this feature;
-check the release notes and [tested matrix](sync-support-matrix.md) before installing.
+require a vendor account. Download the installer for your platform from the
+[rc.5 release](https://github.com/polyackiy/camoufox-profile-manager/releases/tag/v0.6.0-rc.5).
+Sync dependencies are bundled; no Python or Node setup is required for the manager.
+The relay remains separately hosted. Check the [tested matrix](sync-support-matrix.md).
 An external security audit remains a stable-production release gate.
 
 ## Before setup
@@ -15,7 +19,7 @@ computers. Assigned extension-library add-ons currently block synchronization;
 remove those assignments or retain the profile locally. The browser itself is
 not patched. Other profiles continue to work without synchronization.
 
-Install the optional dependencies in a source checkout:
+For a source checkout instead of a desktop installer:
 
 ```sh
 uv sync --extra sync --extra dev
