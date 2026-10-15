@@ -126,3 +126,15 @@ compatibility, enterprise keyring policies, interactive locked-keyring prompts,
 Apple notarization or Windows publisher trust. No private profiles, keychain
 contents, recovery packages, screenshots or application logs are uploaded; only
 sanitized result JSON is retained. Signing and external audit remain release gates.
+
+
+The protected sync-control database precreates its rollback journal with the
+same explicit current-user/SYSTEM ownership as its database. SQLite uses
+[TRUNCATE journaling](https://sqlite.org/pragma.html#pragma_journal_mode) with FULL
+synchronization, retaining that descriptor across commits instead of recreating
+journals under an elevated Windows token's default Administrators-group owner.
+Creation happens under SQLite's writer reservation before data writes. Existing
+journals are validated, never repaired or overwritten by the preparation step;
+SQLite handles hot-journal recovery. Unsafe ownership and WAL/SHM files remain
+rejected. Concurrent reads/commits, descriptor preservation and crash rollback
+are regression-tested on native CI platforms.

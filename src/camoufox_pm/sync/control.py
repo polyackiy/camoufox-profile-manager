@@ -159,6 +159,7 @@ class ControlStore:
             with closing(self._connect(validate=False)) as db:
                 db.execute("BEGIN IMMEDIATE")
                 try:
+                    self._prepare_journal()
                     if created:
                         if db.execute("PRAGMA user_version").fetchone()[0] != 0:
                             raise ControlError(_ERROR)
@@ -209,6 +210,29 @@ class ControlStore:
             if suffix in {"-wal", "-shm"}:
                 raise ControlError(_ERROR)
 
+    def _prepare_journal(self) -> None:
+        """Called under SQLite's writer reservation, before any data write.
+
+        Elevated Windows tokens may give SQLite-created files an Administrators
+        group owner. Create this journal with our explicit user/SYSTEM descriptor
+        instead; TRUNCATE retains that private file across commits. Never repair
+        or truncate an existing journal here: it may contain crash recovery data.
+        """
+        journal = Path(str(self.path) + "-journal")
+        if not journal.exists():
+            fd = create_private_file(journal)
+            try:
+                os.fsync(fd)
+            finally:
+                os.close(fd)
+            if os.name != "nt":
+                directory = os.open(self.directory, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+                try:
+                    os.fsync(directory)
+                finally:
+                    os.close(directory)
+        verify_private_path(journal)
+
     @staticmethod
     def _schema(db: sqlite3.Connection) -> None:
         if (
@@ -230,7 +254,9 @@ class ControlStore:
         try:
             db.execute("PRAGMA trusted_schema=OFF")
             db.execute("PRAGMA synchronous=FULL")
-            if db.execute("PRAGMA journal_mode").fetchone()[0] != "delete":
+            if db.execute("PRAGMA journal_mode").fetchone()[0] not in {"delete", "truncate"}:
+                raise ControlError(_ERROR)
+            if db.execute("PRAGMA journal_mode=TRUNCATE").fetchone()[0] != "truncate":
                 raise ControlError(_ERROR)
             if validate:
                 self._schema(db)
@@ -303,6 +329,7 @@ class ControlStore:
             with closing(self._connect()) as db:
                 db.execute("BEGIN IMMEDIATE")
                 try:
+                    self._prepare_journal()
                     for key, payload, revision in prepared:
                         if revision is None:
                             cursor = db.execute(

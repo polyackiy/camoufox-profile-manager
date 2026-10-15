@@ -9,6 +9,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Fixed
 - Keep synchronization status/profile polling available during transfers without
   releasing mutation admission or bypassing administrator checks (#102).
+- Precreate and retain private sync-control journals so elevated Windows tokens
+  cannot give them a broader Administrators-group owner (#102).
 - Treat a Windows SQLite journal disappearing during ACL inspection as an absent
   optional journal; existing unsafe descriptors still fail closed (#102).
 
