@@ -2,12 +2,12 @@
 
 [Русский](sync-guide.ru.md)
 
-Synchronization is experimental and available in the **v0.6.0-rc.6 desktop preview**
+Synchronization is experimental and available in the **v0.6.0-rc.7 desktop preview**
 for one owner and trusted personal devices. It is off until you explicitly set it
 up and enable individual profiles.
 It uses a self-hosted relay and transfers complete, closed profiles. It does not
 require a vendor account. Download the installer for your platform from the
-[rc.6 release](https://github.com/polyackiy/camoufox-profile-manager/releases/tag/v0.6.0-rc.6).
+[rc.7 release](https://github.com/polyackiy/camoufox-profile-manager/releases/tag/v0.6.0-rc.7).
 Sync dependencies are bundled; no Python or Node setup is required for the manager.
 The relay remains separately hosted. Check the [tested matrix](sync-support-matrix.md).
 An external security audit remains a stable-production release gate.

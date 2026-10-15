@@ -6,6 +6,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.6.0-rc.7] - 2026-10-15
+
+Unsigned desktop testing preview. Synchronization remains experimental and requires
+explicit administrator setup and per-profile opt-in; upgrading does not enroll
+devices or enable local-only profiles. Existing opt-ins are preserved.
+
+Windows users: close the manager and browsers, back up the data directory and
+install rc.7 into the same application folder **without running the old
+uninstaller first**. This replaces the old uninstaller with the corrected one.
+Previously published installers remain unchanged.
+
 ### Fixed
 
 - Windows uninstall now removes only bundled files and empty directories,
@@ -13,8 +24,6 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and removal refuse redirected/inaccessible known paths. Failed removal keeps
   the uninstaller and registration for retry. Automated Windows installer trials
   cover these safeguards before artifact publication.
-
-## [Unreleased]
 
 ## [0.6.0-rc.6] - 2026-10-15
 
