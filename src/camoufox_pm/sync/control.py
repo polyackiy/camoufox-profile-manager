@@ -155,6 +155,10 @@ class ControlStore:
                 else:
                     os.close(fd)
                     created = True
+            if created:
+                # BEGIN IMMEDIATE initializes a zero-byte SQLite database and
+                # can open its journal before the first explicit data write.
+                self._prepare_journal()
             self._paths()
             with closing(self._connect(validate=False)) as db:
                 db.execute("BEGIN IMMEDIATE")
