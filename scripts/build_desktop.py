@@ -19,6 +19,8 @@ from importlib.metadata import version as installed_version
 from pathlib import Path
 from urllib.request import urlretrieve
 
+from windows_uninstall_manifest import write_uninstall_manifest
+
 ROOT = Path(__file__).resolve().parent.parent
 DIST = ROOT / "dist"
 
@@ -65,8 +67,10 @@ def package_desktop() -> list[Path]:
             env=signature_env,
             check=True,
         )
+        manifest = ROOT / "build" / "windows-uninstall.nsh"
+        write_uninstall_manifest(DIST / "camoufox-pm", manifest)
         output = DIST / f"camoufox-pm-windows-{arch}-setup.exe"
-        subprocess.run([makensis, f"/DBUNDLE={DIST / 'camoufox-pm'}", f"/DOUTPUT={output}", f"/DWEBVIEW2={bootstrapper}", f"/DICON={ROOT / 'packaging' / 'camoufox-pm.ico'}", str(ROOT / "packaging" / "installer.nsi")], check=True)
+        subprocess.run([makensis, f"/DBUNDLE={DIST / 'camoufox-pm'}", f"/DOUTPUT={output}", f"/DWEBVIEW2={bootstrapper}", f"/DUNINSTALL_MANIFEST={manifest}", f"/DICON={ROOT / 'packaging' / 'camoufox-pm.ico'}", str(ROOT / "packaging" / "installer.nsi")], check=True)
         return [output]
     if not sys.platform.startswith("linux"):
         raise SystemExit(f"Packaging not supported on {sys.platform}")

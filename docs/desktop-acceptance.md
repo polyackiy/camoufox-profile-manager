@@ -154,3 +154,26 @@ source/UI tests and successful packaging are useful evidence but do not replace
 these trials. Any intentionally unsupported combination must be removed from
 the stated support matrix before promotion. #63 is later design/implementation
 work and is not a prerequisite for the current manual-update desktop preview.
+
+## Automated Windows installer removal safety
+
+`Windows installer safety` compiles the production NSIS script with a tiny
+synthetic payload and exercises silent install/reinstall/removal on Windows.
+`Desktop builds` repeats the lifecycle checks with the actual frozen installer
+before publishing its artifact. The tests preserve unknown files in the chosen
+installation folder (including nested bundled folders), separate synthetic data
+and key files, and refuse known paths redirected through junctions. Only a
+sanitized pass/fail report is uploaded; no application data or logs.
+
+Removal uses a build-time embedded list, not a writable local manifest. It
+removes only listed payload files and empty folders. Unknown files remain;
+therefore an installation folder can legitimately survive uninstall. Reparse
+points in known paths or their ancestors stop installation/removal before writes.
+The per-user installer does not defend against concurrent filesystem mutation
+by the same OS account. Existing published installers retain their old removal
+behavior; use the corrected installer from a subsequent release before uninstall.
+
+These are automated D13/D14 filesystem regression checks, not full D02–D14
+clean desktop acceptance. They do not prove SmartScreen behavior, Windows
+10/11 ordinary-user setup, missing-WebView2 installation, distinct-version
+upgrades, or real profile/key readability. Those trials and #61/#62 remain open.
