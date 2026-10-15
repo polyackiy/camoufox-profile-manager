@@ -26,19 +26,21 @@ RequestExecutionLevel user
 Function ${PREFIX}ValidatePath
     Exch $0
     Push $1
-    System::Call 'kernel32::GetFileAttributesW(w r0) i.r1'
+    Push $2
+    System::Call 'kernel32::GetFileAttributesW(w r0) i.r1 ?e'
+    Pop $2
     IntCmp $1 -1 missing
     IntOp $1 $1 & 0x400
     IntCmp $1 0 valid unsafe unsafe
 missing:
-    System::Call 'kernel32::GetLastError() i.r1'
-    IntCmp $1 2 valid
-    IntCmp $1 3 valid unsafe unsafe
+    IntCmp $2 2 valid
+    IntCmp $2 3 valid unsafe unsafe
 unsafe:
     MessageBox MB_ICONSTOP|MB_OK "Installation or removal stopped: an application path is redirected or inaccessible. Restore the original application folders and try again. Your data has not been removed." /SD IDOK
     SetErrorLevel 2
     Abort
 valid:
+    Pop $2
     Pop $1
     Pop $0
 FunctionEnd
