@@ -7,6 +7,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Fixed
+- Correct Windows WebView2 bootstrapper command quoting so setup can launch it
+  when the runtime is missing.
 - Windows installation rechecks WebView2 after its bootstrapper completes and
   refuses to replace manager files until a valid runtime registration is present.
   Failed prerequisites offer Retry/Cancel; silent installation exits with code 4.

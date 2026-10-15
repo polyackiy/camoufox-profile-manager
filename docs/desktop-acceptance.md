@@ -188,7 +188,8 @@ success, and rerunning after the prerequisite becomes available. A synthetic
 manager-file sentinel proves prerequisite failure stops before replacement.
 Fixture keys live under a unique HKCU test namespace and are deleted afterward;
 real Edge/WebView2 registration, downloads and installations are untouched.
-Only sanitized scenario names and pass/fail status are uploaded.
+Fixture compilation treats NSIS warnings as errors, including malformed command
+quoting. Only sanitized scenario names and pass/fail status are uploaded.
 
 Production uses the two registry locations documented by
 [Microsoft](https://learn.microsoft.com/microsoft-edge/webview2/concepts/distribution#detect-if-a-suitable-webview2-runtime-is-already-installed),
