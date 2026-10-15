@@ -306,8 +306,10 @@ class Device:
                 timeout=20000,
             )
             assert response.status == 409
+            message = "Synchronization ceremony failed; check setup and unlock credentials"
             assert response.json() == {
-                "detail": "Synchronization ceremony failed; check setup and unlock credentials"
+                "detail": message,
+                "error": {"code": "conflict", "message": message, "details": None},
             }
             assert response.headers.get("cache-control") == "no-store"
             assert self.call("/sync/status")["vault_kind"] == "native"

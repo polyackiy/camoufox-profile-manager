@@ -256,3 +256,37 @@ def test_existing_unsafe_journal_still_fails_closed(store, monkeypatch):
     with pytest.raises(ControlError):
         store.get("record")
     assert journal.exists()
+
+
+def test_optional_journal_can_disappear_during_reparse_walk(store, monkeypatch):
+    from camoufox_pm.core.update_permissions import create_private_file
+    from camoufox_pm.sync import control
+
+    store.create("record", {"public": True})
+    journal = store.path.with_name(store.path.name + "-journal")
+    os.close(create_private_file(journal))
+    original = control.reject_reparse_paths
+
+    def disappear(path):
+        if path == journal and path.exists():
+            path.unlink()
+            raise FileNotFoundError("synthetic concurrent commit")
+        return original(path)
+
+    monkeypatch.setattr(control, "reject_reparse_paths", disappear)
+    assert store.get("record").payload == {"public": True}
+
+
+def test_main_database_disappearance_is_never_optional(store, monkeypatch):
+    from camoufox_pm.sync import control
+
+    original = control.reject_reparse_paths
+
+    def disappear(path):
+        if path == store.path:
+            raise FileNotFoundError("synthetic missing main database")
+        return original(path)
+
+    monkeypatch.setattr(control, "reject_reparse_paths", disappear)
+    with pytest.raises(ControlError):
+        store.get("record")

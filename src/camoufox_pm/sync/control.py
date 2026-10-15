@@ -188,8 +188,10 @@ class ControlStore:
             raise ControlError(_ERROR)
         for suffix in ("", "-journal", "-wal", "-shm"):
             path = Path(str(self.path) + suffix)
-            reject_reparse_paths(path)
             try:
+                # A commit can remove the optional journal during the reparse
+                # walk too, before the final lstat or ACL read is reached.
+                reject_reparse_paths(path)
                 info = path.lstat()
             except FileNotFoundError:
                 if not suffix:
