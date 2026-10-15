@@ -64,7 +64,7 @@ def run():
                         + f"SetErrorLevel {5 if 'failure' in mode else 0}\nSectionEnd\n",
                         encoding="utf-8",
                     )
-                    subprocess.run([compiler, str(source)], check=True, capture_output=True)
+                    subprocess.run([compiler, str(source)], check=True)
                 output = work / f"setup-{mode}.exe"
                 source = work / f"setup-{mode}.nsi"
                 source.write_text(
@@ -76,8 +76,15 @@ def run():
                     f'FileOpen $0 "{marker}" w\nFileWrite $0 "updated"\nFileClose $0\nSectionEnd\n',
                     encoding="utf-8",
                 )
-                subprocess.run([compiler, str(source)], check=True, capture_output=True)
+                subprocess.run([compiler, str(source)], check=True)
                 installers[mode] = output
+                if mode != "cannot-launch":
+                    direct = subprocess.run([str(bootstrap), "/silent", "/install"], timeout=30)
+                    assert called.exists(), (
+                        f"Fixture bootstrap did not execute: {mode} ({direct.returncode})"
+                    )
+                    called.unlink()
+                    clear_versions()
 
             def trial(
                 name,
@@ -95,7 +102,9 @@ def run():
                 result = subprocess.run([str(installers[mode]), "/S"], timeout=30)
                 assert result.returncode == (0 if ready else 4), f"Unexpected exit status: {name}"
                 assert marker.read_text() == ("updated" if ready else "existing manager data"), name
-                assert called.exists() == bootstrap, name
+                assert called.exists() == bootstrap, (
+                    f"{name}: bootstrap marker={called.exists()}, expected={bootstrap}"
+                )
                 results.append(name)
 
             trial("missing-runtime-failure")
