@@ -30,15 +30,16 @@ fi
 # frozen executable. PyInstaller uses _internal as its native library directory.
 internal=/opt/camoufox-pm/_internal
 checked=0
+missing=0
 while IFS= read -r -d '' library; do
     dependencies=$(LD_LIBRARY_PATH="$internal" ldd "$library")
     if [[ $dependencies == *'not found'* ]]; then
         printf 'Missing runtime dependency in %s:\n%s\n' "$library" "$dependencies" >&2
-        exit 1
+        missing=1
     fi
     checked=$((checked + 1))
 done < <(find "$internal" -type f \( -name libqxcb.so -o -name libQt6WebEngineCore.so.6 -o -name QtWebEngineProcess \) -print0)
-[[ $checked -ge 3 ]]
+[[ $checked -ge 3 && $missing == 0 ]]
 
 useradd --create-home --shell /bin/bash cpm-package-test
 home_dir=/home/cpm-package-test

@@ -12,6 +12,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   before publishing Linux installers.
 
 ### Fixed
+- Declare the missing `libxcb-shape0` Linux package dependency required by the
+  Qt desktop interface on clean Ubuntu installations.
 - Correct Windows WebView2 bootstrapper command quoting so setup can launch it
   when the runtime is missing; also correct the registered uninstall command
   for installation paths containing spaces.

@@ -102,7 +102,7 @@ def package_desktop() -> list[Path]:
         "Depends: libc6 (>= 2.35), libegl1, libgl1, libxkbcommon0, libxcb-cursor0, "
         "libnss3, libasound2, libxcomposite1, libxdamage1, libxrandr2, libxtst6, libgbm1, "
         "libgtk-3-0, libdbus-1-3, libxcb-icccm4, libxcb-image0, libxcb-keysyms1, "
-        "libxcb-render-util0, libxcb-xinerama0, libxcb-xkb1, libxkbcommon-x11-0, libx11-xcb1\n"
+        "libxcb-render-util0, libxcb-shape0, libxcb-xinerama0, libxcb-xkb1, libxkbcommon-x11-0, libx11-xcb1\n"
         "Description: Persistent Camoufox browser profile manager\n"
     )
     deb = DIST / f"camoufox-pm-linux-{arch}.deb"
