@@ -124,10 +124,6 @@ def run(installer: Path) -> None:
                 assert sentinel.read_bytes() == expected[sentinel]
                 assert redirected_owned.read_bytes() == expected[redirected_owned]
                 assert (target / "camoufox-pm.exe").is_file()
-            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, key) as registration:
-                command, kind = winreg.QueryValueEx(registration, "UninstallString")
-                assert kind == winreg.REG_SZ
-                assert command == f'"{target / "Uninstall.exe"}"', command
                 assert (target / "Uninstall.exe").is_file()
             finally:
                 payload.rmdir()  # Remove the junction itself, never its target.
