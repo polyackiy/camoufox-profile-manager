@@ -6,6 +6,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.6.0-rc.6] - 2026-10-15
+
+Unsigned desktop testing preview. Synchronization remains experimental and requires
+explicit administrator setup and per-profile opt-in; upgrading does not enroll
+devices or enable local-only profiles. Existing opt-ins are preserved.
+
 ### Fixed
 - Keep profiles busy until the local handoff lease is released, preventing
   premature reacquisition during automatic upload completion (#102).
