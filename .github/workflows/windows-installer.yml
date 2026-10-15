@@ -26,7 +26,7 @@ jobs:
       - name: Compile production installer with synthetic payload
         run: python scripts/build_windows_installer_fixture.py
       - name: Verify reinstall, removal and redirected-path refusal
-        run: python scripts/windows_installer_acceptance.py build/installer-fixture/setup.exe --output windows-installer.json
+        run: python scripts/windows_installer_acceptance.py build/installer-fixture/camoufox-pm-fixture.exe --output windows-installer.json
       - uses: actions/upload-artifact@v7
         if: always()
         with:

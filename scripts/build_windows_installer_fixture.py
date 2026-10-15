@@ -31,7 +31,7 @@ def main():
             compiler,
             "/WX",
             f"/DBUNDLE={bundle}",
-            f"/DOUTPUT={work / 'setup.exe'}",
+            f"/DOUTPUT={work / 'camoufox-pm-fixture.exe'}",
             f"/DWEBVIEW2={exe}",
             f"/DUNINSTALL_MANIFEST={manifest}",
             f"/DICON={ROOT / 'packaging' / 'camoufox-pm.ico'}",
