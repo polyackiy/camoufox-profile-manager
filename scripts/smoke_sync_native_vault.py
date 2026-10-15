@@ -3,12 +3,19 @@
 import sys
 from uuid import uuid4
 
-from camoufox_pm.sync.vault import OSVault
+from camoufox_pm.sync.vault import OSVault, VaultError
 
 
 def main():
-    if sys.platform not in {"darwin", "win32"}:
-        raise SystemExit("Native credential smoke requires macOS or Windows CI")
+    if sys.platform not in {"darwin", "win32", "linux"}:
+        raise SystemExit("Native credential smoke requires macOS, Windows or Linux CI")
+    if sys.argv[1:] == ["--unavailable"]:
+        try:
+            OSVault(str(uuid4())).put(str(uuid4()), b"disposable-unavailable-test")
+        except VaultError:
+            print("Unavailable native storage rejected without fallback")
+            return
+        raise AssertionError("Unavailable native storage unexpectedly accepted a write")
     vault = OSVault(str(uuid4()))
     slot = str(uuid4())
     try:
