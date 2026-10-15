@@ -204,3 +204,28 @@ interactive Retry-button behavior, runtime usability, or clean ordinary-user
 Windows 10/11 acceptance. The prerequisite reads registration as Microsoft's
 recommended presence check; same-account registry tampering/stale installation
 can still require repair by the user. #62 remains open for those end-user trials.
+
+## Automated Linux package lifecycle
+
+Desktop builds install the actual `.deb` through APT in disposable Ubuntu 22.04
+and 24.04 containers before uploading Linux release assets. The harness checks
+package dependency resolution, the launcher symlink and desktop/icon files,
+bundled Qt/XCB/WebEngine shared-library resolution, and the frozen recovery
+command as a non-root user. Neither Python nor Node is installed in these runtime
+containers. Reinstall, remove, reinstall after removal and purge must preserve
+synthetic profile/key files in the normal user-data location and an unowned file
+inside `/opt/camoufox-pm`.
+
+`scripts/linux_package_acceptance.sh` requires an explicit disposable-container
+opt-in, refuses an existing manager installation/test account, and receives only
+this build's trusted package. Package installation executes as container root;
+the harness must never be run against an untrusted package. The repository and
+package mounts are read-only, no Docker socket or host home is mounted, and each
+container is removed after the test. Reports contain the Ubuntu version, package
+SHA-256 and pass status, never profile contents or keys.
+
+This checks the APT lifecycle and a non-graphical frozen command, not a real
+window manager, browser launch, native key-store prompts, or separate physical
+machines. Container results therefore advance #62 without closing its clean
+desktop acceptance gate. The portable archive remains covered separately by the
+installed-manager synchronization trials.

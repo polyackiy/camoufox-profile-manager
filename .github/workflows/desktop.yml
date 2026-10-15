@@ -135,6 +135,24 @@ jobs:
         with:
           name: windows-installer-acceptance
           path: windows-installer.json
+      - name: Verify Linux package on clean Ubuntu systems
+        if: runner.os == 'Linux'
+        run: |
+          mkdir -p linux-package-reports
+          for version in 22.04 24.04; do
+            docker run --rm --env CPM_DISPOSABLE_PACKAGE_TEST=1 \
+              --mount type=bind,src="$PWD/dist",dst=/packages,readonly \
+              --mount type=bind,src="$PWD/scripts",dst=/tests,readonly \
+              --mount type=bind,src="$PWD/linux-package-reports",dst=/reports \
+              "ubuntu:$version" bash /tests/linux_package_acceptance.sh \
+              /packages/camoufox-pm-linux-x86_64.deb "/reports/ubuntu-$version.json"
+          done
+      - name: Upload Linux package acceptance results
+        if: always() && runner.os == 'Linux'
+        uses: actions/upload-artifact@v7
+        with:
+          name: linux-package-acceptance
+          path: linux-package-reports/*.json
       - name: Refresh installer checksums
         run: uv run --no-sync python scripts/build_desktop.py --checksums-only
       - name: Upload artifact
