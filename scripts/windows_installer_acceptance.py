@@ -49,16 +49,24 @@ def run(installer: Path) -> None:
         }
 
         def install(expected_code=0):
-            result = subprocess.run([str(installer), "/S", f"/D={target}"], timeout=180)
-            assert result.returncode == expected_code, "Unexpected installer exit code"
+            # NSIS requires /D= to be the final, unquoted remainder even
+            # when the directory contains spaces; list2cmdline would quote it.
+            command = subprocess.list2cmdline([str(installer), "/S"]) + f" /D={target}"
+            result = subprocess.run(command, timeout=180)
+            assert result.returncode == expected_code, (
+                f"Installer exit {result.returncode}, expected {expected_code}"
+            )
 
         def uninstall(expected_code=0):
             # Execute a copy and suppress NSIS's asynchronous self-copy so the
             # subprocess exit status describes the actual uninstall operation.
             runner = work / "uninstall-test.exe"
             shutil.copy2(target / "Uninstall.exe", runner)
-            result = subprocess.run([str(runner), "/S", f"_?={target}"], timeout=120)
-            assert result.returncode == expected_code, "Unexpected uninstaller exit code"
+            command = subprocess.list2cmdline([str(runner), "/S"]) + f" _?={target}"
+            result = subprocess.run(command, timeout=120)
+            assert result.returncode == expected_code, (
+                f"Uninstaller exit {result.returncode}, expected {expected_code}"
+            )
 
         def preserved():
             assert all(p.read_bytes() == value for p, value in expected.items())
