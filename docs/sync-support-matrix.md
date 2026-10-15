@@ -66,6 +66,11 @@ close-triggered uploads without a password or manual handoff. Linux also removes
 D-Bus access for an installed-process restart, verifies a specific fail-closed key
 error and no file-store fallback, then restores access and completes the trial.
 
+The native regression suite also exercises concurrent control-store commits and
+reads, private rollback-journal retention and crash recovery. Public polling keeps
+profiles busy until the local handoff lease is released, even when the remote
+release has already committed; expired local leases do not hide readiness.
+
 Secret Service and macOS Keychain use disposable native stores; the original macOS
 keychain settings are restored. Windows cleanup deletes only the trial's recorded
 UUID slots. All trials still share one host and one OS account per platform and
