@@ -20,7 +20,13 @@ from camoufox_pm.sync.control import (
 
 @pytest.fixture
 def store(tmp_path):
-    return ControlStore(tmp_path.resolve() / "control")
+    try:
+        return ControlStore(tmp_path.resolve() / "control")
+    except ControlError as exc:
+        cause = exc
+        while cause.__context__ is not None:
+            cause = cause.__context__
+        raise AssertionError("Synthetic control fixture initialization failed") from cause
 
 
 def test_lifecycle_reopen_and_immutable_records(store):
