@@ -78,7 +78,6 @@ def test_ci_keyring_session_isolates_credentials_but_preserves_browser_cache(tmp
 
 
 def test_native_cleanup_targets_only_disposable_recorded_slots(tmp_path, monkeypatch):
-    from camoufox_pm.sync import vault
     from camoufox_pm.sync.control import ControlStore
 
     owner = "11111111-1111-4111-8111-111111111111"
@@ -108,14 +107,58 @@ def test_native_cleanup_targets_only_disposable_recorded_slots(tmp_path, monkeyp
     )
     removed = []
 
-    class RecordingVault:
-        def __init__(self, namespace):
-            self.namespace = namespace
-
-        def delete(self, slot):
-            removed.append((self.namespace, slot))
-
-    monkeypatch.setattr(vault, "OSVault", RecordingVault)
+    monkeypatch.setattr(
+        harness, "delete_native_slot", lambda namespace, slot: removed.append((namespace, slot))
+    )
     harness.cleanup_native_slots(tmp_path)
     assert set(removed) == {(owner, owner), (owner, first), (owner, second)}
     assert len(removed) == 3
+
+
+@pytest.mark.parametrize("mutating", [False, True])
+def test_installed_api_retries_only_read_only_explicit_busy_response(mutating, monkeypatch):
+    from types import SimpleNamespace
+
+    replies = [
+        SimpleNamespace(
+            ok=False,
+            status=409,
+            json=lambda: {"detail": "Another synchronization ceremony is in progress"},
+        ),
+        SimpleNamespace(ok=True, status=200, json=lambda: {"phase": "ready"}),
+    ]
+    calls = []
+
+    def fetch(*args, **kwargs):
+        calls.append(kwargs)
+        return replies.pop(0)
+
+    device = object.__new__(harness.Device)
+    device.context = SimpleNamespace(request=SimpleNamespace(fetch=fetch))
+    device.origin = "http://127.0.0.1:12345"
+    monkeypatch.setattr(harness.time, "sleep", lambda _: None)
+    if mutating:
+        with pytest.raises(harness.InstalledAPIError) as error:
+            device.call("/sync/enrollment", {})
+        assert error.value.status == 409 and len(calls) == 1
+    else:
+        assert device.call("/sync/status") == {"phase": "ready"}
+        assert len(calls) == 2
+
+
+def test_installed_api_does_not_retry_key_failure(monkeypatch):
+    from types import SimpleNamespace
+
+    reply = SimpleNamespace(
+        ok=False,
+        status=409,
+        json=lambda: {
+            "detail": "Synchronization ceremony failed; check setup and unlock credentials"
+        },
+    )
+    device = object.__new__(harness.Device)
+    device.context = SimpleNamespace(request=SimpleNamespace(fetch=lambda *a, **k: reply))
+    device.origin = "http://127.0.0.1:12345"
+    monkeypatch.setattr(harness.time, "sleep", lambda _: pytest.fail("Key failure must not retry"))
+    with pytest.raises(harness.InstalledAPIError):
+        device.call("/sync/pairing/owner-code")
