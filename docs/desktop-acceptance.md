@@ -177,3 +177,29 @@ These are automated D13/D14 filesystem regression checks, not full D02–D14
 clean desktop acceptance. They do not prove SmartScreen behavior, Windows
 10/11 ordinary-user setup, missing-WebView2 installation, distinct-version
 upgrades, or real profile/key readability. Those trials and #61/#62 remain open.
+
+## Automated Windows WebView2 prerequisite faults
+
+`Windows installer safety` compiles `packaging/webview2.nsh`, the production
+prerequisite implementation, into isolated native NSIS fixtures. Tests cover
+machine/user detection, malformed/zero versions, bootstrapper launch errors and
+nonzero exit, a zero exit without runtime registration, registration after
+success, and rerunning after the prerequisite becomes available. A synthetic
+manager-file sentinel proves prerequisite failure stops before replacement.
+Fixture keys live under a unique HKCU test namespace and are deleted afterward;
+real Edge/WebView2 registration, downloads and installations are untouched.
+Only sanitized scenario names and pass/fail status are uploaded.
+
+Production uses the two registry locations documented by
+[Microsoft](https://learn.microsoft.com/microsoft-edge/webview2/concepts/distribution#detect-if-a-suitable-webview2-runtime-is-already-installed),
+requires a nonzero four-component numeric version, and repeats detection after
+a successful bootstrapper exit and on Retry. Cancel/silent failure returns code 4.
+The bootstrapper remains the build-time bundled, Microsoft-signature-verified
+binary; neither registry data nor HTTP requests can supply executable paths.
+Application paths are revalidated after the prerequisite before copying files.
+
+These deterministic fault cases do not establish real WebView2 download success,
+interactive Retry-button behavior, runtime usability, or clean ordinary-user
+Windows 10/11 acceptance. The prerequisite reads registration as Microsoft's
+recommended presence check; same-account registry tampering/stale installation
+can still require repair by the user. #62 remains open for those end-user trials.

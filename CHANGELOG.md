@@ -6,6 +6,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- Windows installation rechecks WebView2 after its bootstrapper completes and
+  refuses to replace manager files until a valid runtime registration is present.
+  Failed prerequisites offer Retry/Cancel; silent installation exits with code 4.
+
 ## [0.6.0-rc.7] - 2026-10-15
 
 Unsigned desktop testing preview. Synchronization remains experimental and requires
