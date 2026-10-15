@@ -96,3 +96,30 @@ a disposable Linux CI runner (`CI=true`), never against a user's desktop session
 This covers the service adapter, not interactive desktop unlock, locked-store
 prompt dismissal, distro-specific desktop integration, or packaged application
 behavior with every Linux keyring provider. Those acceptance checks remain open.
+
+## Installed application acceptance
+
+The installed desktop workflow runs the full transfer/lifecycle trial twice per
+platform: explicitly encrypted-file storage and native storage (Keychain,
+Credential Manager, or GNOME Keyring Secret Service). Each trial installs two
+copies of the normal package and uses their bundled UI and paired Camoufox.
+Both manager processes restart after enrollment/pairing before accessing keys
+again. Native mode supplies no file-vault password and requires automatic queued
+upload after browser close; encrypted-file mode keeps its explicit unlock/resume.
+Cookies, local storage, fingerprint and canvas equality, synchronized Trash/restore,
+and historical-cleanup cancellation retain the same assertions in both modes.
+
+Linux native trials use a private D-Bus session and temporary credential/config
+folders, retaining the preinstalled browser cache. An additional installed-process
+restart with an unreachable bus must reject recovery-key access with a no-store
+error, preserve enrollment, and create no file-vault directory. Restoring the bus
+must allow the rest of the trial to succeed. Native credential cleanup targets
+only owner/device UUID slots recorded by the disposable installations, including
+an interrupted pairing draft; the Linux keyring itself is then removed.
+
+These are unsigned/ad-hoc CI installations on one host and one OS account per
+platform. They do not establish separation between OS accounts, physical-device
+compatibility, enterprise keyring policies, interactive locked-keyring prompts,
+Apple notarization or Windows publisher trust. No private profiles, keychain
+contents, recovery packages, screenshots or application logs are uploaded; only
+sanitized result JSON is retained. Signing and external audit remain release gates.

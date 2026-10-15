@@ -4,6 +4,9 @@ on:
   pull_request:
     paths:
       - 'scripts/installed_sync_acceptance.py'
+      - 'scripts/run_with_ci_keyring.py'
+      - 'src/camoufox_pm/sync/vault.py'
+      - 'src/camoufox_pm/core/sync_background.py'
       - 'tests/unit/test_installed_sync_acceptance.py'
       - '.github/workflows/installed-sync.yml'
       - 'packaging/camoufox-pm.spec'
@@ -48,7 +51,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           uv run --no-sync playwright install-deps firefox chromium
-          sudo apt-get install -y xvfb libegl1 libgl1 libxkbcommon0 libxcb-cursor0 libnss3 libasound2 libxcomposite1 libxdamage1 libxrandr2 libxtst6 libgbm1 libgtk-3-0 libdbus-1-3 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-render-util0 libxcb-xinerama0 libxcb-xkb1 libxkbcommon-x11-0 libx11-xcb1
+          sudo apt-get install -y gnome-keyring dbus libglib2.0-bin xvfb libegl1 libgl1 libxkbcommon0 libxcb-cursor0 libnss3 libasound2 libxcomposite1 libxdamage1 libxrandr2 libxtst6 libgbm1 libgtk-3-0 libdbus-1-3 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-render-util0 libxcb-xinerama0 libxcb-xkb1 libxkbcommon-x11-0 libx11-xcb1
           uv pip install PyQt6 PyQt6-WebEngine qtpy
       - name: Install Windows installer compiler
         if: runner.os == 'Windows'
@@ -72,14 +75,24 @@ jobs:
         if: runner.os == 'Linux'
         env:
           LIBGL_ALWAYS_SOFTWARE: '1'
-        run: xvfb-run -a uv run --no-sync python scripts/installed_sync_acceptance.py
+        run: xvfb-run -a uv run --no-sync python scripts/installed_sync_acceptance.py --output installed-sync-file.json
       - name: Exercise two installed managers and their bundled UI
         if: runner.os != 'Linux'
-        run: uv run --no-sync python scripts/installed_sync_acceptance.py
+        run: uv run --no-sync python scripts/installed_sync_acceptance.py --output installed-sync-file.json
+      - name: Installed native-vault synchronization (Linux Secret Service)
+        if: runner.os == 'Linux'
+        env:
+          LIBGL_ALWAYS_SOFTWARE: '1'
+        run: xvfb-run -a uv run --no-sync python scripts/run_with_ci_keyring.py -- .venv/bin/python scripts/installed_sync_acceptance.py --vault native --output installed-sync-native.json
+      - name: Installed native-vault synchronization (Keychain / Credential Manager)
+        if: runner.os != 'Linux'
+        run: uv run --no-sync python scripts/installed_sync_acceptance.py --vault native --output installed-sync-native.json
       - name: Upload secret-free acceptance result only
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: installed-sync-${{ matrix.os }}
-          path: installed-sync-results.json
+          path: |
+            installed-sync-file.json
+            installed-sync-native.json
           if-no-files-found: warn
