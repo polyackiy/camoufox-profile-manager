@@ -3,6 +3,7 @@ on:
   pull_request:
     paths:
       - 'packaging/installer.nsi'
+      - 'packaging/webview2.nsh'
       - 'scripts/*windows*'
       - 'scripts/build_desktop.py'
       - 'tests/unit/test_windows_uninstall_manifest.py'
@@ -20,12 +21,16 @@ jobs:
         with:
           python-version: '3.12'
       - run: choco install nsis --no-progress -y
+      - name: Verify WebView2 detection, failed installation and retry
+        run: python scripts/windows_webview2_acceptance.py --output windows-webview2.json
       - name: Compile production installer with synthetic payload
         run: python scripts/build_windows_installer_fixture.py
       - name: Verify reinstall, removal and redirected-path refusal
-        run: python scripts/windows_installer_acceptance.py build/installer-fixture/setup.exe --output windows-installer.json
+        run: python scripts/windows_installer_acceptance.py build/installer-fixture/camoufox-pm-fixture.exe --output windows-installer.json
       - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: windows-installer-safety
-          path: windows-installer.json
+          path: |
+            windows-installer.json
+            windows-webview2.json

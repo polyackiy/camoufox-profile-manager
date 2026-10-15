@@ -17,7 +17,9 @@ the release workflow; older releases may only contain Python packages.
 | Ubuntu 22.04+ or compatible Debian, 64-bit Intel/AMD | `camoufox-pm-linux-x86_64.deb` | Open with the system software installer, then launch from Applications. |
 
 If Microsoft WebView2 is missing on Windows, the installer downloads it through
-Microsoft’s official runtime bootstrapper; this needs internet access.
+Microsoft’s official runtime bootstrapper; this needs internet access. If WebView2
+is still unavailable, fix the connection or ask your administrator, then choose
+**Retry**. **Cancel** stops before replacing the manager’s existing files.
 
 Linux also has a portable `.tar.gz`: extract the complete folder and open its
 `camoufox-pm` executable. Keep the `_internal` directory beside it. The desktop

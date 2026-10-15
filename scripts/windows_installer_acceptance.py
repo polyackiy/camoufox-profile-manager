@@ -74,6 +74,10 @@ def run(installer: Path) -> None:
         try:
             install()
             assert (target / "camoufox-pm.exe").is_file()
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, key) as registration:
+                command, kind = winreg.QueryValueEx(registration, "UninstallString")
+                assert kind == winreg.REG_SZ
+                assert command == f'"{target / "Uninstall.exe"}"', command
             payload = target / "_internal"
             assert payload.is_dir(), "Fixture and real bundle require _internal"
             nested = payload / "personal.txt"

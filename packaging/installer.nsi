@@ -63,29 +63,13 @@ FunctionEnd
 !insertmacro PathGuards ""
 !insertmacro PathGuards "un."
 
-Function CheckWebView2
-    SetRegView 32
-    ReadRegStr $0 HKLM "Software\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}" "pv"
-    StrCmp $0 "" check_user
-    StrCmp $0 "0.0.0.0" check_user runtime_ready
-check_user:
-    ReadRegStr $0 HKCU "Software\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}" "pv"
-    StrCmp $0 "" install_runtime
-    StrCmp $0 "0.0.0.0" install_runtime runtime_ready
-install_runtime:
-    DetailPrint "Installing Microsoft WebView2 Runtime (internet access required)..."
-    InitPluginsDir
-    SetOutPath "$PLUGINSDIR"
-    File /oname=MicrosoftEdgeWebview2Setup.exe "${WEBVIEW2}"
-    ExecWait '$"$PLUGINSDIR\MicrosoftEdgeWebview2Setup.exe$" /silent /install' $1
-    StrCmp $1 "0" runtime_ready
-    MessageBox MB_ICONSTOP "Microsoft WebView2 could not be installed. Check your connection or contact your administrator, then run this installer again."
-    Abort
-runtime_ready:
-FunctionEnd
+!include "webview2.nsh"
+!insertmacro WebView2Prerequisite HKLM "Software\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}" "Software\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}" "${WEBVIEW2}"
 Section "Install"
     !insertmacro ValidateBundlePaths ""
     Call CheckWebView2
+    ; Runtime download/retry can take time: revalidate immediately before copying.
+    !insertmacro ValidateBundlePaths ""
     SetOutPath "$INSTDIR"
     File /r "${BUNDLE}\*"
     WriteUninstaller "$INSTDIR\Uninstall.exe"
@@ -93,7 +77,7 @@ Section "Install"
     CreateShortcut "$SMPROGRAMS\Camoufox Profile Manager\Camoufox Profile Manager.lnk" "$INSTDIR\camoufox-pm.exe"
     CreateShortcut "$SMPROGRAMS\Camoufox Profile Manager\Uninstall.lnk" "$INSTDIR\Uninstall.exe"
     WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\CamoufoxPM" "DisplayName" "Camoufox Profile Manager"
-    WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\CamoufoxPM" "UninstallString" '$"$INSTDIR\Uninstall.exe$"'
+    WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\CamoufoxPM" "UninstallString" '"$INSTDIR\Uninstall.exe"'
     WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\CamoufoxPM" "InstallLocation" "$INSTDIR"
     WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\CamoufoxPM" "DisplayIcon" "$INSTDIR\camoufox-pm.exe,0"
     WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\CamoufoxPM" "NoModify" 1
