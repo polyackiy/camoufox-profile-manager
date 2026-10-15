@@ -29,6 +29,7 @@ def main():
     subprocess.run(
         [
             compiler,
+            "/WX",
             f"/DBUNDLE={bundle}",
             f"/DOUTPUT={work / 'setup.exe'}",
             f"/DWEBVIEW2={exe}",
