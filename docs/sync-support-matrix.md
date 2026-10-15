@@ -38,6 +38,19 @@ a desktop session. These results supersede the foundation-only evidence for the
 integrated implementation, while preserving the same limits on what a smoke test
 establishes.
 
+## Linux Secret Service follow-up
+
+The [Linux native vault job](https://github.com/polyackiy/camoufox-profile-manager/actions/runs/38708142089/job/116332573128)
+passed on 2026-10-15 at `f433e6c` (PR #101). It uses a real GNOME Keyring
+service in an isolated D-Bus session with private temporary XDG directories.
+The production adapter passes write/read/delete with normal backend selection;
+a fresh process with an unreachable bus rejects storage without fallback.
+This closes the source-level Linux native-service smoke gap in the earlier runs.
+
+It does not establish interactive desktop unlock/dismissal behavior, alternate
+Secret Service providers, or installed-manager native-vault acceptance. Installed
+transfer evidence below still uses the explicitly selected encrypted-file vault.
+
 ## Integrated application evidence
 
 The [application CI run](https://github.com/polyackiy/camoufox-profile-manager/actions/runs/38471961663)

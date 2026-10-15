@@ -11,6 +11,7 @@ on:
       - 'scripts/smoke_sync_crypto.py'
       - 'scripts/smoke_sync_recovery.py'
       - 'scripts/smoke_sync_native_vault.py'
+      - 'scripts/smoke_sync_linux_vault.py'
       - 'packaging/sync-recovery.spec'
       - 'scripts/verify_sync_interop.py'
       - 'packaging/sync-crypto.spec'
@@ -75,6 +76,17 @@ jobs:
         with:
           name: sync-protocol-${{ matrix.os }}
           path: sync-results.xml
+  linux-vault:
+    name: Linux Secret Service acceptance
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+      - run: sudo apt-get update && sudo apt-get install -y gnome-keyring dbus libglib2.0-bin
+      - run: uv sync --locked --extra sync --python 3.12
+      - name: Isolated native keyring and unavailable-bus rejection
+        run: uv run --no-sync python scripts/smoke_sync_linux_vault.py
   interop:
     name: Independent HPKE implementation
     runs-on: ubuntu-latest

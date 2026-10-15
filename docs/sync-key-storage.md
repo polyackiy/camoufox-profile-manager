@@ -80,3 +80,19 @@ Python and native libraries may retain copies of keys in process memory. Deletin
 a slot does not cryptographically erase old disk snapshots, keychain backups,
 recovery packages or copies previously received by devices. The application must
 not promise those forms of erasure or revocation.
+
+## Linux CI acceptance
+
+The `Linux Secret Service acceptance` job runs the native adapter against a real
+GNOME Keyring service, following the [keyring headless setup](https://keyring.readthedocs.io/en/stable/#using-keyring-on-headless-linux-systems).
+It creates a private D-Bus session and temporary XDG directories, supplies a random
+disposable unlock password through stdin, and checks write/read/delete through
+normal backend selection. A fresh process with an unreachable session bus must
+raise `VaultError`; a fallback or successful write fails the job. Subprocess
+deadlines prevent an unlock dialog or unavailable service from hanging CI.
+The daemon and temporary keyring are removed afterward. Run this harness only on
+a disposable Linux CI runner (`CI=true`), never against a user's desktop session.
+
+This covers the service adapter, not interactive desktop unlock, locked-store
+prompt dismissal, distro-specific desktop integration, or packaged application
+behavior with every Linux keyring provider. Those acceptance checks remain open.
