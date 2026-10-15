@@ -18,8 +18,10 @@ fi
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
 apt-get install -y --no-install-recommends "$package"
-! command -v python3
-! command -v node
+if command -v python3 || command -v node; then
+    echo "Runtime container unexpectedly contains a development runtime." >&2
+    exit 1
+fi
 [[ $(dpkg-query -W -f='${Status}' camoufox-pm) == 'install ok installed' ]]
 [[ $(readlink /usr/bin/camoufox-pm) == /opt/camoufox-pm/camoufox-pm ]]
 [[ -s /usr/share/applications/camoufox-pm.desktop ]]
@@ -75,6 +77,7 @@ apt-get purge -y camoufox-pm
 [[ ! -e /usr/bin/camoufox-pm && ! -e /usr/share/applications/camoufox-pm.desktop ]]
 [[ ! -e /opt/camoufox-pm/camoufox-pm ]]
 preserved
+# shellcheck source=/dev/null
 . /etc/os-release
 checksum=$(sha256sum "$package")
 checksum=${checksum%% *}
