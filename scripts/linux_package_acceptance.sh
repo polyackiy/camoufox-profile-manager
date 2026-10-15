@@ -61,9 +61,13 @@ printf 'synthetic key\n' > "$home_dir/.local/share/camoufox-profile-manager/secr
 printf 'synthetic browser data\n' > "$home_dir/.local/share/camoufox-profile-manager/profiles/example/cookies.sqlite"
 printf 'unowned file\n' > /opt/camoufox-pm/keep-user-file.txt
 chown -R cpm-package-test:cpm-package-test "$home_dir/.local"
+chmod 600 "$home_dir/.local/share/camoufox-profile-manager/secret.key"
 find "$home_dir/.local" -type f -exec sha256sum {} + > /tmp/cpm-user-checksums
 sha256sum /opt/camoufox-pm/keep-user-file.txt >> /tmp/cpm-user-checksums
-preserved() { sha256sum --check /tmp/cpm-user-checksums; }
+preserved() {
+    sha256sum --check /tmp/cpm-user-checksums
+    [[ $(stat -c '%U:%a' "$home_dir/.local/share/camoufox-profile-manager/secret.key") == cpm-package-test:600 ]]
+}
 apt-get install -y --reinstall "$package"
 smoke
 preserved
