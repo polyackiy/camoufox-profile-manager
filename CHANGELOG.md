@@ -6,7 +6,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- Linux desktop builds now verify APT install/reinstall/remove/purge, runtime
+  dependencies and user-data preservation in clean Ubuntu 22.04/24.04 containers
+  before publishing Linux installers.
+
 ### Fixed
+- Declare the missing `libxcb-shape0` and `libwayland-server0` Linux package
+  dependencies required by the Qt desktop interface on clean Ubuntu installations.
 - Correct Windows WebView2 bootstrapper command quoting so setup can launch it
   when the runtime is missing; also correct the registered uninstall command
   for installation paths containing spaces.
