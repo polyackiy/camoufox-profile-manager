@@ -64,7 +64,7 @@ def run():
                         + f"SetErrorLevel {5 if 'failure' in mode else 0}\nSectionEnd\n",
                         encoding="utf-8",
                     )
-                    subprocess.run([compiler, str(source)], check=True)
+                    subprocess.run([compiler, "/WX", str(source)], check=True)
                 output = work / f"setup-{mode}.exe"
                 source = work / f"setup-{mode}.nsi"
                 source.write_text(
@@ -76,7 +76,7 @@ def run():
                     f'FileOpen $0 "{marker}" w\nFileWrite $0 "updated"\nFileClose $0\nSectionEnd\n',
                     encoding="utf-8",
                 )
-                subprocess.run([compiler, str(source)], check=True)
+                subprocess.run([compiler, "/WX", str(source)], check=True)
                 installers[mode] = output
                 if mode != "cannot-launch":
                     direct = subprocess.run([str(bootstrap), "/silent", "/install"], timeout=30)

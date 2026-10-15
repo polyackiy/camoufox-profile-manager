@@ -79,7 +79,7 @@ retry_runtime:
     File /oname=MicrosoftEdgeWebview2Setup.exe "${BOOTSTRAPPER}"
     IfErrors runtime_failed
     ClearErrors
-    ExecWait '$"$PLUGINSDIR\MicrosoftEdgeWebview2Setup.exe$" /silent /install' $1
+    ExecWait '"$PLUGINSDIR\MicrosoftEdgeWebview2Setup.exe" /silent /install' $1
     IfErrors runtime_failed
     StrCmp $1 "0" 0 runtime_failed
     Call DetectWebView2
