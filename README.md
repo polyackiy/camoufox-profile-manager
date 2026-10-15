@@ -13,7 +13,7 @@ Each profile is **one long-lived machine**. It keeps the same fingerprint every
 session, along with its own cookies, storage and history, so an account opened
 from it in January still looks like the same computer in June.
 
-> **Desktop preview:** [download v0.6.0-rc.6](https://github.com/polyackiy/camoufox-profile-manager/releases/tag/v0.6.0-rc.6) from **Assets**. macOS
+> **Desktop preview:** [download v0.6.0-rc.7](https://github.com/polyackiy/camoufox-profile-manager/releases/tag/v0.6.0-rc.7) from **Assets**. macOS
 > Apple Silicon and Intel, Windows x64, and Ubuntu/Debian x64 builds are produced
 > by CI. Signing is conditional; unsigned builds can show OS security warnings.
 > See [Getting started](docs/getting-started.md) / [Начало работы](docs/getting-started.ru.md).
