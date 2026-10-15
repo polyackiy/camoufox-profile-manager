@@ -5,6 +5,8 @@ on:
     paths:
       - 'scripts/installed_sync_acceptance.py'
       - 'scripts/run_with_ci_keyring.py'
+      - 'scripts/run_with_ci_keychain.py'
+      - 'src/camoufox_pm/core/update_permissions.py'
       - 'src/camoufox_pm/sync/vault.py'
       - 'src/camoufox_pm/core/sync_background.py'
       - 'tests/unit/test_installed_sync_acceptance.py'
@@ -84,8 +86,11 @@ jobs:
         env:
           LIBGL_ALWAYS_SOFTWARE: '1'
         run: xvfb-run -a uv run --no-sync python scripts/run_with_ci_keyring.py -- .venv/bin/python scripts/installed_sync_acceptance.py --vault native --output installed-sync-native.json
-      - name: Installed native-vault synchronization (Keychain / Credential Manager)
-        if: runner.os != 'Linux'
+      - name: Installed native-vault synchronization (Keychain)
+        if: runner.os == 'macOS'
+        run: uv run --no-sync python scripts/run_with_ci_keychain.py -- .venv/bin/python scripts/installed_sync_acceptance.py --vault native --output installed-sync-native.json
+      - name: Installed native-vault synchronization (Credential Manager)
+        if: runner.os == 'Windows'
         run: uv run --no-sync python scripts/installed_sync_acceptance.py --vault native --output installed-sync-native.json
       - name: Upload secret-free acceptance result only
         if: always()

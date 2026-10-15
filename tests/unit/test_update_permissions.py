@@ -245,3 +245,14 @@ def test_native_default_binary_parent_acl_kept_unchanged(tmp_path):
     assert validate_installation_parent(tmp_path) == tmp_path.resolve()
     assert api.read_sddl(tmp_path) == before
     assert not list(tmp_path.iterdir())
+
+
+@pytest.mark.parametrize("code", [2, 3, 5, 32, 87])
+def test_windows_file_security_preserves_only_actual_absence(monkeypatch, code):
+    import ctypes
+
+    monkeypatch.setattr(ctypes, "get_last_error", lambda: code, raising=False)
+    expected = FileNotFoundError if code in {2, 3} else PermissionProtectionError
+    with pytest.raises(expected):
+        _WindowsSecurity._check_file_security(False)
+    _WindowsSecurity._check_file_security(True)

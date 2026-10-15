@@ -284,9 +284,13 @@ async def _call(
     global _operation_in_progress
     if _service is None and _directory is None:
         raise _error(503, "Synchronization service is unavailable")
-    if _operation_in_progress:
+    # UI polling reads public enrollment metadata only. It must neither occupy
+    # nor release the mutation admission gate (including during a writer's drain).
+    exclusive = not (method == "status" and not ceremony and not profile_code)
+    if exclusive and _operation_in_progress:
         raise _error(409, "Another synchronization ceremony is in progress")
-    _operation_in_progress = True
+    if exclusive:
+        _operation_in_progress = True
     loop = asyncio.get_running_loop()
 
     def authorize() -> None:
@@ -336,7 +340,8 @@ async def _call(
             409, "Synchronization ceremony failed; check setup and unlock credentials"
         ) from None
     finally:
-        _operation_in_progress = False
+        if exclusive:
+            _operation_in_progress = False
 
 
 def _password(body: PasswordBody | EnrollmentBody) -> str | None:
@@ -599,9 +604,13 @@ async def _runtime_call(request: Request, user_id: str, method: str, *args, **kw
     global _operation_in_progress
     if _runtime_factory is None:
         raise _error(503, "Synchronization runtime is unavailable")
-    if _operation_in_progress:
+    # Read-only profile listings remain available during automatic uploads.
+    # Runtime validation and live-owner checks still run before and after reads.
+    exclusive = method != "list_profiles"
+    if exclusive and _operation_in_progress:
         raise _error(409, "Another synchronization ceremony is in progress")
-    _operation_in_progress = True
+    if exclusive:
+        _operation_in_progress = True
 
     async def authorize():
         await _live_owner(request, user_id)
@@ -637,7 +646,8 @@ async def _runtime_call(request: Request, user_id: str, method: str, *args, **kw
     except Exception:
         raise _error(409, "Synchronization operation failed; inspect its state and retry") from None
     finally:
-        _operation_in_progress = False
+        if exclusive:
+            _operation_in_progress = False
 
 
 @router.get("/sync/profiles")

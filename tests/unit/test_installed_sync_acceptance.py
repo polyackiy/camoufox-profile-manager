@@ -162,3 +162,61 @@ def test_installed_api_does_not_retry_key_failure(monkeypatch):
     monkeypatch.setattr(harness.time, "sleep", lambda _: pytest.fail("Key failure must not retry"))
     with pytest.raises(harness.InstalledAPIError):
         device.call("/sync/pairing/owner-code")
+
+
+def test_macos_keychain_settings_restored_after_child_failure(monkeypatch):
+    from scripts import run_with_ci_keychain as wrapper
+
+    operations = []
+
+    def security(*arguments):
+        operations.append(arguments)
+        if arguments == ("list-keychains", "-d", "user"):
+            return '"/synthetic/login.keychain-db" "/synthetic/other.keychain-db"'
+        if arguments == ("default-keychain", "-d", "user"):
+            return '"/synthetic/login.keychain-db"'
+        return ""
+
+    def fail(*args, **kwargs):
+        assert kwargs["env"]["CPM_CI_ISOLATED_KEYCHAIN"] == "1"
+        raise RuntimeError("synthetic child failure")
+
+    monkeypatch.setattr(wrapper.sys, "platform", "darwin")
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    monkeypatch.setattr(wrapper.sys, "argv", ["wrapper", "--", "synthetic-command"])
+    monkeypatch.setattr(wrapper, "security", security)
+    monkeypatch.setattr(wrapper.subprocess, "run", fail)
+    with pytest.raises(RuntimeError, match="synthetic child failure"):
+        wrapper.main()
+    assert operations[-3] == (
+        "list-keychains",
+        "-d",
+        "user",
+        "-s",
+        "/synthetic/login.keychain-db",
+        "/synthetic/other.keychain-db",
+    )
+    assert operations[-2] == (
+        "default-keychain",
+        "-d",
+        "user",
+        "-s",
+        "/synthetic/login.keychain-db",
+    )
+    assert operations[-1][0] == "delete-keychain"
+    assert operations[-1][1] == next(
+        item[-1] for item in operations if item[0] == "create-keychain"
+    )
+
+
+def test_keychain_command_timeout_never_exposes_password(monkeypatch):
+    from scripts import run_with_ci_keychain as wrapper
+
+    def timeout(command, **kwargs):
+        raise wrapper.subprocess.TimeoutExpired(command, 30)
+
+    monkeypatch.setattr(wrapper.subprocess, "run", timeout)
+    with pytest.raises(RuntimeError) as error:
+        wrapper.security("unlock-keychain", "-p", "synthetic-secret")
+    assert "synthetic-secret" not in str(error.value)
+    assert error.value.__suppress_context__

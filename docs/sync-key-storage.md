@@ -115,7 +115,10 @@ restart with an unreachable bus must reject recovery-key access with a no-store
 error, preserve enrollment, and create no file-vault directory. Restoring the bus
 must allow the rest of the trial to succeed. Native credential cleanup targets
 only owner/device UUID slots recorded by the disposable installations, including
-an interrupted pairing draft; the Linux keyring itself is then removed.
+an interrupted pairing draft, on Windows/Linux. macOS runs in a disposable default
+Keychain: the wrapper restores the original default/search-list settings and deletes
+the entire temporary Keychain, avoiding cross-executable secret access prompts.
+The isolated Linux keyring is also removed after the trial.
 
 These are unsigned/ad-hoc CI installations on one host and one OS account per
 platform. They do not establish separation between OS accounts, physical-device

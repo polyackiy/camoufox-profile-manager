@@ -219,3 +219,40 @@ def test_control_error_contains_no_payload_or_path(store):
         store.create("INVALID?", {"secret": "sensitive"})
     assert str(caught.value) == "Protected sync control operation failed"
     assert str(store.path) not in str(caught.value)
+
+
+def test_optional_journal_can_disappear_during_native_acl_check(store, monkeypatch):
+    from camoufox_pm.core.update_permissions import create_private_file
+    from camoufox_pm.sync import control
+
+    store.create("record", {"public": True})
+    journal = store.path.with_name(store.path.name + "-journal")
+    os.close(create_private_file(journal))
+    original = control.verify_private_path
+
+    def disappear(path, **kwargs):
+        if path == journal and path.exists():
+            path.unlink()
+        return original(path, **kwargs)
+
+    monkeypatch.setattr(control, "verify_private_path", disappear)
+    assert store.get("record").payload == {"public": True}
+
+
+def test_existing_unsafe_journal_still_fails_closed(store, monkeypatch):
+    from camoufox_pm.core.update_permissions import PermissionProtectionError, create_private_file
+    from camoufox_pm.sync import control
+
+    journal = store.path.with_name(store.path.name + "-journal")
+    os.close(create_private_file(journal))
+    original = control.verify_private_path
+
+    def reject(path, **kwargs):
+        if path == journal:
+            raise PermissionProtectionError("unsafe synthetic ACL")
+        return original(path, **kwargs)
+
+    monkeypatch.setattr(control, "verify_private_path", reject)
+    with pytest.raises(ControlError):
+        store.get("record")
+    assert journal.exists()

@@ -394,13 +394,22 @@ class _WindowsSecurity:
             trustees.append(self._sid_text(ctypes.c_void_p(ace.value + 8)))
         return owner_sid, trustees
 
+    @staticmethod
+    def _check_file_security(result) -> None:
+        if not result and ctypes.get_last_error() in {2, 3}:  # type: ignore[attr-defined]
+            # A concurrent SQLite commit can remove its optional journal between
+            # lstat and ACL inspection. Preserve absence as FileNotFoundError so
+            # callers can distinguish it from an unsafe descriptor/access denial.
+            raise FileNotFoundError("Windows security metadata target no longer exists")
+        _WindowsSecurity._check(result)
+
     def read_sddl(self, path: Path) -> str:
         size = self.w.DWORD()
         self.advapi.GetFileSecurityW(str(path), 0x5, None, 0, ctypes.byref(size))
         if not size.value:
-            self._check(False)
+            self._check_file_security(False)
         descriptor = ctypes.create_string_buffer(size.value)
-        self._check(
+        self._check_file_security(
             self.advapi.GetFileSecurityW(str(path), 0x5, descriptor, size, ctypes.byref(size))
         )
         owner_sid, trustees = self._descriptor_identities(descriptor)

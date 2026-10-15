@@ -158,6 +158,10 @@ def cleanup_native_slots(work):
     """Delete only UUID slots recorded by these disposable installations."""
     from camoufox_pm.sync.control import ControlStore
 
+    if sys.platform == "darwin" and os.environ.get("CPM_CI_ISOLATED_KEYCHAIN") == "1":
+        # The parent owns this dedicated keychain and deletes it as a whole after
+        # every installed process has exited. No cross-executable secret access.
+        return
     slots = set()
     for name in ("owner", "recipient"):
         directory = work / name / "data" / "sync-control"
@@ -182,17 +186,9 @@ def cleanup_native_slots(work):
 
 
 def delete_native_slot(owner_id, slot):
-    if sys.platform == "darwin":
-        # SecItemDelete needs only the exact service/account. Reading a secret
-        # first from the harness executable could trigger a Keychain ACL prompt.
-        from keyring.backends.macOS import api
+    from camoufox_pm.sync.vault import OSVault
 
-        with contextlib.suppress(api.NotFound):
-            api.delete_generic_password(None, "camoufox-pm.sync." + owner_id + "." + slot, slot)
-    else:
-        from camoufox_pm.sync.vault import OSVault
-
-        OSVault(owner_id).delete(slot)
+    OSVault(owner_id).delete(slot)
 
 
 class Device:
@@ -641,6 +637,12 @@ def main():
         parser.error(
             "This installer acceptance harness runs only on disposable GitHub Actions workers"
         )
+    if (
+        arguments.vault == "native"
+        and sys.platform == "darwin"
+        and os.environ.get("CPM_CI_ISOLATED_KEYCHAIN") != "1"
+    ):
+        parser.error("Use run_with_ci_keychain.py for disposable macOS native acceptance")
     phase = "setup"
     result = {
         "platform": sys.platform,
