@@ -1,6 +1,6 @@
 {
   "name": "web-interface",
-  "version": "0.6.0-rc.7",
+  "version": "0.6.0-rc.8",
   "private": true,
   "scripts": {
     "dev": "next dev",

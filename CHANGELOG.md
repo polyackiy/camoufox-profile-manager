@@ -6,6 +6,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.6.0-rc.8] - 2026-10-15
+
+Unsigned desktop testing preview. Synchronization remains experimental and requires
+explicit administrator setup and per-profile opt-in; upgrading does not enroll
+devices or enable local-only profiles. Existing opt-ins are preserved.
+
+Close the manager and browsers and back up the data directory before upgrading.
+Windows users should install into the same folder without running an older
+uninstaller first. Linux users should prefer the `.deb` for dependency resolution.
+
 ### Added
 - Linux desktop builds now verify APT install/reinstall/remove/purge, runtime
   dependencies and user-data preservation in clean Ubuntu 22.04/24.04 containers
@@ -839,7 +849,8 @@ First public release after a comprehensive revamp.
   Camoufox owns fingerprint generation for consistency.
 - Committed profile data, leaked proxy credentials, and duplicate/backup files.
 
-[Unreleased]: https://github.com/polyackiy/camoufox-profile-manager/compare/v0.6.0-rc.3...HEAD
+[Unreleased]: https://github.com/polyackiy/camoufox-profile-manager/compare/v0.6.0-rc.8...HEAD
+[0.6.0-rc.8]: https://github.com/polyackiy/camoufox-profile-manager/compare/v0.6.0-rc.7...v0.6.0-rc.8
 [0.6.0-rc.3]: https://github.com/polyackiy/camoufox-profile-manager/compare/v0.6.0-rc.2...v0.6.0-rc.3
 [0.6.0-rc.2]: https://github.com/polyackiy/camoufox-profile-manager/compare/v0.6.0-rc.1...v0.6.0-rc.2
 [0.6.0-rc.1]: https://github.com/polyackiy/camoufox-profile-manager/compare/v0.5.0...v0.6.0-rc.1
