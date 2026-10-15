@@ -1,0 +1,31 @@
+name: Windows installer safety
+on:
+  pull_request:
+    paths:
+      - 'packaging/installer.nsi'
+      - 'scripts/*windows*'
+      - 'scripts/build_desktop.py'
+      - 'tests/unit/test_windows_uninstall_manifest.py'
+      - '.github/workflows/windows-installer.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  installer:
+    runs-on: windows-2022
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - run: choco install nsis --no-progress -y
+      - name: Compile production installer with synthetic payload
+        run: python scripts/build_windows_installer_fixture.py
+      - name: Verify reinstall, removal and redirected-path refusal
+        run: python scripts/windows_installer_acceptance.py build/installer-fixture/setup.exe --output windows-installer.json
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: windows-installer-safety
+          path: windows-installer.json

@@ -26,7 +26,9 @@ administrator rights and adds Start menu and uninstall entries. Packaging downlo
 the official Microsoft WebView2 bootstrapper and verifies its Authenticode
 publisher before inclusion; NSIS installs that runtime if missing (requires
 internet). See [Microsoft’s deployment documentation](https://learn.microsoft.com/microsoft-edge/webview2/concepts/distribution). Uninstalling
-keeps the separate user data folder. Linux `.deb` installs the bundle in
+keeps the separate user data folder and unknown files inside the installation
+folder. The Windows packaging job tests exact-file removal, reinstall and
+redirected-path refusal before uploading installers. Linux `.deb` installs the bundle in
 `/opt/camoufox-pm`, a launcher in `/usr/bin`, and an Applications entry; the
 tarball keeps the complete runnable bundle for other layouts. Its runtime still
 needs compatible system graphics libraries. AppImage, Linux ARM, Windows ARM,
