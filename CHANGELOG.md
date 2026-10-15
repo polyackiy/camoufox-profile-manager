@@ -6,6 +6,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- Keep synchronization status/profile polling available during transfers without
+  releasing mutation admission or bypassing administrator checks (#102).
+- Treat a Windows SQLite journal disappearing during ACL inspection as an absent
+  optional journal; existing unsafe descriptors still fail closed (#102).
+
+### Tests
+- Exercise installed managers with native Keychain, Credential Manager and Secret
+  Service, process restarts, automatic closed-profile uploads and Linux key-store
+  outage/recovery, alongside the encrypted-file acceptance trial (#90, #102).
+
 ## [0.6.0-rc.5] - 2026-10-14
 
 Unsigned desktop testing preview with experimental, explicitly enabled synchronization.

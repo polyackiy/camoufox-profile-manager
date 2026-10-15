@@ -49,7 +49,29 @@ This closes the source-level Linux native-service smoke gap in the earlier runs.
 
 It does not establish interactive desktop unlock/dismissal behavior, alternate
 Secret Service providers, or installed-manager native-vault acceptance. Installed
-transfer evidence below still uses the explicitly selected encrypted-file vault.
+earlier transfer evidence below uses the explicitly selected encrypted-file vault.
+The installed native-store follow-up is described below.
+
+## Installed native-store and restart follow-up
+
+[PR #102](https://github.com/polyackiy/camoufox-profile-manager/pull/102) extends the
+installed workflow to both encrypted-file and native key storage on Ubuntu 22.04,
+Windows 2022, macOS ARM and macOS Intel. Current run/commit evidence is recorded in
+[#90](https://github.com/polyackiy/camoufox-profile-manager/issues/90).
+
+Each mode restarts both installed managers after enrollment/pairing, then exercises
+the bundled UI, four real Camoufox launches, cookies/localStorage/fingerprint/canvas
+continuity, Trash/restore and retention cancellation. Native mode must complete
+close-triggered uploads without a password or manual handoff. Linux also removes
+D-Bus access for an installed-process restart, verifies a specific fail-closed key
+error and no file-store fallback, then restores access and completes the trial.
+
+Secret Service and macOS Keychain use disposable native stores; the original macOS
+keychain settings are restored. Windows cleanup deletes only the trial's recorded
+UUID slots. All trials still share one host and one OS account per platform and
+use unsigned/ad-hoc packages with private test relay trust. They do not certify
+interactive unlock prompt handling, enterprise policies, separate OS-account
+isolation, physical-device differences, publisher signing or external audit.
 
 ## Integrated application evidence
 
@@ -119,7 +141,7 @@ and its pending/unchanged-Trash regressions are covered by PR #98's frontend CI.
 | Encrypted two-device handoff, immutable ciphertext and received snapshot validation | Runtime integration tests using real relay/client code and synthetic profile data |
 | Crash recovery, local pointer activation, lease/maintenance fencing and stale rows | Fault-injection tests; native filesystem/lock behavior also requires the platform matrix on the final commit |
 | Actual Camoufox cookie, localStorage, fingerprint and canvas transfer | Passed on Linux, Windows and macOS Apple Silicon in the dedicated run above; same runner, separate manager data directories |
-| Installed manager transfer, Trash/restore and retention cancellation | Four native targets in the installed run above; encrypted-file vault, same runner |
+| Installed manager transfer, Trash/restore and retention cancellation | Four platforms; encrypted-file evidence above and native-store/restart follow-up in PR #102; same runner/account |
 | Historical recovery | Real cryptographic/archive negative tests and fresh local profile import tests; explicitly historical, with no recovered-current-checkout claim |
 | Browser closed upload queue | Requires a running manager and accessible native vault; encrypted-file vault waits for explicit password entry |
 
