@@ -11,6 +11,7 @@ from functools import wraps
 from pathlib import Path
 from uuid import UUID, uuid4
 
+from camoufox_pm.core.leases import lease_expired
 from camoufox_pm.core.profile_operations import (
     profile_data_path,
     profile_operation,
@@ -1104,9 +1105,17 @@ class SyncRuntime:
             profile = await self.manager.storage.get_profile(state.local_id, include_deleted=True)
             lifecycle = self.service.control.get("lifecycle/" + state.local_id)
             value = lifecycle.payload if lifecycle else {}
+            public = _public(state)
+            if state.phase == "released":
+                lease = await self.manager.storage.get_lease(state.local_id)
+                if lease and lease[0] and not lease_expired(lease[1]):
+                    # Remote release can commit before the local handoff finishes
+                    # releasing its lease. Do not advertise local reacquisition
+                    # while that operation still owns the profile.
+                    public["phase"] = "handoff"
             profiles.append(
                 {
-                    **_public(state),
+                    **public,
                     "name": profile.name if profile else "Unavailable local profile",
                     "local_trashed": bool(profile and profile.deleted_at),
                     "lifecycle": {

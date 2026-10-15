@@ -390,11 +390,18 @@ class Device:
             dialog.get_by_label("Allow my trusted devices to receive", exact=False).check()
         if label == "Resume pending transfer":
             expect(dialog.get_by_text("Handoff in progress", exact=True)).to_be_visible()
-        dialog.get_by_role("button", name=label, exact=True).click()
-        if label == "Send to another device":
-            self.page.get_by_role("dialog").filter(
-                has_text="Send this profile to another device?"
-            ).get_by_role("button", name="Send profile", exact=True).click()
+        with self.page.expect_response(
+            lambda response: response.request.method == "POST"
+            and "/api/v1/sync/profiles/" in response.url,
+            timeout=180000,
+        ) as operation:
+            dialog.get_by_role("button", name=label, exact=True).click()
+            if label == "Send to another device":
+                self.page.get_by_role("dialog").filter(
+                    has_text="Send this profile to another device?"
+                ).get_by_role("button", name="Send profile", exact=True).click()
+        if not operation.value.ok:
+            raise InstalledAPIError(operation.value.status)
         expect(dialog.get_by_text(expected, exact=True)).to_be_visible()
 
     def close(self):

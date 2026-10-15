@@ -7,6 +7,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Fixed
+- Keep profiles busy until the local handoff lease is released, preventing
+  premature reacquisition during automatic upload completion (#102).
 - Keep synchronization status/profile polling available during transfers without
   releasing mutation admission or bypassing administrator checks (#102).
 - Precreate and retain private sync-control journals so elevated Windows tokens

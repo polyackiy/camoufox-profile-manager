@@ -731,3 +731,47 @@ async def test_restore_publication_activation_is_idempotent(
     assert (
         runtime.service.control.get("lifecycle/" + area.profile.id).payload["phase"] == "complete"
     )
+
+
+async def test_released_profile_stays_busy_until_local_handoff_lease_drains(
+    runtime, area, monkeypatch
+):
+    import asyncio
+
+    runtime, _ = runtime
+    await runtime.enable("owner-user", area.profile.id)
+    releasing = asyncio.Event()
+    finish = asyncio.Event()
+    original = area.manager.storage.release_lease
+
+    async def delayed_release(*args, **kwargs):
+        releasing.set()
+        await finish.wait()
+        return await original(*args, **kwargs)
+
+    monkeypatch.setattr(area.manager.storage, "release_lease", delayed_release)
+    task = asyncio.create_task(runtime.handoff("owner-user", area.profile.id))
+    try:
+        await asyncio.wait_for(releasing.wait(), timeout=30)
+        record = runtime.service.control.get("profile/" + area.profile.id)
+        assert record.payload["phase"] == "released"
+        listing = await runtime.list_profiles("owner-user")
+        assert listing["profiles"][0]["phase"] == "handoff"
+        # The public readiness fence must not rewrite the committed remote state.
+        assert runtime.service.control.get(record.key) == record
+    finally:
+        finish.set()
+        await asyncio.wait_for(task, timeout=30)
+    assert (await runtime.list_profiles("owner-user"))["profiles"][0]["phase"] == "released"
+
+
+async def test_expired_local_lease_does_not_hide_released_profile(runtime, area):
+    runtime, _ = runtime
+    await runtime.enable("owner-user", area.profile.id)
+    await runtime.handoff("owner-user", area.profile.id)
+    area.manager.storage.db._connection.execute(
+        "UPDATE profiles SET locked_by='old-holder', lock_expires='2000-01-01 00:00:00' WHERE id=?",
+        (area.profile.id,),
+    )
+    area.manager.storage.db._connection.commit()
+    assert (await runtime.list_profiles("owner-user"))["profiles"][0]["phase"] == "released"
