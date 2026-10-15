@@ -47,3 +47,176 @@ def test_trust_provisioning_refuses_external_store(tmp_path, monkeypatch):
     with pytest.raises(RuntimeError):
         harness.provision_test_trust(installation, Path("unused"))
     assert outside.read_bytes() == b"untouched"
+
+
+def test_native_mode_never_sends_a_file_vault_password():
+    device = object.__new__(harness.Device)
+    device.password = "synthetic-account-password"
+    device.vault_kind = "native"
+    assert device.unlock_body == {}
+    device.vault_kind = "encrypted_file"
+    assert device.unlock_body == {"password": device.password}
+
+
+def test_ci_keyring_session_isolates_credentials_but_preserves_browser_cache(tmp_path, monkeypatch):
+    from scripts.run_with_ci_keyring import isolated_environment
+
+    monkeypatch.setenv("XDG_CACHE_HOME", "/synthetic/browser-cache")
+    monkeypatch.setenv("DBUS_SESSION_BUS_ADDRESS", "synthetic-existing-session")
+    monkeypatch.setenv("GNOME_KEYRING_CONTROL", "/synthetic/existing-keyring")
+    monkeypatch.setenv("PYTHON_KEYRING_BACKEND", "synthetic.fallback")
+    environment = isolated_environment(tmp_path)
+    assert environment["XDG_CACHE_HOME"] == "/synthetic/browser-cache"
+    for key in ("DBUS_SESSION_BUS_ADDRESS", "GNOME_KEYRING_CONTROL", "PYTHON_KEYRING_BACKEND"):
+        assert key not in environment
+    for key in ("XDG_DATA_HOME", "XDG_CONFIG_HOME", "XDG_RUNTIME_DIR"):
+        directory = Path(environment[key])
+        assert directory.parent == tmp_path and directory.is_dir()
+        if os.name != "nt":
+            assert directory.stat().st_mode & 0o777 == 0o700
+    assert os.environ["DBUS_SESSION_BUS_ADDRESS"] == "synthetic-existing-session"
+
+
+def test_native_cleanup_targets_only_disposable_recorded_slots(tmp_path, monkeypatch):
+    from camoufox_pm.sync.control import ControlStore
+
+    owner = "11111111-1111-4111-8111-111111111111"
+    first = "22222222-2222-4222-8222-222222222222"
+    second = "33333333-3333-4333-8333-333333333333"
+    for name, device, authority in (("owner", first, True), ("recipient", second, False)):
+        directory = tmp_path / name / "data" / "sync-control"
+        directory.parent.mkdir(parents=True)
+        control = ControlStore(directory)
+        control.create(
+            "installation",
+            {
+                "vault_kind": "native",
+                "root": {"owner_id": owner},
+                "device_id": device,
+                "authority": authority,
+            },
+        )
+    # A pairing journal can repeat the installed slot: remove it only once.
+    control.create(
+        "ceremony/pairing",
+        {
+            "vault_kind": "native",
+            "root": {"owner_id": owner},
+            "request": {"device": {"device_id": second}},
+        },
+    )
+    removed = []
+
+    monkeypatch.setattr(
+        harness, "delete_native_slot", lambda namespace, slot: removed.append((namespace, slot))
+    )
+    harness.cleanup_native_slots(tmp_path)
+    assert set(removed) == {(owner, owner), (owner, first), (owner, second)}
+    assert len(removed) == 3
+
+
+@pytest.mark.parametrize("mutating", [False, True])
+def test_installed_api_retries_only_read_only_explicit_busy_response(mutating, monkeypatch):
+    from types import SimpleNamespace
+
+    replies = [
+        SimpleNamespace(
+            ok=False,
+            status=409,
+            json=lambda: {"detail": "Another synchronization ceremony is in progress"},
+        ),
+        SimpleNamespace(ok=True, status=200, json=lambda: {"phase": "ready"}),
+    ]
+    calls = []
+
+    def fetch(*args, **kwargs):
+        calls.append(kwargs)
+        return replies.pop(0)
+
+    device = object.__new__(harness.Device)
+    device.context = SimpleNamespace(request=SimpleNamespace(fetch=fetch))
+    device.origin = "http://127.0.0.1:12345"
+    monkeypatch.setattr(harness.time, "sleep", lambda _: None)
+    if mutating:
+        with pytest.raises(harness.InstalledAPIError) as error:
+            device.call("/sync/enrollment", {})
+        assert error.value.status == 409 and len(calls) == 1
+    else:
+        assert device.call("/sync/status") == {"phase": "ready"}
+        assert len(calls) == 2
+
+
+def test_installed_api_does_not_retry_key_failure(monkeypatch):
+    from types import SimpleNamespace
+
+    reply = SimpleNamespace(
+        ok=False,
+        status=409,
+        json=lambda: {
+            "detail": "Synchronization ceremony failed; check setup and unlock credentials"
+        },
+    )
+    device = object.__new__(harness.Device)
+    device.context = SimpleNamespace(request=SimpleNamespace(fetch=lambda *a, **k: reply))
+    device.origin = "http://127.0.0.1:12345"
+    monkeypatch.setattr(harness.time, "sleep", lambda _: pytest.fail("Key failure must not retry"))
+    with pytest.raises(harness.InstalledAPIError):
+        device.call("/sync/pairing/owner-code")
+
+
+def test_macos_keychain_settings_restored_after_child_failure(monkeypatch):
+    from scripts import run_with_ci_keychain as wrapper
+
+    operations = []
+
+    def security(*arguments):
+        operations.append(arguments)
+        if arguments == ("list-keychains", "-d", "user"):
+            return '"/synthetic/login.keychain-db" "/synthetic/other.keychain-db"'
+        if arguments == ("default-keychain", "-d", "user"):
+            return '"/synthetic/login.keychain-db"'
+        return ""
+
+    def fail(*args, **kwargs):
+        assert kwargs["env"]["CPM_CI_ISOLATED_KEYCHAIN"] == "1"
+        raise RuntimeError("synthetic child failure")
+
+    monkeypatch.setattr(wrapper.sys, "platform", "darwin")
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    monkeypatch.setattr(wrapper.sys, "argv", ["wrapper", "--", "synthetic-command"])
+    monkeypatch.setattr(wrapper, "security", security)
+    monkeypatch.setattr(wrapper.subprocess, "run", fail)
+    with pytest.raises(RuntimeError, match="synthetic child failure"):
+        wrapper.main()
+    assert operations[-3] == (
+        "list-keychains",
+        "-d",
+        "user",
+        "-s",
+        "/synthetic/login.keychain-db",
+        "/synthetic/other.keychain-db",
+    )
+    assert operations[-2] == (
+        "default-keychain",
+        "-d",
+        "user",
+        "-s",
+        "/synthetic/login.keychain-db",
+    )
+    assert operations[-1][0] == "delete-keychain"
+    assert operations[-1][1] == next(
+        item[-1] for item in operations if item[0] == "create-keychain"
+    )
+
+
+def test_keychain_command_timeout_never_exposes_password(monkeypatch):
+    from scripts import run_with_ci_keychain as wrapper
+
+    def timeout(command, **kwargs):
+        raise wrapper.subprocess.TimeoutExpired(command, 30)
+
+    monkeypatch.setattr(wrapper.subprocess, "run", timeout)
+    with pytest.raises(RuntimeError) as error:
+        wrapper.security("unlock-keychain", "-p", "synthetic-secret")
+    assert "synthetic-secret" not in str(error.value)
+    assert error.value.__suppress_context__

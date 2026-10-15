@@ -41,6 +41,12 @@ NAME = "Installed sync acceptance"
 _PROCESSES: list[subprocess.Popen] = []
 
 
+class InstalledAPIError(RuntimeError):
+    def __init__(self, status):
+        self.status = status
+        super().__init__("Installed API rejected the operation")
+
+
 def tls_fixture(directory):
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "Ephemeral native CI relay")])
@@ -148,9 +154,49 @@ def wait_for(check, seconds=90):
     raise RuntimeError("Installed acceptance condition timed out")
 
 
+def cleanup_native_slots(work):
+    """Delete only UUID slots recorded by these disposable installations."""
+    from camoufox_pm.sync.control import ControlStore
+
+    if sys.platform == "darwin" and os.environ.get("CPM_CI_ISOLATED_KEYCHAIN") == "1":
+        # The parent owns this dedicated keychain and deletes it as a whole after
+        # every installed process has exited. No cross-executable secret access.
+        return
+    slots = set()
+    for name in ("owner", "recipient"):
+        directory = work / name / "data" / "sync-control"
+        if not directory.is_dir():
+            continue
+        control = ControlStore(directory)
+        record = control.get("installation")
+        if record and record.payload.get("vault_kind") == "native":
+            state = record.payload
+            owner_id = state["root"]["owner_id"]
+            slots.add((owner_id, state["device_id"]))
+            if state.get("authority", True):
+                slots.add((owner_id, owner_id))
+        draft = control.get("ceremony/pairing")
+        if draft and draft.payload.get("vault_kind") == "native":
+            state = draft.payload
+            slots.add((state["root"]["owner_id"], state["request"]["device"]["device_id"]))
+    with contextlib.ExitStack() as cleanup:
+        for owner_id, slot in slots:
+            cleanup.callback(delete_native_slot, owner_id, slot)
+    print("Installed acceptance: disposable native credential slots removed", flush=True)
+
+
+def delete_native_slot(owner_id, slot):
+    from camoufox_pm.sync.vault import OSVault
+
+    OSVault(owner_id).delete(slot)
+
+
 class Device:
-    def __init__(self, work, browser, certificate):
+    def __init__(self, work, browser, certificate, vault_kind="encrypted_file"):
         self.work = work
+        self.browser = browser
+        self.vault_kind = vault_kind
+        self.password = secrets.token_urlsafe(24)
         work.mkdir(mode=0o700)
         install = work / "installed"
         executable = install_copy(install)
@@ -163,15 +209,25 @@ class Device:
             if not k.startswith("CPM_") and k not in {"PYTHONPATH", "PYTHONHOME"}
         }
         environment.update(CPM_DB_PATH=str(data / "profiles.db"), PYTHONIOENCODING="utf-8")
+        self.executable = executable
+        self.environment = environment
+        self.start()
+        self.call(
+            "/access/users",
+            {"username": "ci-admin", "password": self.password, "role": "administrator"},
+        )
+        self.login()
+
+    def start(self):
         self.process = subprocess.Popen(
-            [str(executable)],
-            cwd=work,
-            env=environment,
+            [str(self.executable)],
+            cwd=self.work,
+            env=self.environment,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
         _PROCESSES.append(self.process)
-        self.context = browser.new_context()
+        self.context = self.browser.new_context()
         self.page = self.context.new_page()
         self.page.set_default_timeout(120000)
 
@@ -216,25 +272,110 @@ class Device:
             return None
 
         self.origin = wait_for(address)
-        self.password = secrets.token_urlsafe(24)
-        self.call(
-            "/access/users",
-            {"username": "ci-admin", "password": self.password, "role": "administrator"},
-        )
+
+    def login(self):
         self.call("/auth/login", {"username": "ci-admin", "password": self.password})
         self.page.goto(self.origin + "/")
 
-    def call(self, path, body=None):
-        response = self.context.request.fetch(
-            self.origin + "/api/v1" + path,
-            method="GET" if body is None else "POST",
-            data=body,
-            headers={"Origin": self.origin},
-            timeout=180000,
+    def restart(self):
+        before = self.call("/sync/status")
+        self.close()
+        self.start()
+        self.login()
+        after = self.call("/sync/status")
+        assert after == before, "Enrollment changed across installed-manager restart"
+
+    def check_unavailable_linux_vault(self):
+        if self.vault_kind != "native" or sys.platform != "linux":
+            return
+        print("Installed acceptance: unavailable Secret Service blocks key access", flush=True)
+        original = self.environment
+        self.environment = {
+            **original,
+            "DBUS_SESSION_BUS_ADDRESS": "unix:path=" + str(self.work / "missing-bus"),
+        }
+        try:
+            self.restart()
+            # Stop bundled-UI refreshes before probing the deliberate failure.
+            self.page.goto("about:blank")
+            self.call("/sync/status")
+            response = self.context.request.post(
+                self.origin + "/api/v1/sync/recovery-package",
+                data={},
+                headers={"Origin": self.origin},
+                timeout=20000,
+            )
+            assert response.status == 409
+            message = "Synchronization ceremony failed; check setup and unlock credentials"
+            assert response.json() == {
+                "detail": message,
+                "error": {"code": "conflict", "message": message, "details": None},
+            }
+            assert response.headers.get("cache-control") == "no-store"
+            assert self.call("/sync/status")["vault_kind"] == "native"
+            assert not list((self.work / "data").rglob("keys-*"))
+        finally:
+            self.environment = original
+            self.restart()
+
+    @property
+    def unlock_body(self):
+        return {"password": self.password} if self.vault_kind == "encrypted_file" else {}
+
+    def unlock(self, dialog):
+        field = dialog.get_by_label("Unlock password", exact=True)
+        if self.vault_kind == "encrypted_file":
+            field.fill(self.password)
+        else:
+            expect(field).to_have_count(0)
+
+    def assert_password_cleared(self, dialog):
+        field = dialog.get_by_label("Unlock password", exact=True)
+        if self.vault_kind == "encrypted_file":
+            expect(field).to_have_value("")
+        else:
+            expect(field).to_have_count(0)
+
+    def complete_close_upload(self, profile_id):
+        if self.vault_kind == "encrypted_file":
+            self.action("Resume pending transfer", "Ready for another device")
+            return
+        # Native keys permit the ordinary background queue to finish without a
+        # password or manual retry. Read public state, never invoke handoff here.
+        wait_for(
+            lambda: any(
+                item["local_id"] == profile_id and item["phase"] == "released"
+                for item in self.call("/sync/profiles")["profiles"]
+            ),
+            seconds=180,
         )
-        if not response.ok:
-            raise RuntimeError(f"Installed API {path} returned {response.status}")
-        return response.json()
+        expect(self.panel().get_by_text("Ready for another device", exact=True)).to_be_visible()
+
+    def call(self, path, body=None):
+        deadline = time.monotonic() + 10
+        while True:
+            response = self.context.request.fetch(
+                self.origin + "/api/v1" + path,
+                method="GET" if body is None else "POST",
+                data=body,
+                headers={"Origin": self.origin},
+                timeout=180000,
+            )
+            # A bundled-UI status refresh may briefly hold ceremony admission.
+            # Retry only this explicit busy response for read-only requests.
+            # Never replay mutations or hide a credential/verification failure.
+            if (
+                body is None
+                and response.status == 409
+                and time.monotonic() < deadline
+                and response.json().get("detail")
+                == "Another synchronization ceremony is in progress"
+            ):
+                time.sleep(0.2)
+                continue
+            if not response.ok:
+                raise InstalledAPIError(response.status)
+            return response.json()
 
     def panel(self):
         self.page.goto(self.origin + "/")
@@ -244,16 +385,23 @@ class Device:
 
     def action(self, label, expected, *, enable=False):
         dialog = self.panel()
-        dialog.get_by_label("Unlock password", exact=True).fill(self.password)
+        self.unlock(dialog)
         if enable:
             dialog.get_by_label("Allow my trusted devices to receive", exact=False).check()
         if label == "Resume pending transfer":
             expect(dialog.get_by_text("Handoff in progress", exact=True)).to_be_visible()
-        dialog.get_by_role("button", name=label, exact=True).click()
-        if label == "Send to another device":
-            self.page.get_by_role("dialog").filter(
-                has_text="Send this profile to another device?"
-            ).get_by_role("button", name="Send profile", exact=True).click()
+        with self.page.expect_response(
+            lambda response: response.request.method == "POST"
+            and "/api/v1/sync/profiles/" in response.url,
+            timeout=180000,
+        ) as operation:
+            dialog.get_by_role("button", name=label, exact=True).click()
+            if label == "Send to another device":
+                self.page.get_by_role("dialog").filter(
+                    has_text="Send this profile to another device?"
+                ).get_by_role("button", name="Send profile", exact=True).click()
+        if not operation.value.ok:
+            raise InstalledAPIError(operation.value.status)
         expect(dialog.get_by_text(expected, exact=True)).to_be_visible()
 
     def close(self):
@@ -335,19 +483,24 @@ def observe(device, profile_id, site, stage):
 
 def exercise(owner, recipient, relay_url, registration, site):
     print("Installed acceptance: owner recovery and relay registration", flush=True)
-    password = {"password": owner.password}
+    password = owner.unlock_body
     owner.call(
         "/sync/enrollment",
         {
             "relay_url": relay_url,
             "device_label": "Installed owner",
-            "vault_kind": "encrypted_file",
+            "vault_kind": owner.vault_kind,
             **password,
         },
     )
     package = owner.call("/sync/recovery-package", password)
     owner.call("/sync/confirm-recovery", {**package, **password})
     owner.call("/sync/relay/connect", {"registration_token": registration, **password})
+    assert owner.call("/sync/status")["vault_kind"] == owner.vault_kind
+    print("Installed acceptance: owner restart and persistent key access", flush=True)
+    owner.restart()
+    owner.check_unavailable_linux_vault()
+    # The subsequent profile opt-in and pairing approval must load persisted keys.
     original = owner.call(
         "/profiles",
         {"name": NAME, "generate_fingerprint": False, "browser_settings": {"stable_canvas": True}},
@@ -366,8 +519,8 @@ def exercise(owner, recipient, relay_url, registration, site):
         {
             "root": root,
             "device_label": "Installed recipient",
-            "vault_kind": "encrypted_file",
-            "password": recipient.password,
+            "vault_kind": recipient.vault_kind,
+            **recipient.unlock_body,
         },
     )
     approval = owner.call(
@@ -383,19 +536,22 @@ def exercise(owner, recipient, relay_url, registration, site):
         {
             "approval": approval,
             "confirmed_fingerprint": prepared["fingerprint"],
-            "password": recipient.password,
+            **recipient.unlock_body,
         },
     )
+    assert recipient.call("/sync/status")["vault_kind"] == recipient.vault_kind
+    print("Installed acceptance: recipient restart and persistent key access", flush=True)
+    recipient.restart()
     print("Installed acceptance: owner UI handoff", flush=True)
     owner.action("Send to another device", "Ready for another device")
     recipient.page.goto(recipient.origin + "/")
     recipient.page.get_by_role("button", name="Profiles from trusted devices", exact=True).click()
     dialog = recipient.page.get_by_role("dialog", name="Profiles from trusted devices", exact=True)
-    dialog.get_by_label("Unlock password", exact=True).fill(recipient.password)
+    recipient.unlock(dialog)
     dialog.get_by_role("button", name="Add trusted profile to this device").click()
     expect(dialog.get_by_text("Sync status needs verification", exact=True)).to_be_visible()
-    expect(dialog.get_by_label("Unlock password", exact=True)).to_have_value("")
-    dialog.get_by_label("Unlock password", exact=True).fill(recipient.password)
+    recipient.assert_password_cleared(dialog)
+    recipient.unlock(dialog)
     dialog.get_by_role("button", name="Get latest profile", exact=True).click()
     expect(dialog.get_by_text("Ready on this device", exact=True)).to_be_visible()
     imported = recipient.call("/sync/profiles")["profiles"][0]["local_id"]
@@ -408,10 +564,7 @@ def exercise(owner, recipient, relay_url, registration, site):
     after = observe(recipient, imported, site, "second")
     assert before == after, "Installed profile session or identity changed during transfer"
     print("Installed acceptance: recipient UI handoff", flush=True)
-    # Closing a synchronized browser durably queues its work. The encrypted
-    # vault needs explicit unlock through the ordinary resume UI, not a second
-    # handoff command (which is offered only for the held/idle state).
-    recipient.action("Resume pending transfer", "Ready for another device")
+    recipient.complete_close_upload(imported)
     owner.action("Get latest profile", "Ready on this device")
     print("Installed acceptance: owner native Camoufox return", flush=True)
     final = observe(owner, local_id, site, "return")
@@ -423,16 +576,16 @@ def exercise(owner, recipient, relay_url, registration, site):
     assert restored["browser_settings"] == pinned["browser_settings"]
 
     print("Installed acceptance: synchronized Trash and restore UI", flush=True)
-    owner.action("Resume pending transfer", "Ready for another device")
+    owner.complete_close_upload(local_id)
     owner.action("Get latest profile", "Ready on this device")
     dialog = owner.panel()
-    dialog.get_by_label("Unlock password", exact=True).fill(owner.password)
+    owner.unlock(dialog)
     dialog.get_by_role("button", name="Move synchronized profile to Trash", exact=True).click()
     owner.page.get_by_role(
         "dialog", name="Move synchronized profile to Trash?", exact=True
     ).get_by_role("button", name="Publish deletion", exact=True).click()
     expect(dialog.get_by_text("Synchronized profile is in Trash", exact=True)).to_be_visible()
-    expect(dialog.get_by_label("Unlock password", exact=True)).to_have_value("")
+    owner.assert_password_cleared(dialog)
     owner.page.goto(owner.origin + "/trash/")
     row = owner.page.get_by_role("row").filter(has_text=NAME)
     expect(row.get_by_role("button", name="Restore", exact=True)).to_be_disabled()
@@ -441,34 +594,34 @@ def exercise(owner, recipient, relay_url, registration, site):
     ).to_be_disabled()
     row.get_by_role("button", name="Device synchronization", exact=True).click()
     dialog = owner.page.get_by_role("dialog", name="Synchronize " + NAME, exact=True)
-    dialog.get_by_label("Unlock password", exact=True).fill(owner.password)
+    owner.unlock(dialog)
     dialog.get_by_role("button", name="Restore synchronized profile", exact=True).click()
     owner.page.get_by_role("dialog", name="Restore synchronized profile?", exact=True).get_by_role(
         "button", name="Restore and publish", exact=True
     ).click()
     expect(dialog.get_by_text("Ready on this device", exact=True)).to_be_visible()
-    expect(dialog.get_by_label("Unlock password", exact=True)).to_have_value("")
+    owner.assert_password_cleared(dialog)
 
     print("Installed acceptance: historical cleanup schedule and cancellation UI", flush=True)
     dialog = owner.panel()
     dialog.get_by_text("Historical storage cleanup", exact=True).click()
-    dialog.get_by_label("Unlock password", exact=True).fill(owner.password)
+    owner.unlock(dialog)
     dialog.get_by_role("button", name="Load verified historical versions", exact=True).click()
     versions = dialog.get_by_role("group", name="Old encrypted versions", exact=True)
     expect(versions).to_be_visible()
-    expect(dialog.get_by_label("Unlock password", exact=True)).to_have_value("")
+    owner.assert_password_cleared(dialog)
     versions.get_by_role("checkbox").first.check()
-    dialog.get_by_label("Unlock password", exact=True).fill(owner.password)
+    owner.unlock(dialog)
     dialog.get_by_role("button", name="Schedule selected cleanup", exact=True).click()
     owner.page.get_by_role(
         "dialog", name="Schedule permanent historical cleanup?", exact=True
     ).get_by_role("button", name="Sign cleanup decision", exact=True).click()
     expect(dialog.get_by_text("Cleanup scheduled", exact=True)).to_be_visible()
-    expect(dialog.get_by_label("Unlock password", exact=True)).to_have_value("")
-    dialog.get_by_label("Unlock password", exact=True).fill(owner.password)
+    owner.assert_password_cleared(dialog)
+    owner.unlock(dialog)
     dialog.get_by_role("button", name="Cancel historical cleanup", exact=True).click()
     expect(dialog.get_by_text("Cleanup cancelled", exact=True)).to_be_visible()
-    expect(dialog.get_by_label("Unlock password", exact=True)).to_have_value("")
+    owner.assert_password_cleared(dialog)
     print("Installed acceptance: restored native Camoufox fourth launch", flush=True)
     recovered = observe(owner, local_id, site, "restored")
     assert recovered.pop("state") == "second"
@@ -476,16 +629,29 @@ def exercise(owner, recipient, relay_url, registration, site):
     restored = owner.call(f"/profiles/{local_id}")
     assert restored["fingerprint"] == pinned["fingerprint"]
     assert restored["browser_settings"] == pinned["browser_settings"]
+    if owner.vault_kind == "native":
+        owner.complete_close_upload(local_id)
+        for device in (owner, recipient):
+            assert not list((device.work / "data").rglob("keys-*")), (
+                "Unexpected file-vault fallback"
+            )
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", type=Path, default=Path("installed-sync-results.json"))
+    parser.add_argument("--vault", choices=("native", "encrypted_file"), default="encrypted_file")
     arguments = parser.parse_args()
     if os.environ.get("GITHUB_ACTIONS") != "true":
         parser.error(
             "This installer acceptance harness runs only on disposable GitHub Actions workers"
         )
+    if (
+        arguments.vault == "native"
+        and sys.platform == "darwin"
+        and os.environ.get("CPM_CI_ISOLATED_KEYCHAIN") != "1"
+    ):
+        parser.error("Use run_with_ci_keychain.py for disposable macOS native acceptance")
     phase = "setup"
     result = {
         "platform": sys.platform,
@@ -493,8 +659,14 @@ def main():
         "manager": "two-installed-desktop-processes",
         "ui": "bundled-web-via-chromium",
         "browser": "upstream-paired-camoufox",
-        "vault": "encrypted-file",
+        "vault": arguments.vault,
+        "restart": "both-installed-processes-with-existing-data-and-keys",
+        "close_upload": "automatic" if arguments.vault == "native" else "explicit-password-resume",
         "same_host": True,
+        "same_os_account": True,
+        "unavailable_vault": "tested"
+        if arguments.vault == "native" and sys.platform == "linux"
+        else "not-tested",
         "onboarding": "real-administrator-cookie-API",
         "handoff": "real-bundled-UI",
         "lifecycle": "UI-trash-restore-fourth-browser-launch",
@@ -537,7 +709,9 @@ def main():
                     try:
                         phase = "installed-startup"
                         for name in ("owner", "recipient"):
-                            devices.append(Device(work / name, browser, certificate))
+                            devices.append(
+                                Device(work / name, browser, certificate, arguments.vault)
+                            )
                         phase = "UI-encrypted-roundtrip"
                         exercise(
                             *devices,
@@ -547,11 +721,15 @@ def main():
                         )
                         result["passed"] = True
                     finally:
-                        for device in reversed(devices):
-                            device.close()
-                        for process in reversed(_PROCESSES):
-                            terminate_tree(process)
-                        browser.close()
+                        # Execute every cleanup even when another one fails.
+                        with contextlib.ExitStack() as cleanup:
+                            if arguments.vault == "native":
+                                cleanup.callback(cleanup_native_slots, work)
+                            cleanup.callback(browser.close)
+                            for process in _PROCESSES:
+                                cleanup.callback(terminate_tree, process)
+                            for device in devices:
+                                cleanup.callback(device.close)
             finally:
                 site.shutdown()
                 site.server_close()
@@ -573,7 +751,9 @@ def main():
                 }
             )
             traceback = traceback.tb_next
-        result.update(phase=phase, error_type=type(exc).__name__, frames=frames[-12:])
+        result.update(passed=False, phase=phase, error_type=type(exc).__name__, frames=frames[-12:])
+        if isinstance(exc, InstalledAPIError):
+            result["http_status"] = exc.status
         raise RuntimeError(
             f"Installed synchronization acceptance failed at {phase} ({type(exc).__name__}); private diagnostics not exported"
         ) from None

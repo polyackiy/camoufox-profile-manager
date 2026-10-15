@@ -20,7 +20,13 @@ from camoufox_pm.sync.control import (
 
 @pytest.fixture
 def store(tmp_path):
-    return ControlStore(tmp_path.resolve() / "control")
+    try:
+        return ControlStore(tmp_path.resolve() / "control")
+    except ControlError as exc:
+        cause = exc
+        while cause.__context__ is not None:
+            cause = cause.__context__
+        raise AssertionError("Synthetic control fixture initialization failed") from cause
 
 
 def test_lifecycle_reopen_and_immutable_records(store):
@@ -219,3 +225,130 @@ def test_control_error_contains_no_payload_or_path(store):
         store.create("INVALID?", {"secret": "sensitive"})
     assert str(caught.value) == "Protected sync control operation failed"
     assert str(store.path) not in str(caught.value)
+
+
+def test_optional_journal_can_disappear_during_native_acl_check(store, monkeypatch):
+    from camoufox_pm.core.update_permissions import create_private_file
+    from camoufox_pm.sync import control
+
+    store.create("record", {"public": True})
+    journal = store.path.with_name(store.path.name + "-journal")
+    journal.unlink(missing_ok=True)
+    os.close(create_private_file(journal))
+    original = control.verify_private_path
+
+    def disappear(path, **kwargs):
+        if path == journal and path.exists():
+            path.unlink()
+        return original(path, **kwargs)
+
+    monkeypatch.setattr(control, "verify_private_path", disappear)
+    assert store.get("record").payload == {"public": True}
+
+
+def test_existing_unsafe_journal_still_fails_closed(store, monkeypatch):
+    from camoufox_pm.core.update_permissions import PermissionProtectionError, create_private_file
+    from camoufox_pm.sync import control
+
+    journal = store.path.with_name(store.path.name + "-journal")
+    journal.unlink(missing_ok=True)
+    os.close(create_private_file(journal))
+    original = control.verify_private_path
+
+    def reject(path, **kwargs):
+        if path == journal:
+            raise PermissionProtectionError("unsafe synthetic ACL")
+        return original(path, **kwargs)
+
+    monkeypatch.setattr(control, "verify_private_path", reject)
+    with pytest.raises(ControlError):
+        store.get("record")
+    assert journal.exists()
+
+
+def test_optional_journal_can_disappear_during_reparse_walk(store, monkeypatch):
+    from camoufox_pm.core.update_permissions import create_private_file
+    from camoufox_pm.sync import control
+
+    store.create("record", {"public": True})
+    journal = store.path.with_name(store.path.name + "-journal")
+    journal.unlink(missing_ok=True)
+    os.close(create_private_file(journal))
+    original = control.reject_reparse_paths
+
+    def disappear(path):
+        if path == journal and path.exists():
+            path.unlink()
+            raise FileNotFoundError("synthetic concurrent commit")
+        return original(path)
+
+    monkeypatch.setattr(control, "reject_reparse_paths", disappear)
+    assert store.get("record").payload == {"public": True}
+
+
+def test_main_database_disappearance_is_never_optional(store, monkeypatch):
+    from camoufox_pm.sync import control
+
+    original = control.reject_reparse_paths
+
+    def disappear(path):
+        if path == store.path:
+            raise FileNotFoundError("synthetic missing main database")
+        return original(path)
+
+    monkeypatch.setattr(control, "reject_reparse_paths", disappear)
+    with pytest.raises(ControlError):
+        store.get("record")
+
+
+def test_concurrent_store_inspection_and_commits(store):
+    """Native ACL/path checks must coexist with SQLite's journal lifecycle."""
+    import threading
+
+    store.create("counter", {"value": 0})
+    start = threading.Barrier(2)
+
+    def guarded(operation):
+        start.wait(timeout=10)
+        try:
+            operation()
+        except ControlError as error:
+            # This fixture contains only synthetic public counters. Preserve the
+            # original native failure for diagnosis instead of sanitized API text.
+            cause = error
+            for _ in range(8):
+                following = cause.__cause__ or cause.__context__
+                if following is None or following is cause:
+                    break
+                cause = following
+            raise AssertionError("Concurrent control access failed") from cause
+
+    def writer():
+        for value in range(1, 81):
+            store.update("counter", {"value": value}, value)
+
+    def reader():
+        for _ in range(80):
+            reopened = ControlStore(store.directory)
+            assert reopened.get("counter").payload["value"] >= 0
+            assert len(reopened.list()) == 1
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        jobs = [pool.submit(guarded, operation) for operation in (writer, reader)]
+        for job in jobs:
+            job.result(timeout=90)
+    assert store.get("counter").payload == {"value": 80}
+
+
+def test_control_journal_retains_private_identity_across_commits(store):
+    from camoufox_pm.core.update_permissions import verify_private_path
+
+    journal = store.path.with_name(store.path.name + "-journal")
+    identity = journal.stat().st_ino
+    record = store.create("record", {"value": 1})
+    for value in range(2, 6):
+        record = store.update("record", {"value": value}, record.revision)
+        assert journal.stat().st_ino == identity
+        assert journal.stat().st_size == 0
+        verify_private_path(journal)
+    assert ControlStore(store.directory).get("record") == record

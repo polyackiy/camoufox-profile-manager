@@ -349,3 +349,56 @@ async def test_lifecycle_requires_explicit_boolean_and_cookie(runtime_api, actio
         ("abcd1234",),
         {field: True, "password": None},
     )
+
+
+@pytest.mark.asyncio
+async def test_status_polling_does_not_displace_active_writer(api, monkeypatch):
+    client, calls = api
+
+    def status(user_id, *, authorize):
+        authorize()
+        return {"phase": "ready", "vault_kind": "native"}
+
+    monkeypatch.setattr(sync, "_service", SimpleNamespace(status=status))
+    monkeypatch.setattr(sync, "_operation_in_progress", True)
+    assert (await client.get("/sync/status")).status_code == 401
+    response = await client.get("/sync/status", headers={"cookie": "test=owner"})
+    assert response.status_code == 200 and response.headers["cache-control"] == "no-store"
+    assert response.json()["vault_kind"] == "native"
+    assert sync._operation_in_progress
+    blocked = await client.post(
+        "/sync/relay/connect",
+        json={"registration_token": "synthetic"},
+        headers={"cookie": "test=owner"},
+    )
+    assert blocked.status_code == 409 and not calls
+
+
+@pytest.mark.asyncio
+async def test_profile_polling_does_not_displace_active_writer(runtime_api, monkeypatch):
+    client, calls = runtime_api
+    monkeypatch.setattr(sync, "_operation_in_progress", True)
+    assert (await client.get("/sync/profiles")).status_code == 401
+    response = await client.get("/sync/profiles", headers={"cookie": "test=owner"})
+    assert response.status_code == 200 and response.headers["cache-control"] == "no-store"
+    assert calls == [("list_profiles", "owner", (), {})]
+    assert sync._operation_in_progress
+    blocked = await client.post(
+        "/sync/profiles/abcd1234/handoff", json={}, headers={"cookie": "test=owner"}
+    )
+    assert blocked.status_code == 409 and len(calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_failed_status_read_keeps_writer_admission(api, monkeypatch):
+    client, _ = api
+
+    def status(user_id, *, authorize):
+        authorize()
+        raise ValueError("synthetic private failure")
+
+    monkeypatch.setattr(sync, "_service", SimpleNamespace(status=status))
+    monkeypatch.setattr(sync, "_operation_in_progress", True)
+    response = await client.get("/sync/status", headers={"cookie": "test=owner"})
+    assert response.status_code == 409 and sync._operation_in_progress
+    assert "private failure" not in response.text
