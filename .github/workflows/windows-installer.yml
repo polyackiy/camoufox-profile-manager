@@ -7,11 +7,26 @@ on:
       - 'scripts/*windows*'
       - 'scripts/build_desktop.py'
       - 'tests/unit/test_windows_uninstall_manifest.py'
+      - 'src/camoufox_pm/desktop.py'
+      - 'tests/standalone/test_desktop_lock.py'
       - '.github/workflows/windows-installer.yml'
   workflow_dispatch:
 permissions:
   contents: read
 jobs:
+  desktop-lock:
+    runs-on: windows-2022
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - run: python -m pip install 'uvicorn>=0.30'
+      - name: Reject competing desktop process and release lock on exit
+        run: python -m unittest discover -s tests/standalone -p test_desktop_lock.py -v
+        env:
+          PYTHONPATH: src
   installer:
     runs-on: windows-2022
     timeout-minutes: 15
