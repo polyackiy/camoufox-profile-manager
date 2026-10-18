@@ -6,6 +6,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- Use the Linux host's C++ and X11 runtimes so bundled Qt can load newer Mesa
+  drivers on Ubuntu 24.04 instead of failing to initialize GLX.
+- Reject synchronization snapshots when directory entries change even if the
+  filesystem reports unchanged directory timestamps within the same clock tick.
+
 ## [0.6.0-rc.8] - 2026-10-15
 
 Unsigned desktop testing preview. Synchronization remains experimental and requires

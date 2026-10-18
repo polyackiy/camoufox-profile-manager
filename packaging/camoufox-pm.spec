@@ -81,6 +81,10 @@ if sys.platform == "darwin":
     sys.path.insert(0, SPECPATH)
     from openssl_bundle import select_openssl_pair
     a.binaries = select_openssl_pair(a.binaries, get_imports)
+elif sys.platform.startswith("linux"):
+    sys.path.insert(0, SPECPATH)
+    from linux_graphics_bundle import use_host_graphics_runtime
+    a.binaries = use_host_graphics_runtime(a.binaries)
 
 pyz = PYZ(a.pure)
 exe = EXE(
