@@ -36,7 +36,7 @@ waits for operator installation, keeping Windows trust decisions with a human.
 | D06 | Partial | API backup/restore generated a distinct profile ID; complete restored native session fixture untested. |
 | D07 | Partial | API Trash restore and refusal of unconfirmed permanent deletion passed; wrong-name/native permanent deletion untested. |
 | D08 | Pass | Native manager close with browser running stopped its API and all 17 recorded original manager/browser/WebView/driver processes, identified by PID and creation time. |
-| D09 | Partial / defect | First API remained healthy; second process had no listener. Its log raised `PermissionError` reading the lock byte, instead of the intended already-open error. Native rejection window was not verified. |
+| D09 | Defect | First API remained healthy; second process had no listener. Its native error window showed `[Errno 13] Permission denied`, matching the log traceback reading the lock byte, instead of the intended already-open message. Closing that error window is required before expecting its process to exit. |
 | D10–D12 | Not tested | No complete update-preparation fixture or distinct later signed package. |
 | D13 | Partial | Same-package reinstall preserved stopped database/key bytes; profile metadata and synthetic cookie remained usable. Encrypted proxy credentials untested. |
 | D14 | Partial | Normal uninstaller removed app/registration and retained stopped database/key bytes; reinstall reused profiles and cookie. Whole manager fixture untested. |
