@@ -9,6 +9,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Fixed
 - Use the Linux host's C++ and X11 runtimes so bundled Qt can load newer Mesa
   drivers on Ubuntu 24.04 instead of failing to initialize GLX.
+- Require a real ALSA library on Linux instead of allowing the incomplete OSS
+  compatibility provider to satisfy the browser's audio dependency.
 - Reject synchronization snapshots when directory entries change even if the
   filesystem reports unchanged directory timestamps within the same clock tick.
 

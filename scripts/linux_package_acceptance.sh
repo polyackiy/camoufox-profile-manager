@@ -40,6 +40,11 @@ while IFS= read -r -d '' library; do
     checked=$((checked + 1))
 done < <(find "$internal" -type f \( -name libqxcb.so -o -name libQt6WebEngineCore.so.6 -o -name QtWebEngineProcess \) -print0)
 [[ $checked -ge 3 && $missing == 0 ]]
+# Ubuntu 24.04 can otherwise satisfy unversioned libasound2 with the OSS salsa
+# compatibility provider, which lacks sequencer symbols required by Firefox.
+alsa=$(ldconfig -p | awk '$1 == "libasound.so.2" { print $NF }')
+[[ -n $alsa && -r $alsa ]]
+LC_ALL=C grep -aFq snd_seq_port_subscribe_malloc "$alsa"
 
 useradd --create-home --shell /bin/bash cpm-package-test
 home_dir=/home/cpm-package-test

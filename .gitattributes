@@ -12,3 +12,4 @@
 *.toml  text diff
 *.yml   text diff
 *.yaml  text diff
+*.sh    text eol=lf

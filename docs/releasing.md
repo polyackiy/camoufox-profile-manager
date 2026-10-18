@@ -41,6 +41,10 @@ breaks GLX on Ubuntu 24.04. The Debian package declares `libstdc++6 (>= 12)` and
 `libx11-6`; portable users must install these system prerequisites too. Test a
 real Qt window with the target system's graphics driver: `ldd` alone cannot
 validate dynamically loaded Mesa components.
+The ALSA prerequisite uses `libasound2t64 | libasound2 (>= 1.2.6)` so a minimal
+Ubuntu 24.04 installation cannot choose the unversioned OSS compatibility
+provider, which lacks sequencer symbols required by Firefox. The clean-package
+test checks the installed library for the required sequencer API as well.
 
 ## Before tagging
 
