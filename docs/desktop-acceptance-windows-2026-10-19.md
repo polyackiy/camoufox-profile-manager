@@ -339,9 +339,16 @@ separately; it occurred before another copy or guest mutation.
 After both guests passed rebuilt-candidate D14 and were normally shut down with
 positive QMP evidence, completed synthetic Windows 11 fixtures and obsolete
 layers were removed after live-process, open-file and backing-reference audits.
-The clean bases, current working state, Windows 10 fixture and sanitized reports
-remain. Deleted allocation inside WSL is not reported as equal physical NTFS
-space reclamation.
+The clean bases, Windows 10 fixture and sanitized reports remain. The completed
+current Windows 11 disk grew to about 28 GiB during Windows updates and exceeded
+the existing 24 GiB retained-history budget for another restore. After positive
+shutdown and another reference audit, its disk and paired UEFI/TPM working state
+were removed together. A new command restores the verified clean base.
+The local restore helper accepts completely absent working state only after its
+live-QEMU/TPM checks; partial missing state is refused. Two regressions failed
+before that change and all 16 checkpoint tests then passed. The next-restore
+capacity preflight passed after cleanup. Deleted allocation inside WSL is not
+reported as equal physical NTFS space reclamation.
 
 Local evidence includes `PR111-acceptance.txt`,
 `reports/pr-111-build/end-to-end.json`, `Windows62-results.txt`, and individual
