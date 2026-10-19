@@ -7,6 +7,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Fixed
+- Show the intended already-open message when another Windows desktop instance
+  holds the data-directory lock.
+- Preserve the bundled desktop build's version after an in-place upgrade leaves
+  older distribution metadata in the installation folder.
 - Use the Linux host's C++ and X11 runtimes so bundled Qt can load newer Mesa
   drivers on Ubuntu 24.04 instead of failing to initialize GLX.
 - Require a real ALSA library on Linux instead of allowing the incomplete OSS
