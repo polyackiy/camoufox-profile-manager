@@ -9,6 +9,10 @@ on:
       - 'tests/unit/test_windows_uninstall_manifest.py'
       - 'src/camoufox_pm/desktop.py'
       - 'tests/standalone/test_desktop_lock.py'
+      - 'tests/standalone/test_frozen_version.py'
+      - 'src/camoufox_pm/__init__.py'
+      - 'packaging/build_version.py'
+      - 'packaging/camoufox-pm.spec'
       - '.github/workflows/windows-installer.yml'
   workflow_dispatch:
 permissions:
@@ -23,6 +27,8 @@ jobs:
         with:
           python-version: '3.12'
       - run: python -m pip install 'uvicorn>=0.30'
+      - name: Keep the frozen build version after an in-place upgrade
+        run: python -m unittest discover -s tests/standalone -p test_frozen_version.py -v
       - name: Reject competing desktop process and release lock on exit
         run: python -m unittest discover -s tests/standalone -p test_desktop_lock.py -v
         env:

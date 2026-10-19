@@ -40,6 +40,13 @@ def finalize_fpgen_model(directory):
 
 # SPECPATH is this file's directory (packaging/); ROOT is the repository root.
 ROOT = os.path.abspath(os.path.join(SPECPATH, ".."))
+sys.path.insert(0, SPECPATH)
+from build_version import write_runtime_version_hook
+
+# In-place upgrades can retain older versioned dist-info directories. Embed the
+# selected build version in the executable so metadata discovery cannot pick one.
+version_hook = Path(ROOT) / "build" / "camoufox_pm_version_hook.py"
+write_runtime_version_hook(version_hook, version("camoufox-profile-manager"))
 
 datas = [(os.path.join(ROOT, "src", "camoufox_pm", "webui"), "camoufox_pm/webui")]
 datas += [(os.path.join(SPECPATH, "camoufox-pm.svg"), ".")]
@@ -74,6 +81,7 @@ a = Analysis(
     binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,
+    runtime_hooks=[str(version_hook)],
     noarchive=False,
 )
 if sys.platform == "darwin":
