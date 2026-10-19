@@ -45,6 +45,14 @@ Linux-input/Chinese-UI PR #65; testing this installer does not validate that new
 | Windows 10/11 x64 | Passed | App/installer signing skipped | Not recorded |
 | Ubuntu 22.04+ x64 | Passed | Unsigned release downloads | Not recorded |
 
+## Follow-up evidence recorded on 2026-10-19
+
+The [Windows follow-up](desktop-acceptance-windows-2026-10-19.md) records the
+corrected PR installer, Windows 10/11 observations and remaining scenario gates.
+The [Linux package trials](desktop-acceptance-linux-2026-10-19.md) record limited
+DEB/portable acceptance on fresh Ubuntu 22.04.5 and 24.04.5 guests. These dated
+records extend the historical table above; they do not close the full matrix.
+
 ## Trial record
 
 For each trial record the following, leaving unknown fields explicitly unknown:

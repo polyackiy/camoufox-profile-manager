@@ -2,6 +2,9 @@
 
 This is limited acceptance of the published **v0.6.0-rc.8**, source
 `1df2b3daa3da93f7077e347ba7133eb5b7378d11`. It does not clear #61, #62 or #63.
+The [Windows follow-up](desktop-acceptance-windows-2026-10-19.md) records the
+rebuilt D09 fix, fuller data/session trials and Windows 10 evidence. Results
+below describe this historical published installer, not the corrected package.
 
 - Asset: `camoufox-pm-windows-x86_64-setup.exe`, 86,322,905 bytes.
 - SHA-256: `e64fe3a166f3c371e18e40a648ca34f80071ef3a73e7c398f44d49d7e2aa9041`.
@@ -46,14 +49,6 @@ Windows mandatory lock. A real competing-process regression failed with
 `PermissionError` before the fix on Windows and passed afterward, including
 reacquisition after release. This establishes the source lock error path,
 not acceptance of a rebuilt packaged GUI.
-
-Separately, the original host Kaspersky Standard 21.26.4.406 reported
-`PDM:Trojan.Win32.Generic`, terminated setup and deleted the installer. Public
-OpenTIP for the same hash displayed `BSS:Trojan.Win32.Generic` and no dynamic
-analysis detail. The cause and false-positive status remain unproven. Defender
-results do not resolve that finding. No Kaspersky VM license was available;
-no vendor report was submitted. Signing setup is deferred for the unsigned
-preview, and remains a future stable-release gate.
 
 Windows 10, WebView2-absent, full GUI/IME and manager fixtures, distinct signed
 upgrades/rollback, physical cold canvas and independent human protocol review
