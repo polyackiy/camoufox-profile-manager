@@ -78,6 +78,20 @@ test checks the installed library for the required sequencer API as well.
 
 No tag or release upload is performed by the build script itself.
 
+### 0.6.0 unsigned stable policy
+
+The maintainer approved publishing 0.6.0 as a stable, unsigned release on
+19 October 2026. Platform certificates and macOS notarization are optional future
+work in #61, rather than a prerequisite for this release. Label the installers
+accurately and retain normal operating-system security prompts.
+
+Issue #62 is closed by maintainer acceptance of the recorded Windows/Linux
+evidence. Its original unchecked platform entries and the
+[qualified follow-up](desktop-acceptance-followup-2026-10-19.md) remain the coverage
+record; closure does not establish untested macOS or Windows 11 runtime-absence
+combinations. Synchronization remains experimental and opt-in. Production trust
+and signed package acceptance still gate automatic application installation.
+
 ## Local build and signing order
 
 ```bash
