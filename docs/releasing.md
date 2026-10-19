@@ -34,6 +34,18 @@ tarball keeps the complete runnable bundle for other layouts. Its runtime still
 needs compatible system graphics libraries. AppImage, Linux ARM, Windows ARM,
 and full automatic app replacement are not shipped.
 
+Linux uses the host's `libstdc++.so.6` and `libX11.so.6` instead of collecting
+copies from the build runner. Newer Mesa drivers can require newer C++ ABI
+symbols and matching X11 behavior; shadowing these with Ubuntu 22.04 libraries
+breaks GLX on Ubuntu 24.04. The Debian package declares `libstdc++6 (>= 12)` and
+`libx11-6`; portable users must install these system prerequisites too. Test a
+real Qt window with the target system's graphics driver: `ldd` alone cannot
+validate dynamically loaded Mesa components.
+The ALSA prerequisite uses `libasound2t64 | libasound2 (>= 1.2.6)` so a minimal
+Ubuntu 24.04 installation cannot choose the unversioned OSS compatibility
+provider, which lacks sequencer symbols required by Firefox. The clean-package
+test checks the installed library for the required sequencer API as well.
+
 ## Before tagging
 
 1. Update `CHANGELOG.md`, `pyproject.toml` and `web/package.json` consistently,

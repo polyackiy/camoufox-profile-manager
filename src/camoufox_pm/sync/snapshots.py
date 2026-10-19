@@ -263,7 +263,7 @@ def _build_snapshot(
     if destination.absolute().is_relative_to(data_dir.absolute()):
         raise SnapshotError("Snapshot destination cannot be inside browser data")
     paths: list[tuple[str, Path]] = []
-    directories: dict[Path, tuple[int, int]] = {}
+    directories: dict[Path, tuple[int, int, frozenset[str]]] = {}
     entry_count = 0
 
     def walk_error(error):
@@ -273,7 +273,11 @@ def _build_snapshot(
         directory_path = Path(directory)
         reject_reparse_paths(directory_path)
         directory_stat = directory_path.stat()
-        directories[directory_path] = (directory_stat.st_mtime_ns, directory_stat.st_ctime_ns)
+        directories[directory_path] = (
+            directory_stat.st_mtime_ns,
+            directory_stat.st_ctime_ns,
+            frozenset(subdirs + filenames),
+        )
         for child in list(subdirs) + filenames:
             path = Path(directory) / child
             relative = path.relative_to(data_dir)
@@ -342,7 +346,20 @@ def _build_snapshot(
                 for directory_path, checkpoint in directories.items():
                     reject_reparse_paths(directory_path)
                     current = directory_path.stat()
-                    if (current.st_mtime_ns, current.st_ctime_ns) != checkpoint:
+                    if (current.st_mtime_ns, current.st_ctime_ns) != checkpoint[:2]:
+                        raise SnapshotError("Profile directory changed during capture")
+                    # Directory timestamps can remain identical for multiple
+                    # mutations within one filesystem clock tick (e.g. WSL2).
+                    # Bound the comparison by the original entries and fail on
+                    # the first unexpected name instead of collecting an
+                    # unbounded concurrently growing directory.
+                    remaining = set(checkpoint[2])
+                    with os.scandir(directory_path) as entries:
+                        for entry in entries:
+                            if entry.name not in remaining:
+                                raise SnapshotError("Profile directory changed during capture")
+                            remaining.remove(entry.name)
+                    if remaining:
                         raise SnapshotError("Profile directory changed during capture")
                 for path, file_checkpoint in captured.items():
                     reject_reparse_paths(path)

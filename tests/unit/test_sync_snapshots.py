@@ -5,6 +5,7 @@ import os
 import stat
 import struct
 import zipfile
+from pathlib import Path
 
 import pytest
 
@@ -387,6 +388,27 @@ def test_directory_added_during_capture_invalidates_snapshot(area, compat, monke
 
     monkeypatch.setattr(s, "_regular_open", changing)
     with pytest.raises(s.SnapshotError, match="changed"):
+        s.build_snapshot(Profile(name="Closed"), data, root / "bad.zip", compat)
+    assert not (root / "bad.zip").exists()
+
+
+def test_added_entry_is_detected_with_unchanged_directory_timestamps(area, compat, monkeypatch):
+    root, data = area
+    original_stat = Path.stat
+    checkpoint = data.stat()
+    original_open = s._regular_open
+
+    def unchanged_stat(path, *args, **kwargs):
+        return checkpoint if path == data else original_stat(path, *args, **kwargs)
+
+    def changing(path):
+        result = original_open(path)
+        (data / "new-cookie").write_bytes(b"new")
+        return result
+
+    monkeypatch.setattr(Path, "stat", unchanged_stat)
+    monkeypatch.setattr(s, "_regular_open", changing)
+    with pytest.raises(s.SnapshotError, match="directory changed"):
         s.build_snapshot(Profile(name="Closed"), data, root / "bad.zip", compat)
     assert not (root / "bad.zip").exists()
 
