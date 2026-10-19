@@ -53,6 +53,11 @@ The [Linux package trials](desktop-acceptance-linux-2026-10-19.md) record limite
 DEB/portable acceptance on fresh Ubuntu 22.04.5 and 24.04.5 guests. These dated
 records extend the historical table above; they do not close the full matrix.
 
+The [later same-day follow-up](desktop-acceptance-followup-2026-10-19.md) adds
+Windows 11 download error/retry, Windows 10 confirmed disposable deletion, and
+Ubuntu 22 native input and full lifecycle fixture observations, with remaining
+runtime-absence and cross-platform limits.
+
 ## Trial record
 
 For each trial record the following, leaving unknown fields explicitly unknown:

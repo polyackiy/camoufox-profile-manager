@@ -1,5 +1,9 @@
 # Linux package acceptance — 19 October 2026
 
+Later same-day [current-package native desktop and lifecycle results](desktop-acceptance-followup-2026-10-19.md)
+extend the historical trials below on Ubuntu 22.04.5 and a new Ubuntu 24.04.5
+guest. Their source/package digests differ from these earlier observations.
+
 The unsigned DEB and portable archive built from
 `3a7009f0d428321b6901fe1ba0fff220f3fe98ab` in
 [workflow 39117477241](https://github.com/polyackiy/camoufox-profile-manager/actions/runs/39117477241)
@@ -58,6 +62,6 @@ The Ubuntu 22 guest ran in the dedicated U: SSD lab. After normal shutdown and
 checks for live/backing references, both its failed and successful disposable
 VMs were removed. Reusable OS media remains on U:. The Ubuntu 24 base image
 was subsequently moved from C: to U: with the same verified SHA-256 and no old
-backing references. That path relocation has not received a new Ubuntu 24
-boot trial; the earlier Ubuntu 24 acceptance remains evidence for its recorded
-environment.
+backing references. At the end of those historical trials, that relocation had
+not received another boot trial. The later same-day follow-up above separately
+records the new boot and current-package observations from that U: image.

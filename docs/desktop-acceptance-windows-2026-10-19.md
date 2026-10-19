@@ -1,5 +1,9 @@
 # Windows acceptance follow-up — 19 October 2026
 
+The [later same-day follow-up](desktop-acceptance-followup-2026-10-19.md)
+adds current Windows 11 native download error/retry and Windows 10 confirmed
+disposable deletion, with protection, runtime-absence and cleanup receipts.
+
 These results extend the [initial Windows 11 trial](desktop-acceptance-windows11-2026-10-18.md).
 They concern unsigned previews. They do not close the full platform matrix in
 [#62](https://github.com/polyackiy/camoufox-profile-manager/issues/62), publisher
