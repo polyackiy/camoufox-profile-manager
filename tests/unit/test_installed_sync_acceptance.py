@@ -9,6 +9,79 @@ from cryptography import x509
 from scripts import installed_sync_acceptance as harness
 
 
+@pytest.mark.parametrize(
+    ("detail", "category"),
+    [
+        ("Another synchronization ceremony is in progress", "admission_busy"),
+        ("Synchronization operation failed; inspect its state and retry", "runtime_failed"),
+        (
+            "Synchronization ceremony failed; check setup and unlock credentials",
+            "ceremony_failed",
+        ),
+        ("Synchronization runtime is unavailable", "runtime_unavailable"),
+        ("private synthetic profile value must never escape", "unclassified"),
+        ({"private": "synthetic secret"}, "unclassified"),
+    ],
+)
+def test_installed_api_failure_exports_only_allowlisted_category(detail, category):
+    from types import SimpleNamespace
+
+    response = SimpleNamespace(status=409, json=lambda: {"detail": detail})
+    error = harness.installed_api_error(response)
+    assert error.status == 409
+    assert error.category == category
+    assert "synthetic" not in str(error)
+    assert "synthetic" not in repr(error.__dict__)
+
+
+def test_installed_api_failure_does_not_export_invalid_response_body():
+    from types import SimpleNamespace
+
+    def invalid_json():
+        raise ValueError("synthetic private response")
+
+    error = harness.installed_api_error(SimpleNamespace(status=503, json=invalid_json))
+    assert error.category == "unclassified"
+    assert "synthetic" not in repr(error.__dict__)
+
+
+@pytest.mark.parametrize("accepted", [False, True])
+def test_profile_ui_operation_observes_response_without_replaying_mutation(accepted, capsys):
+    from contextlib import contextmanager, nullcontext
+    from types import SimpleNamespace
+
+    mutations = []
+    reply = SimpleNamespace(
+        ok=accepted,
+        status=200 if accepted else 409,
+        json=lambda: {"detail": "Synchronization operation failed; inspect its state and retry"},
+    )
+
+    @contextmanager
+    def response(predicate, *, timeout):
+        assert timeout == 180000
+        for method, expected in (("GET", False), ("POST", True)):
+            assert (
+                predicate(
+                    SimpleNamespace(
+                        request=SimpleNamespace(method=method),
+                        url="http://127.0.0.1/api/v1/sync/profiles/synthetic/trash",
+                    )
+                )
+                is expected
+            )
+        yield SimpleNamespace(value=reply)
+
+    device = object.__new__(harness.Device)
+    device.page = SimpleNamespace(expect_response=response)
+    with nullcontext() if accepted else pytest.raises(harness.InstalledAPIError):
+        with device.checked_profile_operation():
+            mutations.append("one native confirmation")
+    assert mutations == ["one native confirmation"]
+    output = capsys.readouterr().out
+    assert f"HTTP {reply.status}" in output and "synthetic" not in output
+
+
 def test_ephemeral_certificate_is_short_lived_and_loopback_only(tmp_path):
     certificate, key = harness.tls_fixture(tmp_path)
     parsed = x509.load_pem_x509_certificate(certificate.read_bytes())

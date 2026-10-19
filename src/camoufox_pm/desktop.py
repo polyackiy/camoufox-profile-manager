@@ -22,8 +22,9 @@ def _instance_lock(data_dir: Path):
     """Hold an OS lock for the process lifetime; crashes release it automatically."""
     data_dir.mkdir(parents=True, exist_ok=True)
     with (data_dir / "desktop.lock").open("a+b") as lock:
-        lock.seek(0)
-        if lock.read(1) == b"":
+        # Windows mandatory byte locks reject even a read by another process.
+        # Inspect size without reading the byte owned by the running instance.
+        if os.fstat(lock.fileno()).st_size == 0:
             lock.write(b"\0")
             lock.flush()
         lock.seek(0)

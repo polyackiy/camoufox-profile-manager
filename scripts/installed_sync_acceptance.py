@@ -42,9 +42,29 @@ _PROCESSES: list[subprocess.Popen] = []
 
 
 class InstalledAPIError(RuntimeError):
-    def __init__(self, status):
+    def __init__(self, status, category="unclassified"):
         self.status = status
+        self.category = category
         super().__init__("Installed API rejected the operation")
+
+
+def installed_api_error(response):
+    # Compare locally with fixed public API messages; never retain/export the
+    # response body, arbitrary error text, profile identifiers or request data.
+    categories = {
+        "Another synchronization ceremony is in progress": "admission_busy",
+        "Synchronization operation failed; inspect its state and retry": "runtime_failed",
+        "Synchronization ceremony failed; check setup and unlock credentials": "ceremony_failed",
+        "Synchronization runtime is unavailable": "runtime_unavailable",
+    }
+    category = "unclassified"
+    try:
+        detail = response.json().get("detail")
+        if isinstance(detail, str):
+            category = categories.get(detail, category)
+    except (ValueError, AttributeError):
+        pass
+    return InstalledAPIError(response.status, category)
 
 
 def tls_fixture(directory):
@@ -374,7 +394,7 @@ class Device:
                 time.sleep(0.2)
                 continue
             if not response.ok:
-                raise InstalledAPIError(response.status)
+                raise installed_api_error(response)
             return response.json()
 
     def panel(self):
@@ -383,6 +403,20 @@ class Device:
         self.page.get_by_role("menuitem", name="Device synchronization", exact=True).click()
         return self.page.get_by_role("dialog", name="Synchronize " + NAME, exact=True)
 
+    @contextlib.contextmanager
+    def checked_profile_operation(self):
+        with self.page.expect_response(
+            lambda response: (
+                response.request.method == "POST" and "/api/v1/sync/profiles/" in response.url
+            ),
+            timeout=180000,
+        ) as operation:
+            yield
+        response = operation.value
+        print(f"Installed acceptance: profile operation HTTP {response.status}", flush=True)
+        if not response.ok:
+            raise installed_api_error(response)
+
     def action(self, label, expected, *, enable=False):
         dialog = self.panel()
         self.unlock(dialog)
@@ -390,18 +424,12 @@ class Device:
             dialog.get_by_label("Allow my trusted devices to receive", exact=False).check()
         if label == "Resume pending transfer":
             expect(dialog.get_by_text("Handoff in progress", exact=True)).to_be_visible()
-        with self.page.expect_response(
-            lambda response: response.request.method == "POST"
-            and "/api/v1/sync/profiles/" in response.url,
-            timeout=180000,
-        ) as operation:
+        with self.checked_profile_operation():
             dialog.get_by_role("button", name=label, exact=True).click()
             if label == "Send to another device":
                 self.page.get_by_role("dialog").filter(
                     has_text="Send this profile to another device?"
                 ).get_by_role("button", name="Send profile", exact=True).click()
-        if not operation.value.ok:
-            raise InstalledAPIError(operation.value.status)
         expect(dialog.get_by_text(expected, exact=True)).to_be_visible()
 
     def close(self):
@@ -580,10 +608,11 @@ def exercise(owner, recipient, relay_url, registration, site):
     owner.action("Get latest profile", "Ready on this device")
     dialog = owner.panel()
     owner.unlock(dialog)
-    dialog.get_by_role("button", name="Move synchronized profile to Trash", exact=True).click()
-    owner.page.get_by_role(
-        "dialog", name="Move synchronized profile to Trash?", exact=True
-    ).get_by_role("button", name="Publish deletion", exact=True).click()
+    with owner.checked_profile_operation():
+        dialog.get_by_role("button", name="Move synchronized profile to Trash", exact=True).click()
+        owner.page.get_by_role(
+            "dialog", name="Move synchronized profile to Trash?", exact=True
+        ).get_by_role("button", name="Publish deletion", exact=True).click()
     expect(dialog.get_by_text("Synchronized profile is in Trash", exact=True)).to_be_visible()
     owner.assert_password_cleared(dialog)
     owner.page.goto(owner.origin + "/trash/")
@@ -595,10 +624,11 @@ def exercise(owner, recipient, relay_url, registration, site):
     row.get_by_role("button", name="Device synchronization", exact=True).click()
     dialog = owner.page.get_by_role("dialog", name="Synchronize " + NAME, exact=True)
     owner.unlock(dialog)
-    dialog.get_by_role("button", name="Restore synchronized profile", exact=True).click()
-    owner.page.get_by_role("dialog", name="Restore synchronized profile?", exact=True).get_by_role(
-        "button", name="Restore and publish", exact=True
-    ).click()
+    with owner.checked_profile_operation():
+        dialog.get_by_role("button", name="Restore synchronized profile", exact=True).click()
+        owner.page.get_by_role(
+            "dialog", name="Restore synchronized profile?", exact=True
+        ).get_by_role("button", name="Restore and publish", exact=True).click()
     expect(dialog.get_by_text("Ready on this device", exact=True)).to_be_visible()
     owner.assert_password_cleared(dialog)
 
@@ -754,6 +784,7 @@ def main():
         result.update(passed=False, phase=phase, error_type=type(exc).__name__, frames=frames[-12:])
         if isinstance(exc, InstalledAPIError):
             result["http_status"] = exc.status
+            result["api_error_category"] = exc.category
         raise RuntimeError(
             f"Installed synchronization acceptance failed at {phase} ({type(exc).__name__}); private diagnostics not exported"
         ) from None
