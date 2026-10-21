@@ -162,7 +162,7 @@ new schema. If rollback fails, retain both copies and the journal for recovery.
 After commit, any downgrade requiring old data asks the user explicitly and
 states the checkpoint date and potential loss of post-upgrade changes.
 
-## Implementation and release gates
+## Acceptance before automatic replacement
 
 1. Accept this design; assign publisher/key owners; set supported installation
    locations and approve the migration schema contract.
@@ -178,11 +178,13 @@ states the checkpoint date and potential loss of post-upgrade changes.
    survives each failure.
 5. Exercise the downloaded, signed package-to-package path on every enabled OS
    and architecture. Source tests and successful CI packaging do not meet this gate.
-   Until #61 and #62 are satisfied, retain the manual installer flow.
+   Retain the manual installer flow unless the separate reviewed trust and
+   automatic-replacement acceptance requirements under #63 are met. Closing
+   #61/#62 does not enable this path or make certificates a manual release gate.
 
 Issue #63 acceptance maps to sections above: authentication/compatibility,
 complete backup refusal, persistent data/key ownership, journal/migration rollback,
-and the real-platform release gate. Approval of this proposal completes the
+and real-platform automatic-replacement acceptance. Approval of this proposal completes the
 design stage; it does not establish that an automatic updater has shipped.
 
 ## References

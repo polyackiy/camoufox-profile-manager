@@ -125,8 +125,8 @@ launches occurred before the first session seed. Fixture identities and the
 original session reference were not regenerated to pass comparisons.
 
 The preceding table records Ubuntu 22.04.5. macOS ARM/Intel, signing and physical
-cold-host GPU behavior remain outside these observations. The complete #62 matrix
-stays open.
+cold-host GPU behavior remain outside these observations. These trials do not
+establish the complete #62 matrix.
 
 ## Fresh Ubuntu 24.04.5 follow-up
 
