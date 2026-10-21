@@ -14,12 +14,13 @@ Self-hosted менеджер профилей антидетект-браузе�
 фингерпринт от запуска к запуску вместе со своими куками, хранилищем и историей,
 так что аккаунт, открытый с него в январе, в июне выглядит с того же компьютера.
 
-> **Настольная предварительная версия:** [скачать v0.6.0-rc.1](https://github.com/polyackiy/camoufox-profile-manager/releases/tag/v0.6.0-rc.1), раздел **Assets**. CI собирает macOS Apple Silicon и Intel, Windows x64 и
-> Ubuntu/Debian x64. Подпись включается при наличии сертификатов; неподписанные
-> сборки могут вызвать предупреждение системы.
+> **Настольная версия:** [скачать последний стабильный релиз](https://github.com/polyackiy/camoufox-profile-manager/releases/latest), раздел **Assets**. CI собирает macOS Apple Silicon и Intel, Windows x64 и
+> Ubuntu/Debian x64. Релизы остаются без подписи; получать сертификаты и проходить
+> нотариализацию macOS не планируем. Они не являются условиями выпуска.
+> Возможны предупреждения системы.
 > [Начало работы](docs/getting-started.ru.md) / [English](docs/getting-started.md).
-> Проверка установщиков на всех платформах и проверка подписи ещё продолжаются;
-> [задачи до стабильного релиза](https://github.com/polyackiy/camoufox-profile-manager/milestone/1). Миграция Chrome остаётся экспериментальной.
+> [Результаты установки и ограничения покрытия](docs/desktop-acceptance.md).
+> Миграция Chrome остаётся экспериментальной.
 
 ![Список профилей](docs/assets/screenshot-profiles.png)
 
@@ -107,8 +108,8 @@ Self-hosted менеджер профилей антидетект-браузе�
 3. Нажмите **Install browser**, дождитесь загрузки и создайте первый профиль.
    Приложение показывает ход установки и позволяет повторить её при ошибке.
 
-В старых релизах могут быть только Python-пакеты. Если в релизе не указано
-обратное, установщики не подписаны и macOS/Windows могут показать предупреждение.
+В старых релизах могут быть только Python-пакеты. По [политике релизов](docs/signing.md)
+установщики не подписаны; macOS/Windows могут показать предупреждение.
 [Краткое руководство](docs/getting-started.ru.md) объясняет установку, резервные
 копии, Trash, обновления и расположение данных.
 
@@ -199,7 +200,7 @@ uv run python -c "from cryptography.fernet import Fernet; print(Fernet.generate_
 | [docs/excel.md](docs/excel.md) | Массовый импорт и экспорт |
 | [docs/accessibility-roadmap.md](docs/accessibility-roadmap.md) | План по выходу на нетехнических пользователей |
 | [docs/releasing.md](docs/releasing.md) | Как выпускать релиз |
-| [docs/signing.md](docs/signing.md) | Подпись десктопных сборок |
+| [docs/signing.md](docs/signing.md) | Релизы без подписи и целостность пакетов |
 | [docs/roadmap.md](docs/roadmap.md) | Что запланировано |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Как участвовать в разработке |
 | [SECURITY.md](SECURITY.md) | Как сообщить об уязвимости |

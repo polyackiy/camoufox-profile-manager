@@ -125,7 +125,10 @@ platform. They do not establish separation between OS accounts, physical-device
 compatibility, enterprise keyring policies, interactive locked-keyring prompts,
 Apple notarization or Windows publisher trust. No private profiles, keychain
 contents, recovery packages, screenshots or application logs are uploaded; only
-sanitized result JSON is retained. Signing and external audit remain release gates.
+sanitized result JSON is retained. Publisher signing/notarization are not release
+conditions under the [unsigned release policy](signing.md). External cryptographic
+audit remains a separate requirement for generally available production
+synchronization; synchronization remains experimental and opt-in.
 
 
 The protected sync-control database precreates its rollback journal with the

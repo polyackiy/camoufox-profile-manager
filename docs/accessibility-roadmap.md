@@ -24,7 +24,8 @@ and [Russian guide](getting-started.ru.md) are the default entry points.
   Users still download and install the package themselves.
 - Tag releases build macOS Apple Silicon/Intel DMGs, Windows x64 NSIS installers
   and Linux x64 Debian/portable packages automatically. Manual builds remain
-  available. Signing runs conditionally when maintainers provide credentials.
+  available. Releases remain unsigned; certificates and notarization are not
+  planned or required under the [release policy](signing.md).
 
 The web UI is bundled with the backend. Neither Python, Node.js, two separate
 servers, `.env` edits nor a `camoufox fetch` command is needed for desktop users.
@@ -33,8 +34,9 @@ servers, `.env` edits nor a `camoufox fetch` command is needed for desktop users
 
 Build automation is an implementation, not proof that every installer runs on
 real hardware. See [release checks](releasing.md) for the target-system matrix.
-Signing/notarization could not be exercised without certificates. Unsigned builds
-can be blocked by OS policy and cannot yet promise a warning-free install.
+Unsigned builds can be blocked by OS policy and do not promise a warning-free
+install. Record normal OS prompts and actual installation outcomes. Absence of
+publisher signatures/notarization is expected, not unfinished release acceptance.
 
 Linux currently targets Ubuntu 22.04+ and compatible Debian x64. The Qt webview
 is bundled, while system graphics libraries remain dependencies. Other Linux
@@ -45,10 +47,10 @@ distributions, AppImage, Windows ARM and Linux ARM are not currently packaged.
 1. Verify fresh install, update, reinstall, backup restore and browser launch on
    real macOS Intel/ARM, Windows and Linux machines, including downloaded/quarantined
    artifacts. Capture current beginner screenshots after that verification.
-2. Configure and verify signing/notarization. Publish actual signing status and
-   supported OS versions with release assets.
-3. Add a verified installer download and a full app replacement/rollback mechanism
-   only after backup compatibility and signature verification are established.
+2. Publish the unsigned package status, supported OS versions and actual
+   installation evidence with release assets; keep untested combinations explicit.
+3. Keep automatic replacement disabled until its separate reviewed trust and
+   acceptance requirements are met. Certificate acquisition is not planned.
 4. Translate the interface; documentation is English/Russian but UI controls remain
    English. Add keyboard and screen-reader audits for dialogs and progress states.
 5. Add broader Linux distribution packaging once the supported package has been

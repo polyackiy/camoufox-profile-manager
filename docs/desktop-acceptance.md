@@ -1,7 +1,10 @@
 # Desktop release acceptance
 
-Tracks [signing #61](https://github.com/polyackiy/camoufox-profile-manager/issues/61)
-and [clean-system trials #62](https://github.com/polyackiy/camoufox-profile-manager/issues/62).
+Records [clean-system trials #62](https://github.com/polyackiy/camoufox-profile-manager/issues/62),
+closed by maintainer acceptance on 19 October 2026 with the coverage limits below.
+[Signing #61](https://github.com/polyackiy/camoufox-profile-manager/issues/61) was closed
+as not planned on 21 October 2026: certificates will not be obtained, and publisher
+signing/notarization are not release conditions. See [the unsigned release policy](signing.md).
 Use this protocol on disposable accounts or clean VM/system snapshots with
 synthetic profiles. A source installation on a developer's Mac does not qualify
 as a clean-machine trial. [Release checks](releasing.md) cover packaging.
@@ -70,7 +73,7 @@ Fresh account/VM image and installation location:
 Python/Node absent: yes/no
 WebView2 initially present: yes/no/not applicable
 Download method; quarantine/Gatekeeper or SmartScreen behavior:
-Publisher identity, signature/timestamp and notarization result:
+Signing status (unsigned expected); any ad-hoc signature; OS prompt observations:
 Scenario IDs below: pass/fail/not tested, with brief observations
 Linked reproducible failure issues:
 ```
@@ -129,19 +132,19 @@ additional interruption/migration tests in [its design](automatic-updates.md).
 
 Download in a normal browser and preserve the OS quarantine marking. Install
 the DMG app using its Applications shortcut, launch through Finder and repeat
-D12–D14. Test each architecture separately. For signed candidates, verify the
-installed app and downloaded installer with the commands in [signing](signing.md),
-inspect the Developer ID Team ID, and record Gatekeeper's normal first-launch
-behavior. Passing ad-hoc `codesign` verification does not satisfy #61.
+D12–D14. Test each architecture separately. Record the expected absence of
+Developer ID/notarization and Gatekeeper's normal first-launch behavior; see
+[signing status](signing.md). An ad-hoc signature is not publisher verification.
+No publisher signature or notarization ticket is required for release.
 
 ### Windows 10 and Windows 11 x64
 
 Run as an ordinary user, in separate clean images with WebView2 absent and
 already installed. Verify runtime installation/retry, Start menu launch,
-installer cancellation, app update and uninstaller behavior. Check both app and
-installer Authenticode publisher/timestamp; use `signtool verify /pa /all /v`
-or OS trust inspection. Record normal SmartScreen behavior separately from
-signature validity. An administrator-only successful installation does not
+installer cancellation, app update and uninstaller behavior. Record app/installer
+Authenticode status with OS trust inspection; `NotSigned` is expected, not a
+failed release check. Record normal SmartScreen behavior and the installation
+decision. An administrator-only successful installation does not
 satisfy the ordinary-user case.
 
 ### Ubuntu 22.04+ x64
@@ -157,16 +160,18 @@ package's `/opt/camoufox-pm` installation directory.
 
 ## Stable release decision
 
-#61 remains open until downloaded macOS ARM/Intel packages pass Developer ID,
-notarization and normal Gatekeeper checks, Windows app/installer publisher and
-timestamp checks pass, and beginner guides describe those verified flows.
+#61 is closed as not planned. Both stable and preview releases remain unsigned;
+obtaining certificates, Developer ID/Authenticode verification and notarization
+are not acceptance requirements. OS prompts and actual installation outcomes
+remain observations to record, without disabling protections.
 
-#62 remains open until the supported platform/runtime combinations have recorded
-results for required scenarios, with failures fixed and retested. Automated
-source/UI tests and successful packaging are useful evidence but do not replace
-these trials. Any intentionally unsupported combination must be removed from
-the stated support matrix before promotion. #63 is later design/implementation
-work and is not a prerequisite for the current manual-update desktop preview.
+#62 is closed by maintainer acceptance of the recorded Windows/Linux evidence.
+That decision does not turn untested configurations into passes. Preserve the
+historical results, failures and explicit limits, and use this protocol for
+subsequent installation, upgrade and data-preservation trials. Automated
+source/UI tests and successful packaging do not establish unperformed trials.
+#63 concerns the separate disabled automatic replacement path; its trust checks
+are not conditions for publishing unsigned, manually installed releases.
 
 ## Automated Windows installer removal safety
 
@@ -189,7 +194,8 @@ behavior; use the corrected installer from a subsequent release before uninstall
 These are automated D13/D14 filesystem regression checks, not full D02–D14
 clean desktop acceptance. They do not prove SmartScreen behavior, Windows
 10/11 ordinary-user setup, missing-WebView2 installation, distinct-version
-upgrades, or real profile/key readability. Those trials and #61/#62 remain open.
+upgrades, or real profile/key readability. Consult the dated follow-up evidence
+above for those trials; closure of #61/#62 does not expand this automated coverage.
 
 ## Automated Windows WebView2 prerequisite faults
 
@@ -216,7 +222,8 @@ These deterministic fault cases do not establish real WebView2 download success,
 interactive Retry-button behavior, runtime usability, or clean ordinary-user
 Windows 10/11 acceptance. The prerequisite reads registration as Microsoft's
 recommended presence check; same-account registry tampering/stale installation
-can still require repair by the user. #62 remains open for those end-user trials.
+can still require repair by the user. End-user trial coverage and remaining image
+limitations are recorded in the follow-ups above.
 
 ## Automated Linux package lifecycle
 
@@ -239,6 +246,7 @@ SHA-256 and pass status, never profile contents or keys.
 
 This checks the APT lifecycle and a non-graphical frozen command, not a real
 window manager, browser launch, native key-store prompts, or separate physical
-machines. Container results therefore advance #62 without closing its clean
-desktop acceptance gate. The portable archive remains covered separately by the
+machines. Container results alone do not establish clean desktop acceptance;
+the maintainer's #62 decision also references the separate desktop trials above.
+The portable archive remains covered separately by the
 installed-manager synchronization trials.

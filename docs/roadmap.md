@@ -7,9 +7,11 @@ Track progress in [GitHub Issues](https://github.com/polyackiy/camoufox-profile-
 
 Stage one now has native installers/build automation, in-app browser setup,
 short RU/EN onboarding, profile backups, Trash and backup-gated release checks.
-See [accessibility-roadmap.md](accessibility-roadmap.md) for remaining release
-acceptance checks, especially signing and real Windows/Linux first-run testing.
-An available build is not automatically a signed, published release.
+See [accessibility-roadmap.md](accessibility-roadmap.md) and the
+[desktop evidence](desktop-acceptance.md) for installation coverage and follow-ups.
+Releases remain unsigned under the [release policy](signing.md); certificates
+and notarization are not planned or required for publication. A successful build
+still needs the release asset/checksum audit before publication.
 
 Manual browsing is part of this stage: use Camoufox's upstream theming toggle
 for ordinary tabs and controls, with a per-profile choice. See
@@ -26,8 +28,9 @@ The [Camoufox compatibility review](camoufox-compatibility.md) records the teste
 wrapper/browser pair. Stage three implements [roles, profile access and activity records](stage-three.md)
 ([#77](https://github.com/polyackiy/camoufox-profile-manager/issues/77)).
 Cross-device synchronisation follows a separate design. [Coordinated manager/browser updates](update-recovery.md) now have an integrated
-checkpoint, helper, validation and rollback transaction. Public unsigned previews
-retain manual installation until production signing and platform acceptance.
+checkpoint, helper, validation and rollback transaction. Public unsigned releases,
+including stable releases, retain manual installation. Automatic replacement
+remains disabled under its separate trust and platform acceptance requirements.
 
 ## Since 0.2.0
 
@@ -135,6 +138,9 @@ order of how much they would hurt if left alone:
 
 ## Not planned
 
+- **Publisher certificates and macOS notarization.** Releases remain unsigned;
+  [#61](https://github.com/polyackiy/camoufox-profile-manager/issues/61) is closed
+  as not planned. Signing/notarization are not release gates.
 - **Chromium-based profiles.** This is a Camoufox manager, and Camoufox is
   Firefox. A Chrome fingerprint is a different product.
 - **Mobile profiles.** Camoufox is desktop Firefox; Android and iOS profiles are

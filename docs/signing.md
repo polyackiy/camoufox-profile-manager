@@ -1,71 +1,51 @@
-# Desktop signing and notarization
+# Unsigned desktop release policy
 
-Desktop installers are **unsigned by default**. The workflow always creates
-DMGs, the Windows installer, and Linux packages even when credentials are absent.
-Do not call an artifact signed or notarized solely because the workflow passed:
-inspect which optional signing steps ran and verify the downloaded package.
-No signing certificates or notarization credentials were available during this
-implementation; those paths require a real signed-build verification.
+The project releases **unsigned installers** and will not obtain platform
+code-signing certificates. Publisher signing and macOS notarization are not
+conditions for a preview or stable release. The maintainer confirmed this policy
+on 21 October 2026 and closed [#61 as not planned](https://github.com/polyackiy/camoufox-profile-manager/issues/61).
+
+The workflow creates macOS DMGs, the Windows installer and Linux packages without
+signing credentials. Existing conditional signing steps remain implementation
+code outside the current release process; configuring credentials or exercising
+those steps is not release work.
+
+## Expected package status
+
+| Platform | Status to record |
+| --- | --- |
+| macOS Apple Silicon/Intel | No Developer ID publisher signature or notarization ticket. A packaging-generated ad-hoc signature is not publisher verification. |
+| Windows x64 | No Authenticode publisher signature; `NotSigned` is expected. |
+| Linux x64 | Unsigned `.deb` and portable `.tar.gz` downloads with SHA-256 sidecars; no signed apt repository. |
+
+Record the actual status and tested architectures in release notes. Absence of a
+publisher signature or notarization ticket is expected, not a failed release
+check. For inspection, macOS `codesign -dv --verbose=4` and
+`xcrun stapler validate` report identity/ticket status; Windows
+`Get-AuthenticodeSignature` reports Authenticode status. These observations must
+not be presented as verified publisher identity.
+
+## Installation and integrity
 
 Unsigned macOS apps may be blocked by Gatekeeper, and Windows may display
 SmartScreen warnings. Organization policy can prevent opening unsigned software.
-The beginner guide does not advise disabling security controls. Signing does
-not guarantee an immediate absence of reputation-based Windows prompts.
+Record normal prompts and the user's installation decision; do not disable OS
+security controls to make an acceptance test pass. See the
+[English](getting-started.md) and [Russian](getting-started.ru.md) guides.
 
-## macOS
+Download from the project's GitHub releases and compare each asset with its
+same-name `.sha256` sidecar. These checks detect corruption; checksums from the
+same release do not independently authenticate its publisher. Build success or
+an ad-hoc macOS signature does not change that distinction.
 
-Add repository Actions secrets:
+## Release checks and automatic updates
 
-| Secret | Meaning |
-| --- | --- |
-| `MACOS_CERT_P12` | Base64-encoded Developer ID Application certificate and private key |
-| `MACOS_CERT_PASSWORD` | Password protecting the certificate export |
-| `MACOS_SIGN_IDENTITY` | Full Developer ID Application identity |
-| `APPLE_API_KEY_P8` | Base64-encoded App Store Connect API private key |
-| `APPLE_API_KEY_ID` | API key ID |
-| `APPLE_API_ISSUER_ID` | API issuer ID |
+[The release checklist](releasing.md#before-tagging) still requires tests,
+packaging, installation/data-preservation evidence and a complete asset audit.
+Keep untested configurations and observed failures explicit.
 
-The workflow imports the certificate into a temporary keychain, signs the app
-with the hardened runtime and timestamp, creates a DMG, submits it with
-`notarytool`, then staples the ticket. Notarization runs only when both the
-certificate and API private key are present; signing alone is not notarization.
-Temporary credential files/keychain are removed in an `always()` cleanup step.
-
-On the first credentialed run, verify nested Python/native libraries are signed,
-inspect notarization diagnostics, and test the downloaded DMG on a clean Mac:
-
-```bash
-codesign --verify --deep --strict --verbose=2 "/Applications/Camoufox Profile Manager.app"
-spctl --assess --type execute --verbose "/Applications/Camoufox Profile Manager.app"
-xcrun stapler validate camoufox-pm-macos-arm64.dmg
-```
-
-See [Apple's notarization documentation](https://developer.apple.com/documentation/security/notarizing-macos-software-before-distribution)
-for account requirements and troubleshooting. Both architectures need verification.
-
-## Windows
-
-Add `WINDOWS_CERT_PFX` (base64-encoded Authenticode certificate/private key) and
-`WINDOWS_CERT_PASSWORD`. The workflow signs the application executable before
-NSIS packaging, then signs the final installer, using SHA-256 and a timestamp.
-The Windows SDK supplies `signtool`. Verify both downloaded installer and
-installed executable with `signtool verify /pa /v`.
-
-This path applies only to signing credentials that can be used as a PFX in CI.
-Hardware-backed or managed signing services need a corresponding integration;
-the workflow does not claim to support them automatically. Follow
-[Microsoft's SignTool documentation](https://learn.microsoft.com/windows/win32/seccrypto/signtool)
-for certificate and verification requirements.
-
-## Linux
-
-The `.deb` and portable `.tar.gz` are unsigned and accompanied by SHA-256 sidecars.
-They are release downloads, not a signed apt repository. GPG signatures, package
-repository distribution and AppImage are future work.
-
-## Release labels
-
-Record the actual status in release notes: unsigned, signed, or signed and
-notarized, and which architectures/platforms were tested. A local macOS build or
-mocked frontend check does not establish Windows/Linux installation success.
-[Release checks](releasing.md) list the outstanding real-system checks.
+This release policy does not change the disabled automatic replacement path or
+its cryptographic/publisher checks. The existing
+[updater contract](update-signing.md) requires a separate reviewed trust and
+acceptance decision before enablement. Unsigned stable releases continue to use
+the manual installer flow.

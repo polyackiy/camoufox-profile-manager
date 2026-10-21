@@ -1,5 +1,13 @@
 # Verified update repository contract
 
+This is the contract for the disabled automatic replacement path, not the
+manual release checklist. The project [releases unsigned installers](signing.md)
+and will not obtain publisher certificates or notarization. The publisher-based
+deployment described here is not provisioned; enabling a future updater requires
+a separate reviewed trust decision. Existing cryptographic and OS publisher
+checks remain mandatory in this implementation and are not changed by the
+unsigned release policy.
+
 `core/update_targets.py` uses the maintained [python-tuf client](https://theupdateframework.readthedocs.io/en/latest/api/tuf.ngclient.updater.html).
 Install the `updates` extra to use it. There is no production trust root in this
 repository. Without an explicitly provisioned trusted local root, downloads fail
@@ -58,7 +66,8 @@ adapter executes downloaded code. Unsupported platforms fail closed.
 Unit tests mock OS results to exercise rejection paths. The native smoke test
 uses the real OS tools to reject an unsigned synthetic package on macOS/Windows.
 Positive signed and notarized package trials still require maintainer credentials
-and remain release gates.
+under this automatic-replacement contract. They are not manual release gates or
+planned certificate-acquisition work.
 
 Target staging and metadata caches use the shared native permissions adapter:
 Windows protected DACLs grant access only to the current user and SYSTEM; POSIX
@@ -112,7 +121,8 @@ confirmation. A helper reconstructs its binding from a freshly authenticated
 archive, never trusts an unsigned persisted inventory. TUF fixtures may use
 short-lived CI signing keys and native verifier mocks to test this content
 pipeline; they do not relax runtime publisher policy. Positive platform signature
-and notarization trials still require release credentials.
+and notarization trials still require credentials under this unprovisioned
+automatic-replacement contract, not for publishing unsigned installers.
 
 For paired upstream Camoufox downloads, `extract_verified_browser_archive` accepts
 only a separately TUF-authenticated `component=camoufox` target. The repository

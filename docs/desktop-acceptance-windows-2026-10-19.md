@@ -9,6 +9,11 @@ They concern unsigned previews. They do not close the full platform matrix in
 [#62](https://github.com/polyackiy/camoufox-profile-manager/issues/62), publisher
 signing in #61, production updater trust in #63, or independent human review.
 
+This is a dated evidence record. The maintainer subsequently closed #62 by
+acceptance and #61 as not planned; see [the current unsigned release policy](signing.md).
+Those decisions do not turn untested configurations into passes or change the
+historical failures below.
+
 ## Candidate identity and protected environments
 
 The initial corrected Windows installer was built from
