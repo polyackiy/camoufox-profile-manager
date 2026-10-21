@@ -6,6 +6,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Documentation
+- Make the unsigned release policy permanent: certificates and macOS notarization
+  are not planned or required for preview/stable releases (#61 closed as not planned).
+- Align the release checklist, installation guides and acceptance records while
+  keeping the disabled automatic updater's trust checks separate and unchanged.
+
 ## [0.6.0] - 2026-10-19
 
 Stable release with unsigned desktop installers. Platform certificates and macOS

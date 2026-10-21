@@ -7,6 +7,13 @@ and transaction primitives are now implemented as described in
 not enabled. The current release check and manual
 installer flow remain described in [getting started](getting-started.md).
 
+The project [releases unsigned installers](signing.md) and will not obtain
+publisher certificates or notarization. This proposed publisher-based automatic
+replacement design is therefore not provisioned for public releases. Its trust
+requirements are specific to future automatic replacement, not conditions for
+publishing manual preview/stable installers. Enabling a future updater needs a
+separate reviewed trust decision; the existing verifiers remain unchanged.
+
 ## Current boundaries
 
 `core/updates.py` checks stable GitHub releases and filters asset URLs to this
@@ -31,7 +38,8 @@ an authenticity check.
    from the same location as the proposed update. Use maintained client tooling
    rather than implementing signature verification and metadata rotation here.
 3. Require platform publisher verification in addition to TUF target verification
-   on macOS and Windows. Unsigned previews keep the manual installer flow.
+   on macOS and Windows. Public unsigned releases, including stable releases,
+   keep the manual installer flow.
 4. Start with per-user macOS and Windows installation locations. System-owned
    locations remain manual until a separately reviewed privileged helper exists.
    Linux application replacement remains with the package manager; a verified
@@ -46,7 +54,7 @@ These decisions need maintainer acceptance and the platform trials in
 
 ## Release authentication and compatibility
 
-Keep root keys offline with threshold signing. A protected release job publishes
+Keep root keys offline with threshold signing. A protected updater-repository job publishes
 targets, snapshot and timestamp metadata only after package signing,
 notarization, tests and the final asset audit succeed. Separate publishing
 credentials from root keys. Document root-key rotation and recovery from a
@@ -83,7 +91,8 @@ verify both installer and app with the OS Authenticode trust policy and an
 explicit publisher/key-rotation policy; matching a certificate's display name
 alone is insufficient. If publisher verification cannot complete, do not run
 the downloaded code. Policy identifiers and credential owners are unresolved
-until [#61](https://github.com/polyackiy/camoufox-profile-manager/issues/61) is met.
+for this unprovisioned design. [#61](https://github.com/polyackiy/camoufox-profile-manager/issues/61)
+is closed as not planned; certificate acquisition is not a pending release task.
 
 ## Complete data checkpoint
 
@@ -153,7 +162,7 @@ new schema. If rollback fails, retain both copies and the journal for recovery.
 After commit, any downgrade requiring old data asks the user explicitly and
 states the checkpoint date and potential loss of post-upgrade changes.
 
-## Implementation and release gates
+## Acceptance before automatic replacement
 
 1. Accept this design; assign publisher/key owners; set supported installation
    locations and approve the migration schema contract.
@@ -169,11 +178,13 @@ states the checkpoint date and potential loss of post-upgrade changes.
    survives each failure.
 5. Exercise the downloaded, signed package-to-package path on every enabled OS
    and architecture. Source tests and successful CI packaging do not meet this gate.
-   Until #61 and #62 are satisfied, retain the manual installer flow.
+   Retain the manual installer flow unless the separate reviewed trust and
+   automatic-replacement acceptance requirements under #63 are met. Closing
+   #61/#62 does not enable this path or make certificates a manual release gate.
 
 Issue #63 acceptance maps to sections above: authentication/compatibility,
 complete backup refusal, persistent data/key ownership, journal/migration rollback,
-and the real-platform release gate. Approval of this proposal completes the
+and real-platform automatic-replacement acceptance. Approval of this proposal completes the
 design stage; it does not establish that an automatic updater has shipped.
 
 ## References

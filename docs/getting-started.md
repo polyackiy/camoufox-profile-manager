@@ -26,8 +26,10 @@ Linux also has a portable `.tar.gz`: extract the complete folder and open its
 webview needs system graphics libraries; use the `.deb` where possible because
 it declares those dependencies. Other Linux distributions have not been validated.
 
-Unsigned builds can trigger macOS Gatekeeper or Windows SmartScreen. Check the
-release's signing status and publisher before deciding to open it. Managed
+Project installers are unsigned, and macOS builds are not notarized. Certificates
+and notarization are not planned or required for release. Download from the
+official release and compare the SHA-256 sidecar before deciding to open it;
+Gatekeeper or SmartScreen may display a warning. Managed
 computers may require your administrator's approval. Do not turn off your system's
 security features. See [signing status and limitations](signing.md).
 

@@ -2,10 +2,12 @@
 
 Automatic executable replacement remains disabled pending trusted TUF root,
 publisher policy and signed package-to-package acceptance on supported platforms.
-Issue #63 remains open for production trust provisioning and signed platform trials.
+Issue #63 remains open for this separate automatic-replacement trust and acceptance
+work. Publisher certificates and notarization are [not planned or required for
+manual releases](signing.md); the existing automatic path remains disabled.
 The manual commands below remain usable without certificates. The integrated
 desktop transaction is described after them; it stays unavailable in unsigned
-previews and source installations.
+public releases (including stable releases) and source installations.
 
 Close every manager instance and browser before running:
 
@@ -145,8 +147,10 @@ interruption recovery, browser pairing and timestamp-confirmed binary/data
 rollback. They use synthetic packages and isolated temporary data. They do not
 establish that an unsigned public preview can safely self-replace.
 
-Remaining release gates are production root/key ownership, authenticated metadata
-publication/rotation, Apple Developer ID/notarization and Windows code signing,
+Remaining automatic-replacement requirements are production root/key ownership,
+authenticated metadata publication/rotation, Apple Developer ID/notarization and Windows code signing,
 and real signed package-to-package acceptance on each enabled OS/architecture.
-A successful unsigned build or mocked publisher check cannot satisfy these gates.
-#63 stays open for these gates; #61/#62 track signing and installation acceptance.
+A successful unsigned build or mocked publisher check cannot satisfy these
+automatic-replacement requirements. They are not conditions for publishing
+unsigned installers. #63 stays open for this separate work; #61 is closed as not
+planned and #62 is closed by maintainer acceptance with recorded coverage limits.

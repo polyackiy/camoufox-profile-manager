@@ -185,11 +185,16 @@ Linux launcher/window icons. Generated representations include small and Retina
 sizes; `iconutil` decoded the ICNS and Windows ICO structure was inspected. Actual
 Windows/Intel/Linux runtime behavior remains outside this Mac trial.
 
-## Remaining acceptance work
+## Acceptance work remaining at the time of this trial
 
-#62 remains open. Apple Silicon still requires quarantined normal installation,
+At the time of this trial, #62 remained open. Apple Silicon still required quarantined normal installation,
 a fresh account/system without development runtimes or browser cache, browser
 download/retry, the remaining deletion/update scenarios, a distinct later DMG
 upgrade, and testing the corrected package in the clean-system matrix. The local
 Apple Silicon shutdown retest passed as recorded above. Intel macOS, Windows and Linux need their
-own target trials. Signing/notarization is tracked separately in #61.
+own target trials. Signing/notarization was tracked separately in #61.
+
+The maintainer subsequently closed #62 by acceptance and #61 as not planned.
+The [current release policy](signing.md) keeps installers unsigned and does not
+require certificates/notarization. These administrative decisions do not expand
+this trial's coverage.

@@ -2,9 +2,11 @@
 
 Design follow-up: [#63](https://github.com/polyackiy/camoufox-profile-manager/issues/63).
 This describes the update architecture. See [implementation status](update-recovery.md)
-for the integrated transaction and remaining production release gates. Unsigned
-public previews retain manual installation until trust provisioning and signed
-platform acceptance are complete.
+for the integrated transaction and remaining automatic-replacement requirements.
+Unsigned public releases, including stable releases, retain manual installation.
+Certificates and notarization are [not planned or required for release](signing.md).
+The publisher-based updater design below remains disabled; future enablement
+requires a separate reviewed trust and acceptance decision.
 
 ## One compatible pair
 
@@ -59,8 +61,10 @@ restoration. Preserve a copy of the failed newer state for recovery.
   Windows and Linux architectures, including paths with spaces/non-ASCII text.
 - Verify cookies, local storage, pinned identity, proxies, extensions, tags,
   templates, saved views and scheduler state after upgrade and after rollback.
-- Keep signing/notarization and package-manager distribution requirements in the
-  release milestone. A link to official GitHub assets is not signature verification.
+- Keep automatic-replacement trust/publisher acceptance separate from the manual
+  release checklist. Certificate acquisition/notarization are not planned release
+  work; existing verifier requirements are not relaxed by that decision. A link
+  to official GitHub assets is not signature verification.
 
 ## Upstream maintenance
 

@@ -3,8 +3,12 @@
 These later same-day trials extend the [Windows record](desktop-acceptance-windows-2026-10-19.md)
 and [Linux record](desktop-acceptance-linux-2026-10-19.md) for
 [#62](https://github.com/polyackiy/camoufox-profile-manager/issues/62).
-Historical failures and qualifications remain recorded. The complete platform
-matrix and signing requirements remain open.
+Historical failures and qualifications remain recorded. At the time of these
+trials, the complete platform matrix and signing requirements remained open.
+Subsequently, the maintainer closed #62 by acceptance of the recorded evidence
+and #61 as not planned. [Current release policy](signing.md) keeps releases
+unsigned and does not require certificates/notarization; it does not expand the
+tested coverage below.
 
 ## Exact packages
 
@@ -121,8 +125,8 @@ launches occurred before the first session seed. Fixture identities and the
 original session reference were not regenerated to pass comparisons.
 
 The preceding table records Ubuntu 22.04.5. macOS ARM/Intel, signing and physical
-cold-host GPU behavior remain outside these observations. The complete #62 matrix
-stays open.
+cold-host GPU behavior remain outside these observations. These trials do not
+establish the complete #62 matrix.
 
 ## Fresh Ubuntu 24.04.5 follow-up
 

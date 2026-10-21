@@ -8,6 +8,14 @@ publishes it only after all jobs and the asset/checksum audit pass. No manual se
 is needed. The Actions **Desktop builds** manual dispatch remains available; an
 optional `release_tag` checks out that tag and attaches its installers.
 
+## Release policy
+
+Preview and stable releases use unsigned installers. The project will not obtain
+platform code-signing certificates; publisher signing and macOS notarization are
+not release requirements. [#61 is closed as not planned](https://github.com/polyackiy/camoufox-profile-manager/issues/61)
+by the maintainer's 21 October 2026 decision. See [expected signing status](signing.md)
+for package labels, integrity checks and normal OS approval prompts.
+
 ## Artifacts
 
 | Platform | Release asset | Builder |
@@ -17,8 +25,8 @@ optional `release_tag` checks out that tag and attaches its installers.
 | Windows x64 | `camoufox-pm-windows-x86_64-setup.exe` | Windows 2022 + NSIS |
 | Linux x64 | `camoufox-pm-linux-x86_64.deb` and `.tar.gz` | Ubuntu 22.04 + bundled Qt webview |
 
-Each desktop asset has a same-name `.sha256` sidecar, computed after signing and
-notarization. Checksums detect file corruption; checksums downloaded from the
+Each desktop asset has a same-name `.sha256` sidecar, computed after final
+packaging. Checksums detect file corruption; checksums downloaded from the
 same release do not independently establish the publisher's identity.
 
 macOS DMGs include an Applications shortcut. Windows installs per user without
@@ -65,9 +73,10 @@ test checks the installed library for the required sequencer API as well.
    and run a profile, restart from a different working directory, backups and
    restore, Trash, closing running browsers with the manager, and reinstalling
    without data loss. Confirm a second launch gives a clear already-open message.
-5. For signed builds verify signatures and macOS notarization on downloaded
-   quarantined artifacts. No certificates are present in this development
-   environment; conditional signing steps need real credentials and validation.
+5. Record the expected unsigned status and normal Gatekeeper/SmartScreen behavior
+   of downloaded packages. No publisher certificate, Authenticode signature,
+   Developer ID or notarization ticket is required. Preserve OS protections and
+   distinguish checksum integrity from publisher verification; see [the policy](signing.md).
 6. Only after release approval, create and push an annotated `v<version>` tag.
    Watch **Release** and all four **Desktop builds** jobs finish. Check every
    expected asset is present and its checksum matches before publishing the draft.
@@ -78,12 +87,11 @@ test checks the installed library for the required sequencer API as well.
 
 No tag or release upload is performed by the build script itself.
 
-### 0.6.0 unsigned stable policy
+### Recorded 0.6.0 acceptance
 
 The maintainer approved publishing 0.6.0 as a stable, unsigned release on
-19 October 2026. Platform certificates and macOS notarization are optional future
-work in #61, rather than a prerequisite for this release. Label the installers
-accurately and retain normal operating-system security prompts.
+19 October 2026. The release policy above applies to subsequent releases too;
+certificate acquisition and notarization are not planned work.
 
 Issue #62 is closed by maintainer acceptance of the recorded Windows/Linux
 evidence. Its original unchecked platform entries and the
@@ -92,14 +100,11 @@ record; closure does not establish untested macOS or Windows 11 runtime-absence
 combinations. Synchronization remains experimental and opt-in. Production trust
 and signed package acceptance still gate automatic application installation.
 
-## Local build and signing order
+## Local unsigned build
 
 ```bash
 uv sync --extra build
-uv run python scripts/build_desktop.py
-# Apply platform signing to the app/binary when credentials are available.
-uv run python scripts/build_desktop.py --package-only
-# Notarize/staple the DMG or sign the Windows installer when configured.
+uv run python scripts/build_desktop.py --package
 uv run python scripts/build_desktop.py --checksums-only
 ```
 
@@ -113,20 +118,22 @@ raster formats after editing the SVG, run `npm ci --prefix web` followed by
 `node scripts/build_icons.mjs` (using Next's installed sharp renderer). PyInstaller
 embeds the ICNS/ICO, NSIS uses the ICO for both installer and uninstaller, and
 Linux uses the SVG for its desktop launcher and GTK/Qt window. Regenerate these
-assets before signing; changing an installed app's icon invalidates its signature.
+assets before packaging and compute checksums from the final files.
 
 ## Update boundaries
 
-Settings checks only the configured project's GitHub releases. Unsigned public
-previews prepare a backup and offer the project release URL; users close the
-manager and install manually. Keep complete pre-upgrade checkpoints and matching
+Settings checks only the configured project's GitHub releases. Unsigned preview
+and stable releases prepare a backup and offer the project release URL; users
+close the manager and install manually. Keep complete pre-upgrade checkpoints and matching
 installers: older managers must not open a newer database schema.
 
 The integrated updater includes verified target preparation, complete checkpoints,
 offline replacement, migration, validation and recovery. Automatic installation
-remains disabled until production TUF trust, platform publisher policy and signed
-package-to-package acceptance are provisioned. It does not bypass OS security
-prompts. See [the current recovery implementation](update-recovery.md).
+remains disabled. Its existing production TUF, publisher-policy and signed-package
+acceptance requirements belong to automatic replacement, not manual release
+publication. The unsigned release policy does not relax these checks or enable
+that path; any future enablement needs a separate reviewed trust design. It does
+not bypass OS security prompts. See [the current recovery implementation](update-recovery.md).
 
 ## Publishing to PyPI (optional)
 
@@ -138,15 +145,15 @@ OIDC rather than a PyPI API token. Desktop installation does not require PyPI.
 
 ## Current public tracking
 
-- [0.6.0 stable-release readiness](https://github.com/polyackiy/camoufox-profile-manager/milestone/1)
-- [Signing and notarization #61](https://github.com/polyackiy/camoufox-profile-manager/issues/61)
-- [Clean-system acceptance #62](https://github.com/polyackiy/camoufox-profile-manager/issues/62)
+- [Published stable 0.6.0](https://github.com/polyackiy/camoufox-profile-manager/releases/tag/v0.6.0)
+- [Signing and notarization #61](https://github.com/polyackiy/camoufox-profile-manager/issues/61) — closed as not planned; releases remain unsigned
+- [Clean-system acceptance #62](https://github.com/polyackiy/camoufox-profile-manager/issues/62) — closed by maintainer acceptance; recorded coverage limits remain
 - [Verified automatic updates #63](https://github.com/polyackiy/camoufox-profile-manager/issues/63) (production trust and signed acceptance remain open)
 
-Use the [desktop acceptance protocol and recorded preview evidence](desktop-acceptance.md)
-for #61/#62. The [automatic updater design](automatic-updates.md) records the architecture;
+Use the [desktop acceptance protocol and recorded evidence](desktop-acceptance.md)
+for installation checks. The [automatic updater design](automatic-updates.md) records the architecture;
 [update-recovery.md](update-recovery.md) distinguishes implemented recovery from
-the production signing and trust gates that remain open.
+the production trust and publisher checks that remain specific to automatic replacement.
 
 Prerelease tags are excluded from the optional PyPI publish job. The application's
 stable update checker also intentionally excludes prereleases; preview testers

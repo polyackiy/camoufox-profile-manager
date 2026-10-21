@@ -13,12 +13,13 @@ Each profile is **one long-lived machine**. It keeps the same fingerprint every
 session, along with its own cookies, storage and history, so an account opened
 from it in January still looks like the same computer in June.
 
-> **Desktop preview:** [download v0.6.0-rc.7](https://github.com/polyackiy/camoufox-profile-manager/releases/tag/v0.6.0-rc.7) from **Assets**. macOS
+> **Desktop release:** [download the latest stable release](https://github.com/polyackiy/camoufox-profile-manager/releases/latest) from **Assets**. macOS
 > Apple Silicon and Intel, Windows x64, and Ubuntu/Debian x64 builds are produced
-> by CI. Signing is conditional; unsigned builds can show OS security warnings.
+> by CI. Releases remain unsigned; certificates and macOS notarization are not planned
+> and are not release requirements. OS security warnings can appear.
 > See [Getting started](docs/getting-started.md) / [Начало работы](docs/getting-started.ru.md).
-> Cross-platform installer and signing validation is still in progress; see
-> [release milestone](https://github.com/polyackiy/camoufox-profile-manager/milestone/1). Chrome migration remains experimental.
+> See [installation evidence and coverage limits](docs/desktop-acceptance.md).
+> Chrome migration remains experimental.
 
 ![The profiles list](docs/assets/screenshot-profiles.png)
 
@@ -128,7 +129,7 @@ of plausible parts.
    first profile. The app shows progress and provides a retry if installation fails.
 
 Older releases may only offer Python packages. Desktop installers are unsigned
-unless release notes say otherwise; macOS/Windows can show a security warning.
+under the [release policy](docs/signing.md); macOS/Windows can show a security warning.
 Read the [short beginner guide](docs/getting-started.md) for installation,
 backups, Trash, updates, and where your data lives.
 
@@ -264,7 +265,7 @@ another host holds it.
 | [docs/excel.md](docs/excel.md) | Bulk import and export |
 | [docs/accessibility-roadmap.md](docs/accessibility-roadmap.md) | Plan for reaching non-technical users |
 | [docs/releasing.md](docs/releasing.md) | Cutting a release |
-| [docs/signing.md](docs/signing.md) | Code-signing the desktop builds |
+| [docs/signing.md](docs/signing.md) | Unsigned release policy and package integrity |
 | [docs/roadmap.md](docs/roadmap.md) | What is planned |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Working on the project |
 | [SECURITY.md](SECURITY.md) | Reporting a vulnerability |
