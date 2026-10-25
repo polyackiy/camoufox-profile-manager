@@ -194,7 +194,12 @@ def answers(monkeypatch):
 
     def install(*scripted):
         client = FakeClient(scripted)
-        monkeypatch.setattr(proxy_check.httpx, "AsyncClient", lambda **kwargs: client)
+
+        def transport(**kwargs):
+            client.proxy_url = kwargs.get("proxy")
+            return client
+
+        monkeypatch.setattr(proxy_check.httpx, "AsyncClient", transport)
         holder["client"] = client
         return client
 
@@ -246,6 +251,58 @@ async def test_a_failure_is_reported_in_words_the_user_can_act_on(answers, failu
 
     with pytest.raises(ConnectionError, match=expected):
         await proxy_check.resolve_exit_ip(None)
+
+
+@pytest.mark.asyncio
+async def test_https_timeout_explains_proxy_tls_without_retrying_as_http(answers):
+    """An HTTP CONNECT port selected as HTTPS used to show only 'timed out'."""
+    failure = httpx.ConnectTimeout("https://private-user:private-password@h:443")
+    client = answers(failure, failure, failure)
+    proxy = ProxyConfig(
+        type=ProxyType.HTTPS, server="h:443", username="private-user", password="private-password"
+    )
+
+    result = await proxy_check.check(proxy, BrowserSettings())
+
+    assert not result.reachable
+    assert result.error == proxy_check.HTTPS_TIMEOUT_ERROR
+    assert "HTTP CONNECT" in result.error
+    assert "private-user" not in result.error and "private-password" not in result.error
+    assert client.asked == list(proxy_check.IP_ENDPOINTS)
+    assert client.proxy_url.startswith("https://")
+    assert proxy.type == ProxyType.HTTPS
+
+
+@pytest.mark.parametrize("kind", [ProxyType.HTTP, ProxyType.SOCKS5])
+@pytest.mark.asyncio
+async def test_other_protocol_timeouts_do_not_suggest_a_protocol_change(answers, kind):
+    failure = httpx.ConnectTimeout("slow")
+    answers(failure, failure, failure)
+
+    result = await proxy_check.check(ProxyConfig(type=kind, server="h:8080"), BrowserSettings())
+
+    assert result.error == "The proxy did not answer in time."
+
+
+@pytest.mark.parametrize(
+    "failure, expected",
+    [
+        (httpx.ProxyError("407 Proxy Authentication Required"), "rejected the credentials"),
+        (httpx.ConnectError("CERTIFICATE_VERIFY_FAILED"), "certificate could not be verified"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_https_auth_and_certificate_failures_keep_their_specific_diagnosis(
+    answers, failure, expected
+):
+    answers(failure, failure, failure)
+
+    result = await proxy_check.check(
+        ProxyConfig(type=ProxyType.HTTPS, server="h:443"), BrowserSettings()
+    )
+
+    assert expected in result.error
+    assert "select HTTP" not in result.error
 
 
 @pytest.mark.asyncio

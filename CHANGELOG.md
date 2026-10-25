@@ -6,6 +6,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- Explain HTTP CONNECT versus TLS-to-proxy HTTPS in both proxy forms and HTTPS
+  timeout diagnostics, without automatic protocol downgrade (#116).
+
+### Security
+- Update Next.js and its ESLint configuration to 16.4.3 and the transitive Zod
+  dependency to 4.6.7 to address current dependency advisories.
+
 ### Documentation
 - Make the unsigned release policy permanent: certificates and macOS notarization
   are not planned or required for preview/stable releases (#61 closed as not planned).

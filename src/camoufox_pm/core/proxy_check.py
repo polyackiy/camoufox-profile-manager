@@ -64,6 +64,12 @@ FAR_KM = 500.0
 
 DEFAULT_TIMEOUT = 10.0
 
+HTTPS_TIMEOUT_ERROR = (
+    "The HTTPS proxy did not answer in time. HTTPS requires a TLS connection to the proxy "
+    "itself. If your provider supplies a standard HTTP CONNECT proxy, select HTTP; "
+    "HTTP proxies can also open HTTPS websites. Otherwise, check the proxy address and port."
+)
+
 # The launch path is not a person waiting for an answer, so it gets Camoufox's own
 # 5 seconds: a tarpitting proxy must not hold a browser open indefinitely.
 LAUNCH_TIMEOUT = 5.0
@@ -308,10 +314,10 @@ async def resolve_exit_ip(
                 continue
             return answer, int((time.monotonic() - started) * 1000)
 
-    raise ConnectionError(_readable(last_error))
+    raise ConnectionError(_readable(last_error, proxy.type if proxy else None))
 
 
-def _readable(error: Exception | None) -> str:
+def _readable(error: Exception | None, proxy_type: ProxyType | None = None) -> str:
     """Turn an httpx failure into something worth showing a user."""
     if error is None:
         return "The proxy did not answer."
@@ -323,6 +329,7 @@ def _readable(error: Exception | None) -> str:
         "The proxy intercepts TLS, so its certificate could not be verified.",
         "This proxy protocol cannot be checked; SOCKS4 is not supported.",
         "Could not reach the internet through the proxy.",
+        HTTPS_TIMEOUT_ERROR,
     }:
         return str(error)
     if isinstance(error, httpx.HTTPStatusError):
@@ -336,6 +343,8 @@ def _readable(error: Exception | None) -> str:
             return "The proxy rejected the credentials."
         return "The proxy refused the connection."
     if isinstance(error, httpx.TimeoutException):
+        if proxy_type == ProxyType.HTTPS:
+            return HTTPS_TIMEOUT_ERROR
         return "The proxy did not answer in time."
     if (
         isinstance(error, ssl.SSLError)

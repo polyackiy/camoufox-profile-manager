@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { LoaderCircle } from 'lucide-react'
 import { useI18n } from '@/components/i18n-provider'
 import { Modal } from '@/components/modal'
+import { ProxyProtocolHelp } from '@/components/proxy-protocol-help'
 import { isStaleWrite, proxiesAPI, type LibraryProxy } from '@/lib/api'
 
 export function ProxyForm({ proxy, onClose, onSaved, onReload }: {
@@ -52,9 +53,10 @@ export function ProxyForm({ proxy, onClose, onSaved, onReload }: {
       <p className="text-ink-dim">{t('Library changes apply only to future assignments. Profiles keep their current proxy settings until you explicitly assign again.')}</p>
       <div><label className="field-label" htmlFor="lp-name">{t('Name')}</label><input id="lp-name" className="field" value={name} onChange={event => setName(event.target.value)} maxLength={255} autoFocus required /></div>
       <div className="grid grid-cols-[100px_1fr] gap-3">
-        <div><label className="field-label" htmlFor="lp-type">{t('Type')}</label><select id="lp-type" className="field" value={type} onChange={event => setType(event.target.value)}><option value="http">HTTP</option><option value="https">HTTPS</option><option value="socks4">SOCKS4</option><option value="socks5">SOCKS5</option></select></div>
+        <div><label className="field-label" htmlFor="lp-type">{t('Type')}</label><select id="lp-type" className="field" value={type} onChange={event => setType(event.target.value)} aria-describedby="lp-type-help"><option value="http">HTTP</option><option value="https">HTTPS</option><option value="socks4">SOCKS4</option><option value="socks5">SOCKS5</option></select></div>
         <div><label className="field-label" htmlFor="lp-server">{t('Server')}</label><input id="lp-server" className="field font-mono" value={server} onChange={event => setServer(event.target.value)} placeholder="host:port" maxLength={512} required autoComplete="off" aria-describedby="lp-server-help" /><p id="lp-server-help" className="mt-1 text-ink-dim">{t('Host and port only. Use brackets for IPv6: [::1]:8080.')}</p></div>
       </div>
+      <ProxyProtocolHelp type={type} id="lp-type-help" />
       <div className="grid grid-cols-2 gap-3">
         <div><label className="field-label" htmlFor="lp-user">{t('Username')}</label><input id="lp-user" className="field" value={username} onChange={event => setUsername(event.target.value)} maxLength={255} autoComplete="off" /></div>
         <div><label className="field-label" htmlFor="lp-country">{t('Country (optional)')}</label><input id="lp-country" className="field uppercase" value={country} onChange={event => setCountry(event.target.value)} maxLength={64} placeholder="DE" /></div>

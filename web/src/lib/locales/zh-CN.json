@@ -942,5 +942,8 @@
   "After the cancellation period, the relay operator can permanently remove the selected old encrypted versions. They will no longer be available for historical recovery unless you saved an offline bundle. Current profiles and local backups are retained. This cannot erase copies already downloaded by other devices.": "取消期限过后，中继运营者可以永久删除所选的旧加密版本。除非已保存离线包，否则这些版本将无法用于历史恢复。当前配置文件和本地备份仍然保留。这无法删除其他设备已下载的副本。",
   "Sign cleanup decision": "签署清理决定",
   "Check for restoration": "检查是否已恢复",
-  "Experimental preview — off until you set up trusted devices and explicitly enable each profile. Use test profiles; an external security audit is still pending.": "实验性预览：仅在设置可信设备并逐个明确启用配置文件后开启。请使用测试配置文件；独立安全审计尚未完成。"
+  "Experimental preview — off until you set up trusted devices and explicitly enable each profile. Use test profiles; an external security audit is still pending.": "实验性预览：仅在设置可信设备并逐个明确启用配置文件后开启。请使用测试配置文件；独立安全审计尚未完成。",
+  "HTTP also works with HTTPS websites. Select HTTPS only when your provider supports a TLS connection to the proxy itself.": "HTTP 代理也可以访问 HTTPS 网站。仅当供应商支持与代理本身建立 TLS 连接时，才选择 HTTPS。",
+  "SOCKS5 supports username/password authentication. Enter host:port here and credentials in the separate fields.": "SOCKS5 支持用户名和密码认证。在此输入主机:端口，并在单独的字段中填写凭据。",
+  "SOCKS4 does not support username/password authentication. Use SOCKS5 for authenticated connections.": "SOCKS4 不支持用户名和密码认证。需要认证时请使用 SOCKS5。"
 }

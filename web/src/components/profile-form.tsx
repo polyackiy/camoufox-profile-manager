@@ -7,6 +7,7 @@ import { Check, Info, LoaderCircle, RefreshCw, TriangleAlert, X } from 'lucide-r
 import { useI18n } from '@/components/i18n-provider'
 import type { Translator } from '@/lib/i18n'
 import { Modal } from '@/components/modal'
+import { ProxyProtocolHelp } from '@/components/proxy-protocol-help'
 import { useToast } from '@/components/toast'
 import {
   hasGeography,
@@ -580,6 +581,7 @@ export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) 
               className="field"
               value={form.proxyType}
               onChange={(e) => set('proxyType', e.target.value)}
+              aria-describedby="pf-proxy-type-help"
             >
               <option value="http">HTTP</option>
               <option value="https">HTTPS</option>
@@ -627,6 +629,8 @@ export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) 
               autoComplete="new-password"
             />
           </div>
+
+          <ProxyProtocolHelp type={form.proxyType} id="pf-proxy-type-help" className="col-span-2" />
 
           {/* SOCKS5 authentication uses the managed relay; only SOCKS4
               credentials remain unsupported by this Playwright launch path. */}
