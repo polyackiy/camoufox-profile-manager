@@ -281,7 +281,7 @@ def package_identity():
     return {"format": packages[0].suffix, "sha256": digest.hexdigest()}
 
 
-def positive_case(device, protocol, auth, certs):
+def positive_case(device, protocol, auth, certs, *, restart=False):
     with FixtureService(protocol, certs, auth=auth) as service:
         fixture = service.fixture
         profile_id = profile_for(device, fixture, certs[0])
@@ -308,6 +308,34 @@ def positive_case(device, protocol, auth, certs):
             if protocol == "socks4" or (protocol == "socks5" and auth):
                 assert len(listeners) == 1, "Expected one session-owned relay"
         pinned = device.call(f"/profiles/{profile_id}")
+        if restart:
+            device.close()
+            device.start()
+            device.login()
+            persisted = device.call(f"/profiles/{profile_id}")
+            assert persisted["fingerprint"] == pinned["fingerprint"], "Restart changed hardware"
+            assert persisted["browser_settings"] == pinned["browser_settings"], (
+                "Restart changed settings"
+            )
+            health = device.call(f"/profiles/{profile_id}/check-proxy", {})
+            assert health["reachable"] and health["location"]["ip"] == EXIT_IP, (
+                "Stored credentials did not survive restart"
+            )
+            # New receipts are essential: evidence from the first browser must
+            # never satisfy the restarted profile's acceptance condition.
+            nonce = secrets.token_hex(12)
+            restarted_path = f"/proof/{nonce}-https"
+            with launched(
+                device,
+                profile_id,
+                ["-new-tab", f"https://cpm-origin.invalid:{fixture.https_port}{restarted_path}"],
+            ) as listeners:
+                wait_for(
+                    lambda: has_path(
+                        service.snapshot()[0], restarted_path.replace("/proof/", "/receipt/")
+                    )
+                )
+                assert len(listeners) == 1, "Restarted authenticated SOCKS5 relay is missing"
         service.reject()
         health = device.call(f"/profiles/{profile_id}/check-proxy", {})
         assert not health["reachable"], "Refused upstream was reported healthy"
@@ -335,6 +363,7 @@ def positive_case(device, protocol, auth, certs):
             "protocol": protocol,
             "authentication": "password" if auth else "none",
             "passed": True,
+            "same_profile_restart": restart,
         }
 
 
@@ -409,18 +438,16 @@ def main():
                     for protocol, auth in CASES:
                         phase = protocol + ("-password" if auth else "-none")
                         print(f"Installed proxy acceptance: {phase}", flush=True)
-                        result["cases"].append(positive_case(device, protocol, auth, certs))
+                        result["cases"].append(
+                            positive_case(
+                                device, protocol, auth, certs, restart=protocol == "socks5" and auth
+                            )
+                        )
                     for protocol in ("http", "https"):
                         phase = protocol + "-untrusted"
                         result["cases"].append(
                             untrusted_case(device, protocol, other_certs, certs[0])
                         )
-                    phase = "installed-restart"
-                    # Do not use Device.restart(), which asserts sync enrollment.
-                    device.close()
-                    device.start()
-                    device.login()
-                    result["cases"].append(positive_case(device, "socks5", True, certs))
                     result["passed"] = True
                 finally:
                     with contextlib.ExitStack() as cleanup:
