@@ -169,5 +169,8 @@ async def cancel_run(workflow_id: str, run_id: str):
     run = engine().store.run(run_id)
     if not run or run["workflow_id"] != workflow_id:
         raise HTTPException(404, "Workflow run not found.")
-    engine().cancel(run_id)
+    try:
+        engine().cancel(run_id)
+    except WorkflowConflict as exc:
+        raise HTTPException(409, str(exc)) from None
     return {"success": True}

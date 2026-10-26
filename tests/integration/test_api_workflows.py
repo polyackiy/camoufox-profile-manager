@@ -10,6 +10,7 @@ from camoufox_pm.api import dependencies
 from camoufox_pm.api.routes import workflows as workflow_routes
 from camoufox_pm.core import auth
 from camoufox_pm.core.workflow_models import WorkflowDefinition
+from camoufox_pm.core.workflows import WorkflowEngine
 from tests.integration.test_profile_authorization import PASSWORD, setup_actor
 
 DEFINITION = {
@@ -177,6 +178,39 @@ async def test_viewer_cannot_define_workflows(client, monkeypatch):
     await setup_actor(client, "viewer", monkeypatch)
     assert (await client.post("/api/v1/workflows", json=DEFINITION)).status_code == 403
     assert (await client.get("/api/v1/workflows")).status_code == 403
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("prefix", ["/api", "/api/v1"])
+async def test_cancel_requires_the_live_runs_owning_manager(
+    client, monkeypatch, browser_stub, prefix
+):
+    manager = dependencies.get_profile_manager()
+    profile = await manager.create_profile("Owned run")
+    value = await workflow(client)
+    body = request_for(value, profile)
+    route = f"{prefix}/workflows/{value['id']}/runs"
+    browser_stub.hold.clear()
+    try:
+        response = await client.post(route, json=body)
+        assert response.status_code == 202
+        await asyncio.wait_for(browser_stub.launched.wait(), 3)
+        owning = dependencies.get_scheduler().workflows
+        second = WorkflowEngine(manager.storage, manager)
+        with monkeypatch.context() as patch:
+            patch.setattr(workflow_routes, "engine", lambda: second)
+            denied = await client.post(f"{route}/{body['request_id']}/cancel", json={})
+            assert denied.status_code == 409
+            assert "another manager" in denied.text
+            assert not owning.store.run(body["request_id"])["cancel_requested"]
+        accepted = await client.post(f"{route}/{body['request_id']}/cancel", json={})
+        assert accepted.status_code == 200
+    finally:
+        browser_stub.hold.set()
+        await complete(body["request_id"])
+    assert owning.store.run(body["request_id"])["state"] == "cancelled"
+    assert not browser_stub.visits
+    assert not manager.browser_sessions.active_sessions
 
 
 @pytest.mark.asyncio

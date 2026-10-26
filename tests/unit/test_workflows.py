@@ -308,10 +308,41 @@ async def test_concurrency_is_bounded_and_other_instance_cannot_reconcile_live_j
     second = WorkflowEngine(runtime.manager.storage, runtime.manager)
     with pytest.raises(WorkflowConflict, match="unavailable"):
         await second.start()
+    with pytest.raises(WorkflowConflict, match="another manager"):
+        second.cancel(run["id"])
+    assert not runtime.engine.store.run(run["id"])["cancel_requested"]
     assert runtime.engine.store.run(run["id"])["state"] == "running"
     await second.stop()
     runtime.hold_navigation.set()
     assert (await finished(runtime, run))["state"] == "completed"
+
+
+async def test_shutdown_refuses_a_submission_still_reviewing_targets(runtime, monkeypatch):
+    value = await definition(runtime)
+    selected = await targets(runtime)
+    reviewing = asyncio.Event()
+    resume = asyncio.Event()
+    authorized = runtime.engine.authorized
+
+    async def held(*args, **kwargs):
+        reviewing.set()
+        await resume.wait()
+        return await authorized(*args, **kwargs)
+
+    monkeypatch.setattr(runtime.engine, "authorized", held)
+    request = WorkflowStart(request_id=str(uuid4()), revision=1, targets=selected)
+    task = asyncio.create_task(runtime.engine.submit(value, request))
+    try:
+        await asyncio.wait_for(reviewing.wait(), 3)
+        await runtime.engine.stop()
+        resume.set()
+        with pytest.raises(WorkflowConflict, match="unavailable"):
+            await task
+        assert runtime.engine.store.run(request.request_id) is None
+        assert not runtime.events
+    finally:
+        resume.set()
+        await asyncio.gather(task, return_exceptions=True)
 
 
 async def test_profile_change_before_dispatch_is_refused(runtime):

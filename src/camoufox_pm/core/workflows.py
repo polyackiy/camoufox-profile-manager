@@ -211,6 +211,11 @@ class WorkflowEngine:
             if not profile or profile.row_version != target.row_version:
                 raise WorkflowConflict("A selected profile changed. Reload and review the targets.")
         definition = WorkflowDefinition(**value["definition"])
+        # Target/authority reads can yield while shutdown drains the executor.
+        # Receipt insertion and dispatch below do not yield: refuse admission
+        # after the owning service has stopped, before any durable side effect.
+        if not self.available:
+            raise WorkflowConflict("Workflow execution is unavailable in this manager.")
         job = {
             "id": request.request_id,
             "workflow_id": value["id"],
@@ -250,7 +255,12 @@ class WorkflowEngine:
             self.cancellations[run_id].set()
             job["cancel_requested"] = True
             self.store.save_run(job)
-        return self.store.run(run_id)
+        result = self.store.run(run_id)
+        if not job and result and result["state"] in {"queued", "running"}:
+            raise WorkflowConflict(
+                "This run belongs to another manager. Cancel it in the owning manager."
+            )
+        return result
 
     async def _run(self, job, definition, owner, cancel, session_hash):
         try:

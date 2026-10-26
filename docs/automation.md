@@ -81,6 +81,10 @@ The next time advances before submission. Overlapping, unauthorized or stale-tar
 occurrences become missed records without automatic retry or backlog replay.
 One executor owns an installation through the existing cross-process admission
 lock. A second manager cannot reconcile live work as a crash or run competing workers.
+Cancel a live run in its owning manager: a second manager returns a conflict
+instead of acknowledging a cancellation it cannot deliver. A submission still
+reviewing targets when its executor shuts down is refused before its receipt or
+browser work is created.
 On owning startup, unfinished receipts become **Interrupted**, preserving completed
 steps. Missed schedule occurrences become one **Missed** record and wait for the
 next occurrence. Neither case runs side effects automatically.
