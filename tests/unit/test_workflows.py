@@ -393,6 +393,24 @@ async def test_pruned_receipt_still_prevents_implicit_replay(runtime):
     assert len(runtime.events) == count
 
 
+async def test_long_run_stays_visible_and_cancellable_after_many_missed_occurrences(runtime):
+    runtime.hold_navigation.clear()
+    value = await definition(runtime)
+    active, _ = await start(runtime, value)
+    await observed_navigations(runtime, 1)
+    for _ in range(35):
+        runtime.engine._missed(value, datetime.now())
+    history = runtime.engine.store.runs(value["id"])
+    assert len(history) == 31
+    assert history[0]["id"] == active["id"]
+    assert history[0]["state"] == "running"
+    runtime.engine.cancel(active["id"])
+    runtime.hold_navigation.set()
+    await finished(runtime, active)
+    assert len(runtime.engine.store.runs(value["id"])) == 30
+    assert not runtime.manager.browser_sessions.active_sessions
+
+
 async def test_global_slots_and_active_run_limit_bound_multiple_workflows(runtime):
     runtime.hold_navigation.clear()
     for _ in range(4):

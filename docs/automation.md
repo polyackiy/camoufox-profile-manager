@@ -34,7 +34,7 @@ failure, cancellation or loss of authority; it cannot adopt a replacement browse
 | Wait | 1–60 seconds; cancellation wakes the wait |
 | Navigation | HTTP(S), no embedded credentials; DOMContentLoaded, 45-second navigation timeout |
 | Launch | 120-second budget, then safe teardown if interrupted |
-| Detailed history | Latest 30 runs per definition |
+| Detailed history | Active run first, plus latest 30 finished runs per definition |
 
 Teardown drains before the lease is released, including after timeouts. Closing
 the manager requests cancellation, drains accepted work and closes managed browsers.

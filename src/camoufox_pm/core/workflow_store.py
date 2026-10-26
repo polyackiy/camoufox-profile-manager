@@ -82,8 +82,10 @@ class WorkflowStore:
         return [
             json.loads(row[0])
             for row in self.db.execute(
-                "SELECT body FROM workflow_runs WHERE workflow_id=? ORDER BY rowid DESC LIMIT 30",
-                (workflow_id,),
+                "SELECT body FROM workflow_runs WHERE workflow_id=? AND "
+                "(active=1 OR id IN (SELECT id FROM workflow_runs WHERE workflow_id=? "
+                "AND active=0 ORDER BY rowid DESC LIMIT 30)) ORDER BY active DESC,rowid DESC",
+                (workflow_id, workflow_id),
             )
         ]
 
@@ -144,7 +146,9 @@ class WorkflowStore:
             )
             # Never prune active work. Bound retained, finished receipts per definition.
             self.db.execute(
-                "DELETE FROM workflow_runs WHERE workflow_id=? AND active=0 AND id NOT IN (SELECT id FROM workflow_runs WHERE workflow_id=? ORDER BY rowid DESC LIMIT 30)",
+                "DELETE FROM workflow_runs WHERE workflow_id=? AND active=0 AND id NOT IN "
+                "(SELECT id FROM workflow_runs WHERE workflow_id=? AND active=0 "
+                "ORDER BY rowid DESC LIMIT 30)",
                 (value["workflow_id"], value["workflow_id"]),
             )
 
