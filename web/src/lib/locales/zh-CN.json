@@ -414,7 +414,7 @@
   "Browser is ready.": "浏览器已就绪。",
   "Download the browser to open your first profile.": "下载浏览器以打开第一个配置。",
   "Finding a compatible browser…": "正在查找兼容的浏览器…",
-  "Could not finish installing the browser. Check your connection and retry.": "浏览器安装未完成，请检查网络连接后重试。",
+  "Could not finish installing the browser. Check your connection and retry.": "无法完成浏览器安装。请检查网络连接后重试。",
   "Downloading Camoufox…": "正在下载 Camoufox…",
   "Unpacking the browser…": "正在解压浏览器…",
   "Preparing location data and browser add-ons…": "正在准备位置数据和浏览器扩展…",
@@ -1081,5 +1081,18 @@
   "Could not reach the internet through the proxy.": "无法通过代理连接互联网。",
   "Unsupported proxy address or credentials. Check the proxy settings.": "代理地址或凭据不受支持。请检查代理设置。",
   "The HTTPS proxy did not answer in time. HTTPS requires a TLS connection to the proxy itself. If your provider supplies a standard HTTP CONNECT proxy, select HTTP; HTTP proxies can also open HTTPS websites. Otherwise, check the proxy address and port.": "HTTPS 代理未在规定时间内响应。HTTPS 要求与代理本身建立 TLS 连接。如果服务商提供标准 HTTP CONNECT 代理，请选择 HTTP；HTTP 代理也可以打开 HTTPS 网站。否则，请检查代理地址和端口。",
-  "The TLS certificate of the proxy or destination could not be verified. Check certificate trust; verification is never skipped.": "无法验证代理或目标网站的 TLS 证书。请检查证书信任设置；系统不会跳过验证。"
+  "The TLS certificate of the proxy or destination could not be verified. Check certificate trust; verification is never skipped.": "无法验证代理或目标网站的 TLS 证书。请检查证书信任设置；系统不会跳过验证。",
+  "1. Install the browser once, or create your profile while it downloads.": "1. 只需安装一次浏览器，也可以在下载期间创建配置。",
+  "2. Give the profile a name. Defaults are ready to use; a proxy is optional.": "2. 为配置命名。默认设置可直接使用，代理为可选项。",
+  "3. Click Run to open the browser. Click Stop before editing, moving or backing up the profile.": "3. 点击「启动」打开浏览器。编辑、移动或备份配置前，请先点击「停止」。",
+  "Interface language only changes this manager. It never changes profile languages, timezone or fingerprint.": "界面语言仅影响管理器，不会更改配置的语言、时区或指纹。",
+  "Check your internet connection, free disk space and permission to write browser files, then retry installation. Setup stays available in Settings.": "请检查网络连接、可用磁盘空间及浏览器文件的写入权限，然后重试安装。您始终可以在设置中继续安装。",
+  "The proxy answered, but location resources are missing. Before launching a profile, open Settings → Browser setup and click Retry download.": "代理已响应，但缺少地理位置资源。启动配置前，请打开「设置 → 浏览器安装」，点击「重新下载」。",
+  "The browser needs setup. Open Settings and click Install browser before launching a profile.": "需要先安装浏览器。启动配置前，请打开设置并点击「安装浏览器」。",
+  "Another application is installing Camoufox. Try again later.": "另一个应用正在安装 Camoufox，请稍后重试。",
+  "The browser download finished but required browser files are missing. Try again.": "下载已完成，但缺少必要的浏览器文件。请重试安装。",
+  "Browser download checksum did not match. Please retry.": "浏览器下载的校验和不匹配，请重试。",
+  "Browser add-on cache is a symlink; repair it manually before retrying.": "浏览器附加组件缓存是符号链接，请手动修复后再重试。",
+  "Could not resolve the proxy exit address. Check the proxy before launching.": "无法确定代理出口地址。请在启动前检查代理。",
+  "Could not place the proxy exit address. Install browser location resources before launching.": "无法确定代理出口地址的地理位置。请在启动前安装浏览器地理位置资源。"
 }

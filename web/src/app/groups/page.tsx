@@ -205,7 +205,7 @@ export default function GroupsPage() {
               value={name}
               onChange={(event) => setName(event.target.value)}
               placeholder={t('Client A')}
-              autoFocus
+              data-modal-autofocus
               required
             />
           </div>

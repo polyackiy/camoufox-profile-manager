@@ -77,8 +77,11 @@ export function Modal({ open, title, subtitle, onClose, children, footer, width 
 
     const previousOverflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
-    // Let autoFocus inside the dialog win; only fall back to the panel itself.
-    if (!panel?.contains(document.activeElement)) panel?.focus()
+    // React autoFocus runs before this effect and loses the opener's identity.
+    // Capture the opener above, then focus the marked control without remounting
+    // it when translations change. Other dialogs fall back to the panel.
+    const initialFocus = panel?.querySelector<HTMLElement>('[data-modal-autofocus]:not([disabled])')
+    if (!panel?.contains(document.activeElement)) (initialFocus ?? panel)?.focus()
 
     return () => {
       document.removeEventListener('keydown', onKeyDown)
@@ -166,7 +169,7 @@ export function ConfirmDialog({
           <button
             className={destructive ? 'btn btn-danger' : 'btn btn-primary'}
             onClick={onConfirm}
-            autoFocus
+            data-modal-autofocus
           >
             {confirmLabel ?? t('Confirm')}
           </button>

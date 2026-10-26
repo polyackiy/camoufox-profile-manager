@@ -80,6 +80,10 @@ jobs:
         working-directory: .
         run: uv run python web/tests/proxy_protocol_ui.py
 
+      - name: Russian and Chinese onboarding and workflow contracts
+        working-directory: .
+        run: uv run python web/tests/localization_ui.py
+
       - name: Test stage two workflows
         working-directory: .
         run: uv run python web/tests/stage_two_ui.py

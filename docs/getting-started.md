@@ -35,6 +35,12 @@ security features. See [signing status and limitations](signing.md).
 
 ## First profile
 
+The upcoming **0.7.0** adds Russian UI and the shorter setup checklist described
+below; the current 0.6.0 installers have English and Simplified Chinese. Choose
+**Language** at the bottom of the sidebar (also available before login). The
+manager remembers your choice when local storage is available. Interface language
+never changes a profile's fingerprint languages, timezone, cookies or settings.
+
 1. Open **Camoufox Profile Manager**. It keeps your data separately from the installed app.
 2. Choose **Install browser** in the setup banner. Internet access is needed for
    this initial download. Progress and errors appear in the app; if downloading
@@ -49,6 +55,19 @@ security features. See [signing status and limitations](signing.md).
 Your profile retains its cookies, history and fingerprint between launches. A
 clone represents a different machine by default. Regenerating a fingerprint
 changes the apparent machine: read the confirmation before doing it.
+
+If browser installation fails, check the connection, free disk space and write
+permissions, then choose **Retry installation**. You can create a profile while
+the browser downloads, but launching requires a completed installation. Dismissing
+the setup banner does not remove **Settings → Browser setup**.
+
+For a proxy, select its protocol and enter `host:port` in the Server field;
+enter its username and password in their own fields. SOCKS5 authentication is
+supported. HTTP CONNECT and TLS-to-proxy HTTPS are different protocols: use the
+provider's documented type, without silently downgrading HTTPS. Use **Check proxy**
+before launch. A responding proxy can still need location resources: choose
+**Settings → Browser setup → Retry download** if the diagnostic asks for them.
+See the [protocol and authentication guide](proxy-support.md).
 
 ## Protect and recover your data
 

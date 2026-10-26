@@ -7,6 +7,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- Add Russian interface translations with grammatical count forms alongside
+  English and Simplified Chinese. First-run setup explains the install → create
+  → run/stop path and keeps interface language separate from profile fingerprints
+  (#123; included in the upcoming combined 0.7.0 release).
 - Check and use SOCKS4 with remote DNS through a session-owned SOCKS4a relay;
   accept canonicalized `socks4a`/`socks5h` import aliases and document protocol,
   authentication, DNS and acceptance boundaries (#116).
@@ -21,6 +25,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   incomplete operations (#119). Interactive queues do not replay after reload.
 
 ### Fixed
+- Keep informational proxy findings visible, explain missing location resources
+  through Settings, and translate known browser-installation failures with
+  actionable retry guidance (#123).
 - Explain HTTP CONNECT versus TLS-to-proxy HTTPS in both proxy forms and HTTPS
   timeout diagnostics, without automatic protocol downgrade (#116).
 

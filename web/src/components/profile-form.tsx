@@ -6,6 +6,7 @@ import { Check, Info, LoaderCircle, RefreshCw, TriangleAlert, X } from 'lucide-r
 
 import { useI18n } from '@/components/i18n-provider'
 import type { Translator } from '@/lib/i18n'
+import { translateProxyDiagnostic } from '@/lib/diagnostics'
 import { Modal } from '@/components/modal'
 import { proxyAuthenticationError } from '@/lib/proxy-auth'
 import { ProxyProtocolHelp } from '@/components/proxy-protocol-help'
@@ -484,7 +485,7 @@ export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) 
               value={form.name}
               onChange={(e) => set('name', e.target.value)}
               placeholder={t('account-1')}
-              autoFocus
+              data-modal-autofocus
               required
             />
           </div>
@@ -1084,7 +1085,7 @@ function ProxyCheckResult({ result }: { result: ProxyCheck | null }) {
     return (
       <p className="mt-2 flex items-start gap-1.5 text-danger">
         <X size={13} className="mt-0.5 shrink-0" />
-        <span>{result.error}</span>
+        <span>{t(result.error || 'Proxy did not answer')}</span>
       </p>
     )
   }
@@ -1118,7 +1119,7 @@ function ProxyCheckResult({ result }: { result: ProxyCheck | null }) {
           ) : (
             <TriangleAlert size={13} className="mt-0.5 shrink-0" />
           )}
-          <span>{finding.message}</span>
+          <span>{translateProxyDiagnostic(finding.message, t)}</span>
         </p>
       ))}
     </div>

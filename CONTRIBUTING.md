@@ -127,11 +127,17 @@ browser binary and is covered by the `browser`-marked tests.
 - **Style:** [ruff](https://docs.astral.sh/ruff/) handles linting and formatting.
 - **Types:** new code should type-check under mypy.
 - **Language:** code, comments, and docstrings are in English. UI text uses
-  English source messages with translations in `web/src/lib/locales/zh-CN.json`.
+  English source messages with translations in `web/src/lib/locales/ru.json` and
+  `web/src/lib/locales/zh-CN.json`.
   Use `useI18n().t` for visible text and named placeholders for dynamic values;
   do not concatenate translated sentence fragments. `npm test` checks catalog
-  coverage and placeholder parity. Keep profile data and fingerprint language
-  settings independent of the UI language.
+  coverage, duplicate keys and placeholder parity in both catalogs. Russian
+  count messages use `one`, `few`, `many`, and `other` variants selected with
+  `Intl.PluralRules`; each variant must keep the source placeholders. Translate
+  known diagnostics when rendering; preserve unknown upstream text as plain text.
+  Keep profile data and fingerprint language settings independent of the UI
+  language. Run `web/tests/localization_ui.py` after the static build for both
+  languages; see [localization verification](docs/localization.md).
 - **Commits:** follow [Conventional Commits](https://www.conventionalcommits.org/)
   (`feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `chore:`, …).
 
