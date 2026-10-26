@@ -84,6 +84,10 @@ jobs:
         working-directory: .
         run: uv run python web/tests/stage_three_ui.py
 
+      - name: Batch profile operation UI contracts
+        working-directory: .
+        run: uv run python web/tests/batch_operations_ui.py
+
       - name: Synchronization onboarding UI contracts
         working-directory: .
         run: uv run python web/tests/sync_ui.py

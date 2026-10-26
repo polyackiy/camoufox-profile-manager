@@ -6,6 +6,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- Preview selected profiles and launch/stop them with bounded concurrency,
+  per-profile results, cancellation of waiting requests and explicit retry of
+  incomplete operations (#119). Interactive queues do not replay after reload.
+
 ### Fixed
 - Explain HTTP CONNECT versus TLS-to-proxy HTTPS in both proxy forms and HTTPS
   timeout diagnostics, without automatic protocol downgrade (#116).

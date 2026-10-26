@@ -10,18 +10,31 @@ was reviewed on 2026-10-25 against official AdsPower, Dolphin Anty, GoLogin and
 Multilogin documentation. The goal remains a practical free desktop alternative.
 Prioritize complete everyday workflows over adding protocol names to a dropdown:
 
-1. Finish [proxy acceptance and diagnostics (#116)](https://github.com/polyackiy/camoufox-profile-manager/issues/116):
-   installed browser checks, HTTP CONNECT versus TLS-to-proxy HTTPS, SOCKS
-   authentication/DNS/IPv6 coverage and actionable failures.
-2. Add explicit rotating-proxy IP-change operations with cooldown, exit-IP
-   verification and a preview of affected profiles sharing the endpoint.
-3. Add mass creation from templates, sequential one-proxy-per-profile assignment
-   and a cancellable launch queue with bounded concurrency and per-profile results.
-4. Add reusable automation jobs with run logs and cancellation. Treat interactive
-   multi-window action synchronization as a separate feature from device data sync.
-5. Improve first-run diagnostics, protocol-aware paste and redacted support reports;
-   keep release dependencies current and exercise installed upgrades and recovery.
-6. Retain experimental opt-in device synchronization until the remaining security
+The next release block is [0.7.0 — everyday profile operations](https://github.com/polyackiy/camoufox-profile-manager/milestone/3).
+Implement and review individual changes in this order, then publish installers
+after the combined install → create → assign → run → stop/recover workflow passes:
+
+1. [Batch launch/stop (#119)](https://github.com/polyackiy/camoufox-profile-manager/issues/119):
+   exact target preview, bounded concurrency, cancellation and per-profile results.
+   See [the interactive queue contract](batch-operations.md).
+2. [Mass creation from templates (#120)](https://github.com/polyackiy/camoufox-profile-manager/issues/120)
+   with naming and proxy mapping preview.
+3. [Sequential proxy-list assignment (#121)](https://github.com/polyackiy/camoufox-profile-manager/issues/121)
+   with per-target lease/version checks and no accidental proxy sharing.
+4. Finish [proxy acceptance and diagnostics (#116)](https://github.com/polyackiy/camoufox-profile-manager/issues/116)
+   alongside these workflows, including protocol/DNS/auth coverage.
+5. [Beginner onboarding and Russian UI (#123)](https://github.com/polyackiy/camoufox-profile-manager/issues/123).
+
+Small fixes and reviewed features accumulate on main; do not publish a release
+for each individual feature. Refresh dependencies and run security review,
+packaging, data-preservation and recovery checks before the combined release.
+
+The following block adds [reusable automation jobs (#122)](https://github.com/polyackiy/camoufox-profile-manager/issues/122)
+with logs, scheduling and cancellation, followed by a separately designed
+interactive multi-window action synchronizer. Explicit rotating-proxy IP-change
+operations and redacted support reports remain follow-ups in #117.
+
+Retain experimental opt-in device synchronization until the remaining security
    and installed compatibility work in #82/#90 has evidence.
 
 The linked plan records sources, current capabilities and acceptance criteria.

@@ -38,6 +38,8 @@ import { ProfileExtensionsModal } from '@/components/profile-extensions-modal'
 import { TemplateFromProfileModal } from '@/components/template-from-profile-modal'
 import { ProfileTagsDialog } from '@/components/profile-tags-dialog'
 import { SavedProfileViews } from '@/components/saved-profile-views'
+import { BatchProfileOperations } from '@/components/batch-profile-operations'
+import { MAX_BATCH_SIZE, type BatchTarget } from '@/lib/batch-queue'
 import { DEFAULT_VIEW, profileViewQuery, readProfileView } from '@/lib/profile-views'
 import { useToast } from '@/components/toast'
 import {
@@ -105,6 +107,7 @@ export default function ProfilesPage() {
   const [extensionsFor, setExtensionsFor] = useState<Profile | null>(null)
   const [templateFor, setTemplateFor] = useState<Profile | null>(null)
   const [tagsFor, setTagsFor] = useState<Profile[] | null>(null)
+  const [batch, setBatch] = useState<{ action: 'launch' | 'close'; targets: BatchTarget[] } | null>(null)
 
   const toast = useToast()
   const importRef = useRef<HTMLInputElement>(null)
@@ -132,6 +135,7 @@ export default function ProfilesPage() {
       setSelected(new Set())
       setEditing(null)
       setFormOpen(false)
+      setBatch(null)
       setError(String(err instanceof Error ? err.message : err))
     } finally {
       setLoading(false)
@@ -676,8 +680,13 @@ export default function ProfilesPage() {
       </section>
 
       {selected.size > 0 && (
-        <div className="flex items-center gap-3 border-b border-line bg-raised px-5 py-2">
+        <div className="flex flex-wrap items-center gap-3 border-b border-line bg-raised px-5 py-2">
           <span>{t('{count} selected', { count: selected.size })}</span>
+          {(canManageAccess || role === 'operator') && <>
+            <button className="btn btn-default h-7" disabled={selected.size > MAX_BATCH_SIZE || busy.size > 0} onClick={() => setBatch({ action: 'launch', targets: profiles.filter(profile => selected.has(profile.id) && can(profile, 'launch')).map(({ id, name }) => ({ id, name })) })}><Play size={13} aria-hidden="true" />{t('Launch selected')}</button>
+            <button className="btn btn-default h-7" disabled={selected.size > MAX_BATCH_SIZE || busy.size > 0} onClick={() => setBatch({ action: 'close', targets: profiles.filter(profile => selected.has(profile.id) && can(profile, 'launch')).map(({ id, name }) => ({ id, name })) })}><Square size={13} aria-hidden="true" />{t('Stop selected')}</button>
+            {selected.size > MAX_BATCH_SIZE && <span className="text-ink-dim">{t('Select up to {count} profiles per batch.', { count: MAX_BATCH_SIZE })}</span>}
+          </>}
           <button className="btn btn-default h-7" onClick={() => setTagsFor(profiles.filter(profile => selected.has(profile.id)))}><Tags size={13} aria-hidden="true" />{t('Edit tags')}</button>
           {selectedWithProxy > 0 && (
             <button
@@ -1003,6 +1012,7 @@ export default function ProfilesPage() {
       {syncFor && <ProfileSyncPanel profile={syncFor === 'available' ? null : syncFor} running={syncFor !== 'available' && running.has(syncFor.id)} onClose={() => setSyncFor(null)} onSaved={loadProfiles} />}
       {extensionsFor && <ProfileExtensionsModal profile={extensionsFor} onClose={() => setExtensionsFor(null)} onSaved={loadProfiles} />}
       {tagsFor && <ProfileTagsDialog profiles={tagsFor} onClose={() => setTagsFor(null)} onUpdated={updated => { setProfiles(current => current.map(profile => updated.find(item => item.id === profile.id) ?? profile)); setSelected(new Set()) }} />}
+      {batch && <BatchProfileOperations action={batch.action} targets={batch.targets} onClose={() => setBatch(null)} onUpdated={async () => { await Promise.all([loadRunning(), loadProfiles()]) }} />}
 
       <ProfileForm
         open={formOpen}
