@@ -41,14 +41,14 @@ def safe_failure_code(error):
         return "browser_startup"
     if isinstance(error, ConnectionError):
         return "proxy_connection"
+    if isinstance(error, WorkflowConflict):
+        return "operation_conflict"
     if isinstance(error, ValueError):
         return "configuration"
     if isinstance(error, OSError):
         return "filesystem"
     if isinstance(error, KeyError):
         return "session_unavailable"
-    if isinstance(error, WorkflowConflict):
-        return "operation_conflict"
     return "unexpected"
 
 

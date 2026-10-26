@@ -538,6 +538,27 @@ async def test_browser_startup_failure_exposes_only_fixed_code_and_releases_leas
     assert not runtime.manager.browser_sessions.active_sessions
 
 
+async def test_navigation_conflict_preserves_specific_code_and_closes_owned_session(
+    runtime, monkeypatch
+):
+    async def conflicted(*_args, **_kwargs):
+        raise WorkflowConflict("https://private-user:private-password@private-proxy/")
+
+    original_launch = runtime.manager.browser_sessions.launch
+
+    async def launch(*args, **kwargs):
+        session = await original_launch(*args, **kwargs)
+        monkeypatch.setattr(session.context, "new_page", conflicted)
+        return session
+
+    monkeypatch.setattr(runtime.manager.browser_sessions, "launch", launch)
+    run, _ = await start(runtime, await definition(runtime))
+    done = await finished(runtime, run)
+    assert done["targets"][0]["error_code"] == "operation_conflict"
+    assert "private-" not in json.dumps(done)
+    assert not runtime.manager.browser_sessions.active_sessions
+
+
 def test_source_startup_diagnostics_exclude_exception_text_names_and_locals():
     from tests.browser.test_automation_workflow import startup_diagnostics
 
