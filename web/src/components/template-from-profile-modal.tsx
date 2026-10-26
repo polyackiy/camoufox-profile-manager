@@ -63,7 +63,7 @@ export function TemplateFromProfileModal({
       </label>
       <input
         id="template-profile-name"
-        autoFocus
+        data-modal-autofocus
         className="field mt-2"
         maxLength={255}
         value={name}

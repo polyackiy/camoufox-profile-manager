@@ -1,4 +1,5 @@
 import { translate, type Locale, type Translator } from './i18n'
+import { translateProxyDiagnostic } from './diagnostics'
 
 // API client for the Camoufox Profile Manager backend.
 //
@@ -815,7 +816,7 @@ export function readProxyCheck(check: ProxyCheckRecord, locale: Locale = 'en'): 
     check.ip,
     [check.country, check.timezone].filter(Boolean).join(' · ') || null,
     check.latency_ms !== null ? `${check.latency_ms} ms` : null,
-    ...notes.map((finding) => t(finding.message)),
+    ...check.findings.map((finding) => translateProxyDiagnostic(finding.message, t)),
     t('Checked {time}', { time: formatLastUsed(check.checked_at, locale).toLowerCase() }),
   ].filter(Boolean)
 

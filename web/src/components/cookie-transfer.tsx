@@ -98,7 +98,7 @@ export function CookieTransfer({ profile, onClose, onChanged }: {
       {canEdit && <>
       <div>
         <label htmlFor="cookie-input" className="field-label">{t('Paste cookies or choose a file')}</label>
-        <textarea id="cookie-input" className="field min-h-[160px] font-mono" value={text} onChange={event => clearDraft(event.target.value)} spellCheck={false} autoComplete="off" autoFocus disabled={busy || stale} aria-describedby="cookie-limit" />
+        <textarea id="cookie-input" className="field min-h-[160px] font-mono" value={text} onChange={event => clearDraft(event.target.value)} spellCheck={false} autoComplete="off" data-modal-autofocus disabled={busy || stale} aria-describedby="cookie-limit" />
         <p id="cookie-limit" className="mt-1 text-ink-dim">{t('Up to 2 MiB and 10000 cookies. Every row is validated before profile data changes.')}</p>
         <div className="mt-2 flex flex-wrap gap-2"><input ref={file} type="file" className="sr-only" accept=".json,.txt,application/json,text/plain" onChange={readFile} aria-label={t('Choose cookie file')} disabled={busy || stale} /><button className="btn btn-default" onClick={() => file.current?.click()} disabled={busy || stale}><FileUp size={14} aria-hidden="true" />{t('Choose cookie file')}</button><button className="btn btn-default" onClick={validate} disabled={busy || stale || !text.trim()}>{t('Validate cookies')}</button></div>
       </div>

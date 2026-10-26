@@ -68,12 +68,21 @@ export function BrowserSetup({ firstProfile = false, onCreate }: { firstProfile?
           <p className="mt-1 text-ink-dim">
             {ready ? t('Browser {version}. Each profile keeps its own cookies, storage and fingerprint.', { version: browser.version || t('installed') }) : t('Download the browser once to launch profiles. Creating a profile does not require a download.')}
           </p>
-          <p className="mt-1 text-ink-dim" role="status" aria-live="polite">{(browser?.message && t(browser.message)) || (!error && !browser ? t('Checking browser files…') : '')}</p>
+          {firstProfile && <ol className="mt-3 space-y-1 text-ink-dim">
+            <li>{t('1. Install the browser once, or create your profile while it downloads.')}</li>
+            <li>{t('2. Give the profile a name. Defaults are ready to use; a proxy is optional.')}</li>
+            <li>{t('3. Click Run to open the browser. Click Stop before editing, moving or backing up the profile.')}</li>
+          </ol>}
+          {firstProfile && <p className="mt-2 text-ink-faint">{t('Interface language only changes this manager. It never changes profile languages, timezone or fingerprint.')}</p>}
+          <p className="mt-1 text-ink-dim" role="status" aria-live="polite">{(browser?.message && browser.message !== failure && t(browser.message)) || (!error && !browser ? t('Checking browser files…') : '')}</p>
           {downloading && <div className="mt-3 flex items-center gap-3">
             <progress aria-label={t('Browser installation progress')} className="h-2 w-full accent-signal" max={100} value={progress ?? undefined} />
             {progress !== null && <span className="font-mono text-ink-dim">{Math.round(progress)}%</span>}
           </div>}
-          {failure && <p className="mt-2 break-words text-danger" role="alert">{failure}</p>}
+          {failure && <div className="mt-2" role="alert">
+            <p className="break-words text-danger">{t(failure)}</p>
+            <p className="mt-1 text-ink-dim">{t('Check your internet connection, free disk space and permission to write browser files, then retry installation. Setup stays available in Settings.')}</p>
+          </div>}
           <div className="mt-3 flex flex-wrap gap-2">
             {!ready && <button className="btn btn-primary" disabled={downloading || (!browser && !error)} onClick={browser ? install : load}>
               {downloading ? t('Installing…') : !browser ? t('Check again') : failure ? t('Retry installation') : t('Install browser')}

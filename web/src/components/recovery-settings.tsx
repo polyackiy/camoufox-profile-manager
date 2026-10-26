@@ -51,7 +51,7 @@ export function UpdateSettings() {
         {update?.available && !prepared && !error && <button className="btn btn-primary" disabled={preparing || checking} onClick={prepare}><Archive size={13} aria-hidden="true" />{preparing ? t('Creating backups…') : t('Back up and prepare update')}</button>}
       </div>
       {update && !error && <p className="mt-3 text-ink-dim" role="status">{update.available ? t('Version {latest} is available. You have {current}.', { latest: update.latest_version, current: update.current_version }) : t('You are up to date ({version}).', { version: update.current_version })}</p>}
-      {error && <p className="mt-3 text-danger" role="alert">{error}</p>}
+      {error && <p className="mt-3 text-danger" role="alert">{t(error)}</p>}
       {prepared && <div className="mt-3 rounded-md border border-line bg-raised p-3">
         <p role="status">{t('{count} profile backups created. Your release is ready to download.', { count: prepared.count })}</p>
         <a className="btn btn-primary mt-3" href={prepared.url} target="_blank" rel="noopener noreferrer"><Download size={13} aria-hidden="true" />{t('Open release downloads')}<ExternalLink size={12} aria-hidden="true" /></a>
@@ -126,7 +126,7 @@ export function BackupSettings() {
           <button className="btn btn-ghost" disabled={busy} onClick={load}>{t('Refresh')}</button>
         </div>
         {result && <p className="mt-3 break-words text-ink-dim" role="status">{result}</p>}
-        {error && <p className="mt-3 break-words text-danger" role="alert">{error}</p>}
+        {error && <p className="mt-3 break-words text-danger" role="alert">{t(error)}</p>}
       </div>
       {loading ? <p className="border-t border-line px-4 py-3 text-ink-dim" role="status">{t('Loading backups…')}</p> : backups.length === 0 ? <p className="border-t border-line px-4 py-3 text-ink-dim">{t('No backups yet.')}</p> :
         <ul className="max-h-[360px] divide-y divide-line overflow-y-auto border-t border-line">{backups.map(backup => <li key={backup.id} className="flex items-center gap-3 px-4 py-3">

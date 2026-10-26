@@ -129,7 +129,7 @@ export function TemplateEditor({
         <label className="block">
           {t("Template name")}
           <input
-            autoFocus
+            data-modal-autofocus
             className="field mt-1"
             maxLength={255}
             value={name}
