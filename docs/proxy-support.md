@@ -122,11 +122,20 @@ verified exit-IP lookup. The test proxy intercepts only the fixed health-service
 hostnames and routes standard ports to local origins; it never dials those
 services. The test IP is a fixed address known to the local GeoIP database.
 
-Refused-upstream checks and browser attempts must not reach an origin. Separate
-negative tests observe certificate-rejection alerts for an untrusted destination
-and an untrusted HTTPS proxy. Only these browser-negative launches specify a
-literal GeoIP address so they reach browser TLS/proxy verification instead of
-stopping at the earlier health lookup. There is no TLS bypass. Tests close
+An observer page on an explicit loopback exception waits for the manager launch
+to finish before opening the HTTP/HTTPS probe frames. This avoids a proxy-auth
+challenge before Playwright's authentication handler is ready. The synthetic
+destination hostname always traverses the proxy; the loopback observer is not a
+fallback for destination connections.
+
+Refused-upstream checks and browser attempts must not reach a destination origin.
+Separate browser TLS probes require a rejection receipt for an untrusted
+destination and an untrusted HTTPS proxy. Matched positive controls must fetch
+the exact response body successfully through the same observer/CORS path, so a
+blocked observer or CORS error cannot satisfy TLS acceptance. These TLS trials
+and refusal launches specify a literal GeoIP address so they reach browser
+verification instead of stopping at the earlier health lookup. Normal positive
+launches retain fresh verified GeoIP. There is no TLS bypass. Tests close
 browsers through the installed manager, require session relay listeners to
 disappear, check unchanged hardware/settings and repeat authenticated SOCKS5
 after restarting the installed process.

@@ -75,6 +75,27 @@ def test_installed_browser_receipt_requires_a_separate_page_request(tmp_path, sc
         asyncio.run(fixture.tunnel(None, None, 1))  # Unrecognized ports never dial.
 
 
+def test_observer_gate_requires_explicit_launch_acknowledgment_and_a_new_nonce(tmp_path):
+    certs = certificates(tmp_path, dns_names=harness.DNS_NAMES)
+    nonce = "a" * 24
+    with harness.FixtureService("http", certs) as service:
+        fixture = service.fixture
+        service.monitor(
+            [f"https://cpm-origin.invalid:{fixture.https_port}/proof/{nonce}-https"],
+            nonce,
+            frames=True,
+        )
+        with httpx.Client(trust_env=False) as client:
+            base = f"http://127.0.0.1:{fixture.http_port}"
+            assert client.get(base + f"/gate/{nonce}").text == "wait"
+            page = client.get(base + f"/monitor/{nonce}")
+            assert page.headers["access-control-allow-origin"] == "*"
+            assert f"/gate/{nonce}" in page.text
+            service.open_gate(nonce)
+            assert client.get(base + f"/gate/{nonce}").text == "go"
+            assert client.get(base + "/gate/" + "b" * 24).text == "wait"
+
+
 @pytest.mark.parametrize("relative", ["..", "../user-browser", "."])
 def test_browser_trust_refuses_paths_outside_disposable_data(tmp_path, relative, monkeypatch):
     data = tmp_path / "data"

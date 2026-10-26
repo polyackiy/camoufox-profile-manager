@@ -77,6 +77,31 @@ class InstalledFixture(ProxyFixture):
         )
         if host in HEALTH_NAMES:
             body = EXIT_IP.encode("ascii")
+        elif path.startswith("/gate/"):
+            body = b"go" if path[6:] in getattr(self, "open_gates", set()) else b"wait"
+        elif path.startswith("/monitor/") and getattr(self, "monitor", None):
+            urls, nonce, frames = self.monitor
+            if frames:
+                probe = (
+                    f"for(const url of {json.dumps(urls)}){{"
+                    "const frame=document.createElement('iframe');frame.src=url;document.body.append(frame)}"
+                )
+            else:
+                probe = (
+                    f"fetch({json.dumps(urls[0])},{{cache:'no-store'}}).then(async response=>{{"
+                    "if(!response.ok || await response.text()!=='CPM_PROXY_PROTOCOL_PROOF') throw Error();"
+                    "}).then("
+                    f"()=>fetch('/result/{nonce}/accepted'),"
+                    f"()=>fetch('/result/{nonce}/rejected'));"
+                )
+            body = (
+                "<!doctype html><meta charset=utf-8><title>CPM protocol observer</title><body><script>"
+                "async function start(){"
+                f"while(await (await fetch('/gate/{nonce}',{{cache:'no-store'}})).text()!=='go')"
+                "await new Promise(resolve=>setTimeout(resolve,100));"
+                + probe
+                + "}start();</script>"
+            ).encode("ascii")
         elif re.fullmatch(r"/proof/[a-f0-9]{24}-(?:http|https)", path):
             # A second, same-origin request proves the page body executed in
             # Camoufox; an API health request or a mere TLS connection cannot pass.
@@ -89,6 +114,7 @@ class InstalledFixture(ProxyFixture):
             body = b"CPM_PROXY_PROTOCOL_PROOF"
         writer.write(
             b"HTTP/1.1 200 OK\r\nConnection: close\r\nCache-Control: no-store\r\n"
+            b"Access-Control-Allow-Origin: *\r\n"
             b"Content-Type: text/html; charset=utf-8\r\nContent-Length: "
             + str(len(body)).encode("ascii")
             + b"\r\n\r\n"
@@ -104,6 +130,7 @@ class FixtureService:
         self.fixture = InstalledFixture(protocol, certs, auth=auth)
         self.loop = asyncio.new_event_loop()
         self.loop.set_debug(True)  # asyncio reports failed inbound TLS handshakes.
+        self.loop.slow_callback_duration = 5
         self.loop.set_exception_handler(self._exception)
         self.tls_failures = 0
         self.unexpected_errors = []
@@ -139,6 +166,18 @@ class FixtureService:
     def reject(self):
         async def change():
             self.fixture.reject = True
+
+        self.run(change())
+
+    def monitor(self, urls, nonce, *, frames=False):
+        async def change():
+            self.fixture.monitor = (urls, nonce, frames)
+
+        self.run(change())
+
+    def open_gate(self, nonce):
+        async def change():
+            self.fixture.open_gates = {*getattr(self.fixture, "open_gates", set()), nonce}
 
         self.run(change())
 
@@ -214,14 +253,21 @@ def listener_ports(pid):
 
 
 @contextmanager
-def launched(device, profile_id, arguments, *, fixed_geoip=False):
+def launched(device, profile_id, arguments, *, fixed_geoip=False, monitor_proxy=None):
     before = listener_ports(device.process.pid)
-    options = {"args": arguments}
+    options = {
+        "args": arguments,
+        "firefox_user_prefs": {"network.proxy.allow_hijacking_localhost": False},
+    }
     if fixed_geoip:
         # Refusal/certificate tests must reach the browser even when the earlier
         # manager health lookup would block it. Positive launches use the normal
         # fresh, verified exit-IP path without overriding geoip.
         options["geoip"] = EXIT_IP
+    if monitor_proxy:
+        # The observer page/result is a controlled loopback connection. The TLS
+        # target still uses its synthetic hostname and must traverse the proxy.
+        options["proxy"] = {"server": monitor_proxy, "bypass": "127.0.0.1"}
     try:
         device.call(
             f"/profiles/{profile_id}/launch", {"headless": True, "additional_options": options}
@@ -292,14 +338,16 @@ def positive_case(device, protocol, auth, certs, *, restart=False):
         )
         nonce = secrets.token_hex(12)
         paths = [f"/proof/{nonce}-{scheme}" for scheme in ("http", "https")]
-        arguments = [
-            item
+        urls = [
+            f"{scheme}://cpm-origin.invalid:{port}{path}"
             for scheme, port, path in zip(
                 ("http", "https"), (fixture.http_port, fixture.https_port), paths, strict=True
             )
-            for item in ("-new-tab", f"{scheme}://cpm-origin.invalid:{port}{path}")
         ]
+        service.monitor(urls, nonce, frames=True)
+        arguments = ["-new-tab", f"http://127.0.0.1:{fixture.http_port}/monitor/{nonce}"]
         with launched(device, profile_id, arguments) as listeners:
+            service.open_gate(nonce)
             wait_for(
                 lambda: all(
                     has_path(service.snapshot()[0], path.replace("/proof/", "/receipt/"))
@@ -326,11 +374,17 @@ def positive_case(device, protocol, auth, certs, *, restart=False):
             # never satisfy the restarted profile's acceptance condition.
             nonce = secrets.token_hex(12)
             restarted_path = f"/proof/{nonce}-https"
+            service.monitor(
+                [f"https://cpm-origin.invalid:{fixture.https_port}{restarted_path}"],
+                nonce,
+                frames=True,
+            )
             with launched(
                 device,
                 profile_id,
-                ["-new-tab", f"https://cpm-origin.invalid:{fixture.https_port}{restarted_path}"],
+                ["-new-tab", f"http://127.0.0.1:{fixture.http_port}/monitor/{nonce}"],
             ) as listeners:
+                service.open_gate(nonce)
                 wait_for(
                     lambda: has_path(
                         service.snapshot()[0], restarted_path.replace("/proof/", "/receipt/")
@@ -341,13 +395,18 @@ def positive_case(device, protocol, auth, certs, *, restart=False):
         health = device.call(f"/profiles/{profile_id}/check-proxy", {})
         assert not health["reachable"], "Refused upstream was reported healthy"
         marker = len(service.snapshot()[0])
-        refused = "/proof/" + secrets.token_hex(12) + "-http"
+        nonce = secrets.token_hex(12)
+        refused = f"/proof/{nonce}-http"
+        service.monitor(
+            [f"http://cpm-origin.invalid:{fixture.http_port}{refused}"], nonce, frames=True
+        )
         with launched(
             device,
             profile_id,
-            ["-new-tab", f"http://cpm-origin.invalid:{fixture.http_port}{refused}"],
+            ["-new-tab", f"http://127.0.0.1:{fixture.http_port}/monitor/{nonce}"],
             fixed_geoip=True,
         ):
+            service.open_gate(nonce)
             wait_for(
                 lambda: any(
                     event[0] in {"rejected", "auth", "connect"}
@@ -368,35 +427,50 @@ def positive_case(device, protocol, auth, certs, *, restart=False):
         }
 
 
-def untrusted_case(device, protocol, certs, trusted_ca):
+def browser_tls_probe(device, protocol, certs, trusted_ca, *, accepted):
     with FixtureService(protocol, certs) as service:
         fixture = service.fixture
         profile_id = profile_for(device, fixture, trusted_ca)
-        health = device.call(f"/profiles/{profile_id}/check-proxy", {})
-        assert not health["reachable"], "Untrusted health TLS was accepted"
-
-    # A separate listener/loop prevents a late manager-health TLS alert from
-    # being mistaken for evidence that the browser rejected its certificate.
-    # No manager health request is made to this fresh fixture.
-    with FixtureService(protocol, certs) as service:
-        fixture = service.fixture
-        profile_id = profile_for(device, fixture, trusted_ca)
-        path = "/proof/" + secrets.token_hex(12) + "-https"
+        nonce = secrets.token_hex(12)
+        path = f"/tls-probe/{nonce}"
+        service.monitor([f"https://cpm-origin.invalid:{fixture.https_port}{path}"], nonce)
+        # Start on a local observer page, not on an untrusted initial URL that
+        # can obstruct Firefox startup before its automation channel is ready.
+        # Both accepted and rejected TLS use the identical CORS/observer path.
         with launched(
             device,
             profile_id,
-            ["-new-tab", f"https://cpm-origin.invalid:{fixture.https_port}{path}"],
+            ["-new-tab", f"http://127.0.0.1:{fixture.http_port}/monitor/{nonce}"],
             fixed_geoip=True,
+            monitor_proxy=f"{protocol}://127.0.0.1:{fixture.proxy_port}",
         ):
-            wait_for(lambda: service.snapshot()[1] > 0)
-        assert not any(event[0] == "origin" for event in service.snapshot()[0]), (
-            "Untrusted browser reached the origin"
+            service.open_gate(nonce)
+            result = f"/result/{nonce}/" + ("accepted" if accepted else "rejected")
+            opposite = f"/result/{nonce}/" + ("rejected" if accepted else "accepted")
+            wait_for(lambda: has_path(service.snapshot()[0], result))
+            assert not has_path(service.snapshot()[0], opposite), (
+                "TLS observer contradicted its result"
+            )
+        assert has_path(service.snapshot()[0], path) is accepted, (
+            "TLS origin access contradicted browser result"
         )
-        return {
-            "protocol": protocol,
-            "untrusted_peer": "proxy" if protocol == "https" else "destination",
-            "passed": True,
-        }
+
+
+def untrusted_case(device, protocol, certs, trusted_certs):
+    with FixtureService(protocol, certs) as service:
+        fixture = service.fixture
+        profile_id = profile_for(device, fixture, trusted_certs[0])
+        health = device.call(f"/profiles/{profile_id}/check-proxy", {})
+        assert not health["reachable"], "Untrusted health TLS was accepted"
+
+    browser_tls_probe(device, protocol, trusted_certs, trusted_certs[0], accepted=True)
+    browser_tls_probe(device, protocol, certs, trusted_certs[0], accepted=False)
+    return {
+        "protocol": protocol,
+        "untrusted_peer": "proxy" if protocol == "https" else "destination",
+        "positive_control": True,
+        "passed": True,
+    }
 
 
 def main():
@@ -452,9 +526,7 @@ def main():
                         )
                     for protocol in ("http", "https"):
                         phase = protocol + "-untrusted"
-                        result["cases"].append(
-                            untrusted_case(device, protocol, other_certs, certs[0])
-                        )
+                        result["cases"].append(untrusted_case(device, protocol, other_certs, certs))
                     result["passed"] = True
                 finally:
                     with contextlib.ExitStack() as cleanup:
