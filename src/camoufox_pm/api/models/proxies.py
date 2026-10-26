@@ -7,6 +7,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from camoufox_pm.core.models import ProxyCheckRecord, ProxyType
 from camoufox_pm.core.proxy_import import normalize_proxy_server
 
+from .system import ApiResponse
+
 
 class ProxyCreateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -129,6 +131,45 @@ class AssignmentSkip(BaseModel):
 class ProxyAssignData(BaseModel):
     assigned: list[str]
     skipped: list[AssignmentSkip]
+
+
+class ProxySequenceItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    profile: ProfileAssignmentTarget
+    proxy: ProfileAssignmentTarget
+
+
+class ProxySequenceRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    assignments: list[ProxySequenceItem] = Field(min_length=1, max_length=100)
+
+    @field_validator("assignments")
+    @classmethod
+    def distinct_mapping(cls, value):
+        if len({item.profile.id for item in value}) != len(value):
+            raise ValueError("Select each profile only once")
+        if len({item.proxy.id for item in value}) != len(value):
+            raise ValueError("Select one distinct saved proxy per profile")
+        return value
+
+
+class ProxySequencePreviewItem(BaseModel):
+    profile_id: str
+    profile_name: str
+    current_connection: str
+    proxy_id: str
+    proxy_name: str
+    connection: str
+    replaces_proxy: bool
+    reason: str | None = None
+
+
+class ProxySequencePreviewData(BaseModel):
+    items: list[ProxySequencePreviewItem]
+
+
+class ProxySequenceResponse(ApiResponse[ProxyAssignData]):
+    errors: list[str] = Field(default_factory=list)
 
 
 class ProxyImportRequest(BaseModel):

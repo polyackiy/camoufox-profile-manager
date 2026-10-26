@@ -1,8 +1,9 @@
 """Named proxy templates. Assignment copies a snapshot into closed profiles."""
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Response
 
 from camoufox_pm.api.access import (
+    record_audit,
     require_admin,
 )
 from camoufox_pm.api.dependencies import get_profile_manager
@@ -14,6 +15,9 @@ from camoufox_pm.api.models.proxies import (
     ProxyImportRequest,
     ProxyListData,
     ProxyResponse,
+    ProxySequencePreviewData,
+    ProxySequenceRequest,
+    ProxySequenceResponse,
     ProxyUpdateRequest,
 )
 from camoufox_pm.api.models.system import ApiResponse
@@ -23,8 +27,46 @@ from camoufox_pm.core.proxy_inventory import (
     ProxyInventory,
     ProxyNotFound,
 )
+from camoufox_pm.core.proxy_sequence import ProxySequence
 
 router = APIRouter()
+
+
+@router.post(
+    "/proxies/assignment-preview",
+    response_model=ApiResponse[ProxySequencePreviewData],
+    operation_id="preview_proxy_sequence",
+)
+async def preview_proxy_sequence(request: ProxySequenceRequest, response: Response):
+    await require_admin()
+    response.headers["Cache-Control"] = "no-store"
+    result = await _perform(ProxySequence(inventory()).preview(request.model_dump()["assignments"]))
+    return ApiResponse(success=True, data={"items": result}, message="Proxy assignment preview")
+
+
+@router.post(
+    "/proxies/assign-sequence",
+    response_model=ProxySequenceResponse,
+    operation_id="assign_proxy_sequence",
+)
+async def assign_proxy_sequence(request: ProxySequenceRequest, response: Response):
+    await require_admin()
+    response.headers["Cache-Control"] = "no-store"
+
+    async def assigned(profile_id):
+        await record_audit("assign_proxy_sequence_profile", profile_id)
+
+    result = await _perform(
+        ProxySequence(inventory()).assign(
+            request.model_dump()["assignments"], authorize=require_admin, on_assigned=assigned
+        )
+    )
+    return ProxySequenceResponse(
+        success=True,
+        data=result,
+        errors=[item["id"] for item in result["skipped"]],
+        message="Proxy assignment finished",
+    )
 
 
 def inventory() -> ProxyInventory:
@@ -122,6 +164,7 @@ async def assign_proxy(proxy_id: str, request: ProxyAssignRequest):
             proxy_id,
             [profile.model_dump() for profile in request.profiles],
             request.proxy_row_version,
+            authorize=require_admin,
         )
     )
     return ApiResponse(

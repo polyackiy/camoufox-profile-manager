@@ -235,13 +235,22 @@ class ProxyInventory:
         return self._get(proxy_id)
 
     async def assign(
-        self, proxy_id: str, profiles: builtins.list[dict], proxy_row_version: int
+        self,
+        proxy_id: str,
+        profiles: builtins.list[dict],
+        proxy_row_version: int,
+        *,
+        authorize=None,
     ) -> dict:
+        from .sync_guard import SyncBlocked
+
         if not 1 <= len(profiles) <= 100:
             raise ValueError("Select between 1 and 100 profiles")
         config = self._secret_config(proxy_id, proxy_row_version)
         result: dict[str, builtins.list[Any]] = {"assigned": [], "skipped": []}
         for target in profiles:
+            if authorize is not None:
+                await authorize()
             profile_id = target["id"]
             stored = await self.storage.get_profile(profile_id, include_deleted=True)
             if stored is None or stored.deleted_at:
@@ -255,6 +264,9 @@ class ProxyInventory:
             try:
                 operation_holder = make_lease_holder()
                 async with profile_operation(self.manager, profile_id, holder=operation_holder):
+                    if authorize is not None:
+                        await authorize()
+                    _stored_password(config.password)
                     # One targeted, version-checked statement guards both the
                     # requested template and profile. Other profile fields stay
                     # untouched; a copied config never links back to inventory.
@@ -287,6 +299,10 @@ class ProxyInventory:
             except ProfileLocked:
                 result["skipped"].append(
                     {"id": profile_id, "reason": "Profile is running or leased"}
+                )
+            except SyncBlocked:
+                result["skipped"].append(
+                    {"id": profile_id, "reason": "Device synchronization blocks this operation"}
                 )
             except ValueError:
                 result["skipped"].append(

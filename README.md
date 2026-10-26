@@ -48,8 +48,9 @@ from it in January still looks like the same computer in June.
   contradiction a page can measure in two lines of JavaScript. The answer stays
   in the profiles list — exit address, country and latency under the proxy, green
   or amber or red — and a selection can be checked in one go.
-- **Reusable proxy library** — save named proxies, import a list and assign them
-  to closed profiles in bulk. Library passwords are write-only and require
+- **Reusable proxy library** — save named proxies, import a list and
+  [preview ordered assignments](docs/proxy-sequence.md) or assign one proxy to
+  several closed profiles. Library passwords are write-only and require
   encryption. Assigned profiles retain independent copies. See the
   [proxy guide](docs/proxy-library.md).
 - **Multi-user, when you need it.** Nothing to configure for the usual case: the

@@ -7,6 +7,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- Preview and assign ordered saved-proxy lists to up to 100 stopped profiles,
+  with explicit replacement, guarded per-profile results and safe retries using
+  the original versions (#121). Includes the Chinese workflow.
 - Create up to 25 fresh profiles from a template with server-validated naming,
   explicit saved-proxy mapping, durable per-row retry receipts and recent-batch
   recovery after a lost response (#120). Chinese covers the new workflow.
@@ -19,6 +22,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   timeout diagnostics, without automatic protocol downgrade (#116).
 
 ### Security
+- Recheck administrator authority after acquiring each profile lease during
+  proxy assignment; reject credential copies without the encryption key and
+  report synchronization ownership blocks without exposing internal errors.
 - Update Next.js and its ESLint configuration to 16.4.3 and the transitive Zod
   dependency to 4.6.7 to address current dependency advisories.
 
