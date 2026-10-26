@@ -20,7 +20,9 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 
 
-def certificates(directory: Path) -> tuple[Path, Path, Path]:
+def certificates(
+    directory: Path, *, dns_names: tuple[str, ...] = ("cpm-origin.invalid", "localhost")
+) -> tuple[Path, Path, Path]:
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "CPM ephemeral fixture CA")])
     now = datetime.now(timezone.utc)
@@ -87,8 +89,7 @@ def certificates(directory: Path) -> tuple[Path, Path, Path]:
         .add_extension(
             x509.SubjectAlternativeName(
                 [
-                    x509.DNSName("cpm-origin.invalid"),
-                    x509.DNSName("localhost"),
+                    *(x509.DNSName(name) for name in dns_names),
                     x509.IPAddress(ipaddress.ip_address("127.0.0.1")),
                     x509.IPAddress(ipaddress.ip_address("2001:db8::19")),
                 ]

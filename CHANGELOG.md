@@ -25,6 +25,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   timeout diagnostics, without automatic protocol downgrade (#116).
 
 ### Security
+- Exercise disposable installed packages on four desktop targets against local
+  proxy/TLS fixtures, including certificate refusal, relay teardown and restart;
+  export only sanitized acceptance reports with package checksums (#116).
 - Bound exit-address responses without decompression and preserve literal
   credentials; reject unsupported authentication before saving proxy settings.
 - Resolve fresh proxy exit addresses with verified TLS for proxied launches;

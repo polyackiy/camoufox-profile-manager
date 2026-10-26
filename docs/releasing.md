@@ -77,7 +77,12 @@ test checks the installed library for the required sequencer API as well.
    of downloaded packages. No publisher certificate, Authenticode signature,
    Developer ID or notarization ticket is required. Preserve OS protections and
    distinguish checksum integrity from publisher verification; see [the policy](signing.md).
-6. Only after release approval, create and push an annotated `v<version>` tag.
+6. Run **Installed desktop proxy acceptance** on the candidate revision and
+   require all four target reports to pass. Keep the package SHA-256, source
+   revision and wrapper/browser pair with the acceptance record; see
+   [scope and reproducible protocol trials](proxy-support.md#installed-package-acceptance).
+   These disposable package trials do not replace the physical-system checks above.
+7. Only after release approval, create and push an annotated `v<version>` tag.
    Watch **Release** and all four **Desktop builds** jobs finish. Check every
    expected asset is present and its checksum matches before publishing the draft.
    Mark `-rc` tags as prereleases and leave the previous stable release as Latest.

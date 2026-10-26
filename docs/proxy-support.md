@@ -107,6 +107,52 @@ installs the test-only NSS tools and runs the matrix on Linux, Windows and macOS
 Results apply to the exact source revision and wrapper/browser pair recorded in
 the run. Provider smoke checks are additional evidence, not deterministic tests.
 
+## Installed-package acceptance
+
+[Installed desktop proxy acceptance](https://github.com/polyackiy/camoufox-profile-manager/actions/workflows/installed-proxy.yml)
+builds normal unsigned packages on Windows x64, Linux x64 and macOS Intel/Apple
+Silicon. It installs a DMG/NSIS package or extracts the Linux portable distribution
+into a disposable directory, starts the frozen manager and loads its bundled UI.
+No development server or source manager runs in that installed process.
+
+The harness exercises the seven protocol/authentication combinations above with
+both HTTP and HTTPS pages. A same-origin JavaScript receipt proves each page
+body executed in Camoufox. Normal positive launches use the manager's fresh
+verified exit-IP lookup. The test proxy intercepts only the fixed health-service
+hostnames and routes standard ports to local origins; it never dials those
+services. The test IP is a fixed address known to the local GeoIP database.
+
+Refused-upstream checks and browser attempts must not reach an origin. Separate
+negative tests observe certificate-rejection alerts for an untrusted destination
+and an untrusted HTTPS proxy. Only these browser-negative launches specify a
+literal GeoIP address so they reach browser TLS/proxy verification instead of
+stopping at the earlier health lookup. There is no TLS bypass. Tests close
+browsers through the installed manager, require session relay listeners to
+disappear, check unchanged hardware/settings and repeat authenticated SOCKS5
+after restarting the installed process.
+
+Run only on disposable Actions workers after building the installer and preparing
+the paired browser/resources, Chromium and NSS tools:
+
+```sh
+uv run --no-sync python -m scripts.installed_proxy_acceptance --output installed-proxy.json
+# Linux: run the same command under xvfb-run -a.
+```
+
+The script deliberately refuses ordinary user machines. Its ephemeral CA is
+trusted only by the disposable installed copy's CA bundle and synthetic NSS
+profiles, never by the OS. On macOS the modified copy is re-signed ad hoc; this
+tests application behavior, not Developer ID, notarization or quarantine prompts.
+Reports include the revision, architecture, package SHA-256, public versions and
+allowlisted outcomes. Raw API responses, credentials, profile data, screenshots
+and private logs are not uploaded. Unexpected fixture failures fail acceptance.
+
+These same-runner trials do not prove every provider, physical computer, native
+window-manager behavior or an independent security audit. Linux portable trials
+do not replace the separate clean-system DEB install/remove/dependency checks.
+Re-run the matrix at the release candidate revision; old green reports do not
+certify a later installer.
+
 ## Remaining release gate
 
 Before closing #116 or publishing the 0.7.0 installer block, record the final CI
