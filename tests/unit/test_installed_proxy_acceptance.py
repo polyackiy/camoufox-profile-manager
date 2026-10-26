@@ -96,6 +96,18 @@ def test_observer_gate_requires_explicit_launch_acknowledgment_and_a_new_nonce(t
             assert client.get(base + "/gate/" + "b" * 24).text == "wait"
 
 
+def test_restart_waits_for_public_backup_receipt_without_mutating_or_replaying_launches():
+    replies = iter([[], [{"profile_id": "other"}], [{"profile_id": "target"}]])
+    calls = []
+
+    def read(path, body=None):
+        calls.append((path, body))
+        return {"data": {"backups": next(replies)}}
+
+    harness.wait_for_initial_backup(SimpleNamespace(call=read), "target")
+    assert calls == [("/system/backups", None)] * 3
+
+
 @pytest.mark.parametrize("relative", ["..", "../user-browser", "."])
 def test_browser_trust_refuses_paths_outside_disposable_data(tmp_path, relative, monkeypatch):
     data = tmp_path / "data"

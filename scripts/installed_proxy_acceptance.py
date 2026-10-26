@@ -32,7 +32,13 @@ from urllib.parse import urlsplit
 
 import psutil
 from playwright.sync_api import sync_playwright
-from scripts.installed_sync_acceptance import _PROCESSES, Device, terminate_tree, wait_for
+from scripts.installed_sync_acceptance import (
+    _PROCESSES,
+    Device,
+    InstalledAPIError,
+    terminate_tree,
+    wait_for,
+)
 from tests.support.proxy_protocols import ProxyFixture, certificates
 
 HEALTH_NAMES = ("api.ipify.org", "checkip.amazonaws.com", "icanhazip.com")
@@ -328,6 +334,20 @@ def package_identity():
     return {"format": packages[0].suffix, "sha256": digest.hexdigest()}
 
 
+def wait_for_initial_backup(device, profile_id):
+    # Startup/periodic backups legitimately reserve closed profiles. Let the
+    # normal service finish this disposable profile before restarting, so the
+    # next startup does not immediately reserve it again. Observe public state;
+    # never disable backups, clear leases or replay a failed launch mutation.
+    wait_for(
+        lambda: any(
+            backup["profile_id"] == profile_id
+            for backup in device.call("/system/backups")["data"]["backups"]
+        ),
+        seconds=180,
+    )
+
+
 def positive_case(device, protocol, auth, certs, *, restart=False):
     with FixtureService(protocol, certs, auth=auth) as service:
         fixture = service.fixture
@@ -358,6 +378,11 @@ def positive_case(device, protocol, auth, certs, *, restart=False):
                 assert len(listeners) == 1, "Expected one session-owned relay"
         pinned = device.call(f"/profiles/{profile_id}")
         if restart:
+            print(
+                "Installed proxy acceptance: waiting for scheduled backup before restart",
+                flush=True,
+            )
+            wait_for_initial_backup(device, profile_id)
             device.close()
             device.start()
             device.login()
@@ -551,6 +576,8 @@ def main():
         result.update(
             passed=False, phase=phase, error_type=type(error).__name__, frames=frames[-8:]
         )
+        if isinstance(error, InstalledAPIError):
+            result["http_status"] = error.status
         raise RuntimeError(
             f"Installed proxy acceptance failed at {phase} ({type(error).__name__})"
         ) from None

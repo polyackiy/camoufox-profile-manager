@@ -138,7 +138,10 @@ verification instead of stopping at the earlier health lookup. Normal positive
 launches retain fresh verified GeoIP. There is no TLS bypass. Tests close
 browsers through the installed manager, require session relay listeners to
 disappear, check unchanged hardware/settings and repeat authenticated SOCKS5
-after restarting the installed process.
+after restarting the installed process. Before restart the harness waits for the
+normal scheduled backup's public receipt, so that an expected backup lease is
+not confused with proxy failure. It never disables backups, force-clears a lease
+or replays a failed launch.
 
 Run only on disposable Actions workers after building the installer and preparing
 the paired browser/resources, Chromium and NSS tools:
