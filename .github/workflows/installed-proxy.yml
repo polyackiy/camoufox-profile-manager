@@ -57,6 +57,19 @@ jobs:
       - name: Install Linux desktop runtime and isolated-profile NSS tools
         if: runner.os == 'Linux'
         run: |
+          # The runner's Azure mirror repeatedly downloaded tiny font packages
+          # for minutes. Use Ubuntu's canonical HTTPS archive; keep suites,
+          # components, signing keys and APT signature verification unchanged.
+          sudo python3 - <<'PY'
+          from pathlib import Path
+          for path in (Path('/etc/apt/sources.list'), Path('/etc/apt/sources.list.d/ubuntu.sources')):
+              if path.is_file():
+                  original = path.read_text()
+                  updated = original.replace('http://azure.archive.ubuntu.com/ubuntu', 'https://archive.ubuntu.com/ubuntu')
+                  updated = updated.replace('http://security.ubuntu.com/ubuntu', 'https://security.ubuntu.com/ubuntu')
+                  if updated != original:
+                      path.write_text(updated)
+          PY
           uv run --no-sync playwright install-deps firefox chromium
           sudo apt-get install -y xvfb libegl1 libgl1 libxkbcommon0 libxcb-cursor0 libnss3-tools libasound2 libxcomposite1 libxdamage1 libxrandr2 libxtst6 libgbm1 libgtk-3-0 libdbus-1-3 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-render-util0 libxcb-xinerama0 libxcb-xkb1 libxkbcommon-x11-0 libx11-xcb1
           uv pip install PyQt6 PyQt6-WebEngine qtpy
