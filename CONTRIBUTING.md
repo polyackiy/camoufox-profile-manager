@@ -155,3 +155,7 @@ Use its ephemeral CA and synthetic endpoints rather than real provider accounts.
 Record the tested revision, wrapper/browser pair and platform; distinguish source
 CI from installed-package acceptance. Never commit working provider credentials
 or introduce certificate-validation or direct-connection fallbacks to pass a test.
+Changes affecting frozen proxy behavior also run the four-target installed
+matrix. See the same guide for its disposable trust provisioning, sanitized
+reports and the distinction between a passing package trial and physical-machine
+or independent security acceptance.
