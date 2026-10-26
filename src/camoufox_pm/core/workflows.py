@@ -146,6 +146,12 @@ class WorkflowEngine:
                 or existing["request"] != request.model_dump()
             ):
                 raise WorkflowConflict("This request ID belongs to a different run.")
+            # Idempotent recovery returns a receipt, so apply the same current
+            # grant/session checks as history reads. Do not recheck row versions:
+            # a later profile edit cannot turn recovery into a repeated launch.
+            for target in existing["targets"]:
+                if not await self.authorized(value["owner"], target["profile_id"], session_hash):
+                    raise WorkflowDenied("Workflow access denied.")
             return existing
         if self.store.seen(request.request_id):
             raise WorkflowConflict(

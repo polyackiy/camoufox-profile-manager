@@ -162,6 +162,12 @@ async def test_operator_requires_all_target_grants_and_receipts_are_sanitized(
     assert (
         await client.get(f"/api/v1/workflows/{value['id']}/runs/{body['request_id']}")
     ).status_code == 404
+    # Recovering a lost response is also a history read, and must not bypass
+    # current profile grants after they have been revoked.
+    denied_replay = await client.post(f"/api/v1/workflows/{value['id']}/runs", json=body)
+    assert denied_replay.status_code == 404
+    assert own.id not in denied_replay.text
+    assert len(browser_stub.visits) == 1
 
 
 @pytest.mark.asyncio
