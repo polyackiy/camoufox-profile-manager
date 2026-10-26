@@ -1,6 +1,7 @@
 """Wire-level transport and TLS acceptance using only synthetic local endpoints."""
 
 import asyncio
+import ssl
 
 import pytest
 
@@ -289,3 +290,25 @@ async def test_trusted_ca_does_not_bypass_hostname_validation(certs, monkeypatch
         with pytest.raises(ConnectionError, match="TLS certificate"):
             await proxy_check.resolve_exit_ip(config(fixture), timeout=2)
         assert not any(event[0] == "origin" for event in fixture.events)
+
+
+@pytest.mark.asyncio
+async def test_ephemeral_ca_passes_strict_x509_verification_on_every_python(certs):
+    # Python 3.13 enables strict RFC 5280 verification by default. Exercise that
+    # policy on older Pythons too; never relax production verification flags.
+    context = ssl.create_default_context(cafile=str(certs[0]))
+    context.verify_flags |= ssl.VERIFY_X509_STRICT
+    assert context.verify_mode == ssl.CERT_REQUIRED and context.check_hostname
+    async with proxy_fixture("http", certs) as fixture:
+        reader, writer = await asyncio.open_connection(
+            "127.0.0.1", fixture.https_port, ssl=context, server_hostname="cpm-origin.invalid"
+        )
+        try:
+            writer.write(
+                b"GET /ip HTTP/1.1\r\nHost: cpm-origin.invalid\r\nConnection: close\r\n\r\n"
+            )
+            await writer.drain()
+            assert (await reader.read()).endswith(b"203.0.113.19")
+        finally:
+            writer.close()
+            await writer.wait_closed()
