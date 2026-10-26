@@ -286,7 +286,7 @@ def launched(device, profile_id, arguments, *, fixed_geoip=False, monitor_proxy=
         wait_for(lambda: listener_ports(device.process.pid) == before)
 
 
-def profile_for(device, fixture, ca):
+def profile_for(device, fixture, ca, report=None):
     profile = device.call(
         "/profiles",
         {
@@ -300,6 +300,10 @@ def profile_for(device, fixture, ca):
         },
     )
     trust_profile(profile["storage_path"], ca, device.work / "data")
+    # Every synthetic profile is backed up before any browser mutation. This
+    # keeps the normal automatic scheduler enabled without a timing race at
+    # an arbitrary minute boundary during protocol/refusal acceptance.
+    prepare_profile_backup(device, profile["id"], report)
     return profile["id"]
 
 
@@ -335,20 +339,6 @@ def package_identity():
     return {"format": packages[0].suffix, "sha256": digest.hexdigest()}
 
 
-def wait_for_initial_backup(device, profile_id):
-    # Startup/periodic backups legitimately reserve closed profiles. Let the
-    # normal service finish this disposable profile before restarting, so the
-    # next startup does not immediately reserve it again. Observe public state;
-    # never disable backups, clear leases or replay a failed launch mutation.
-    wait_for(
-        lambda: any(
-            backup["profile_id"] == profile_id
-            for backup in device.call("/system/backups")["data"]["backups"]
-        ),
-        seconds=180,
-    )
-
-
 def positive_case(device, protocol, auth, certs, *, restart=False):
     with FixtureService(protocol, certs, auth=auth) as service:
         fixture = service.fixture
@@ -380,10 +370,10 @@ def positive_case(device, protocol, auth, certs, *, restart=False):
         pinned = device.call(f"/profiles/{profile_id}")
         if restart:
             print(
-                "Installed proxy acceptance: waiting for scheduled backup before restart",
+                "Installed proxy acceptance: completing backup before restart",
                 flush=True,
             )
-            wait_for_initial_backup(device, profile_id)
+            prepare_profile_backup(device, profile_id)
             device.close()
             device.start()
             device.login()
@@ -453,7 +443,7 @@ def positive_case(device, protocol, auth, certs, *, restart=False):
         }
 
 
-def prepare_workflow_backup(device, profile_id, report=None):
+def prepare_profile_backup(device, profile_id, report=None):
     # Use the public manual operation instead of waiting for the next automatic
     # scheduler tick. A successful response also means its profile lease has
     # been released. Only this additive preparation may retry a busy response;
@@ -541,8 +531,7 @@ def workflow_case(device, certs, report):
     """The installed workflow navigates only after authenticated launch readiness."""
     with FixtureService("https", certs, auth=True) as service:
         fixture = service.fixture
-        profile_id = profile_for(device, fixture, certs[0])
-        prepare_workflow_backup(device, profile_id, report)
+        profile_id = profile_for(device, fixture, certs[0], report)
         baseline = listener_ports(device.process.pid)
         nonce = secrets.token_hex(12)
         paths = [f"/proof/{nonce}-{scheme}" for scheme in ("http", "https")]

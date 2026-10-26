@@ -96,16 +96,21 @@ def test_observer_gate_requires_explicit_launch_acknowledgment_and_a_new_nonce(t
             assert client.get(base + "/gate/" + "b" * 24).text == "wait"
 
 
-def test_restart_waits_for_public_backup_receipt_without_mutating_or_replaying_launches():
-    replies = iter([[], [{"profile_id": "other"}], [{"profile_id": "target"}]])
+def test_new_protocol_profiles_finish_public_backup_before_any_launch(tmp_path, monkeypatch):
     calls = []
 
-    def read(path, body=None):
-        calls.append((path, body))
-        return {"data": {"backups": next(replies)}}
+    def call(path, body):
+        calls.append(path)
+        if path == "/profiles":
+            return {"id": "target", "storage_path": str(tmp_path / "data" / "target")}
+        assert path == "/system/backups" and body == {"profile_ids": ["target"]}
+        return {"data": {"backups": [{"profile_id": "target"}]}}
 
-    harness.wait_for_initial_backup(SimpleNamespace(call=read), "target")
-    assert calls == [("/system/backups", None)] * 3
+    monkeypatch.setattr(harness, "trust_profile", lambda *_args: calls.append("trust"))
+    fixture = SimpleNamespace(protocol="http", proxy_port=8080, auth=False)
+    device = SimpleNamespace(call=call, work=tmp_path)
+    assert harness.profile_for(device, fixture, Path("unused")) == "target"
+    assert calls == ["/profiles", "trust", "/system/backups"]
 
 
 def test_workflow_preparation_retries_only_additive_busy_backup(monkeypatch):
@@ -125,7 +130,7 @@ def test_workflow_preparation_retries_only_additive_busy_backup(monkeypatch):
         return {"data": {"backups": [{"profile_id": "target"}]}}
 
     report = {}
-    harness.prepare_workflow_backup(SimpleNamespace(call=call), "target", report)
+    harness.prepare_profile_backup(SimpleNamespace(call=call), "target", report)
     assert calls == [("/system/backups", {"profile_ids": ["target"]})] * 2
     assert report == {
         "workflow_preparation": {"attempts": 2, "busy_responses": 1, "prepared": True}
@@ -135,14 +140,14 @@ def test_workflow_preparation_retries_only_additive_busy_backup(monkeypatch):
         raise harness.InstalledAPIError(403)
 
     with pytest.raises(harness.InstalledAPIError):
-        harness.prepare_workflow_backup(SimpleNamespace(call=forbidden), "target")
+        harness.prepare_profile_backup(SimpleNamespace(call=forbidden), "target")
 
     def skipped(path, body):
         return {"data": {"backups": [], "skipped": [{"reason": "private secret file"}]}}
 
     report = {}
     with pytest.raises(RuntimeError):
-        harness.prepare_workflow_backup(SimpleNamespace(call=skipped), "target", report)
+        harness.prepare_profile_backup(SimpleNamespace(call=skipped), "target", report)
     assert "private secret file" not in json.dumps(report)
     assert report["workflow_preparation"]["skipped"] is True
 
