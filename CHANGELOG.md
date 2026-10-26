@@ -29,6 +29,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   incomplete operations (#119). Interactive queues do not replay after reload.
 
 ### Fixed
+- Keep declared profile screens independent of physical-monitor inference on
+  headed launches, preventing fpgen constraint failures without changing saved
+  hardware or forking Camoufox (#135).
 - Keep informational proxy findings visible, explain missing location resources
   through Settings, and translate known browser-installation failures with
   actionable retry guidance (#123).
@@ -39,7 +42,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Recheck workflow authority and sync admission at execution; hold profile
   admission across sequences and drain accepted work before update maintenance.
   Preserve request-ID tombstones after history pruning, redact validation inputs
-  and allowlist run responses. Schema 5 fences older managers.
+  and allowlist run responses. Bind creators to immutable current session IDs,
+  enforce resource limits atomically, and keep active/recently completed runs
+  visible for cancellation and review. Schema 5 fences older managers.
 - Exercise disposable installed packages on four desktop targets against local
   proxy/TLS fixtures, including certificate refusal, relay teardown and restart;
   export only sanitized acceptance reports with package checksums (#116).

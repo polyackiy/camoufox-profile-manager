@@ -24,6 +24,13 @@ This preserves the readiness boundary for authenticated proxies. Existing browse
 are skipped and remain untouched. The run closes its exact session after completion,
 failure, cancellation or loss of authority; it cannot adopt a replacement browser.
 
+For a declared profile screen, headed launches use Camoufox's public empty
+`Screen` constraint. This prevents an implicit host-monitor bound from rejecting
+fpgen's intermediate sample before the saved screen is applied. Profile hardware
+and explicit caller constraints are preserved; there is no browser fork or launch
+retry. A real-browser regression simulates the observed `RestrictiveConstraints`
+failure and checks the declared screen and stored pin after launch/close.
+
 | Resource | Limit |
 | --- | --- |
 | Definitions per installation | 100 |
@@ -168,7 +175,8 @@ and poll receipts; executable code is not loaded into the manager.
   Headless and desktop authenticated HTTPS/SOCKS5 fixtures require a browser-executed receipt, with
   an ephemeral CA trusted only in disposable profiles.
   The Browser compatibility workflow also offers an `automation` dispatch suite
-  for these four cases; it installs the same isolated-profile NSS tools. Full PR
+  for the four proxy cases and the declared-screen regression; it installs the
+  same isolated-profile NSS tools. Full PR
   browser acceptance remains separate and required before merge.
 - Installed packages: the four-platform installed proxy workflow also exercises
   a real authenticated HTTPS-proxy workflow and exports a sanitized summary.

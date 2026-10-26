@@ -50,6 +50,8 @@ def startup_diagnostics(error):
         "UnsupportedVersion",
         "InvalidOS",
         "NonFirefoxFingerprint",
+        "InvalidConstraints",
+        "RestrictiveConstraints",
     }
     kind = type(error).__name__
     frames = []
@@ -160,3 +162,51 @@ async def test_workflow_navigation_after_authenticated_launch_readiness(
             await engine.stop()
             await manager.close_all_browsers()
     assert not fixture.tasks
+
+
+@pytest.mark.browser
+async def test_declared_desktop_screen_does_not_inherit_restrictive_host_bounds(
+    profile_manager, monkeypatch
+):
+    from camoufox import utils
+    from camoufox.fingerprints import Screen
+    from fpgen.exceptions import RestrictiveConstraints
+
+    generate = utils.generate_fingerprint
+
+    def restrictive_model(**options):
+        screen = options.get("screen")
+        if screen is not None and screen.as_conditions():
+            raise RestrictiveConstraints("Synthetic monitor/model constraints conflict")
+        return generate(**options)
+
+    # Model the observed public fpgen failure without relying on a random draw
+    # or the runner's monitor geometry. Keep real Camoufox/browser execution.
+    monkeypatch.setattr(utils, "generate_fingerprint", restrictive_model)
+    monkeypatch.setattr(utils, "has_display", lambda _env: True)
+    monkeypatch.setattr(
+        utils,
+        "get_screen_cons",
+        lambda headless: None if headless is True else Screen(max_width=640, max_height=480),
+    )
+    manager = profile_manager
+    launch = manager.browser_sessions.launch
+
+    async def controlled_launch(profile_id, options, on_exit=None):
+        return await launch(profile_id, offline_launch(options), on_exit)
+
+    monkeypatch.setattr(manager.browser_sessions, "launch", controlled_launch)
+    profile = await manager.create_profile(
+        "Synthetic desktop constraints",
+        browser_settings={"screen": "1920x1080", "window_width": 1280, "window_height": 720},
+    )
+    try:
+        await manager.launch_browser(profile.id, args=["-new-tab", "about:blank"])
+        pinned = (await manager.get_profile(profile.id)).fingerprint
+        session = manager.browser_sessions.active_sessions[profile.id]
+        page = await session.context.new_page()
+        assert await page.evaluate("[screen.width, screen.height]") == [1920, 1080]
+        await manager.close_browser(profile.id)
+        assert (await manager.get_profile(profile.id)).fingerprint == pinned
+    finally:
+        await manager.close_all_browsers()
