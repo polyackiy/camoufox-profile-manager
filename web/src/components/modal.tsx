@@ -57,6 +57,14 @@ export function Modal({ open, title, subtitle, onClose, children, footer, width 
       const first = items[0]
       const last = items[items.length - 1]
       const active = document.activeElement
+      // A step transition can remove its focused button. Keep the next Tab
+      // inside this dialog even when the browser returns focus to the body.
+      if (!panel?.contains(active)) {
+        event.preventDefault()
+        const target = event.shiftKey ? last : first
+        target.focus()
+        return
+      }
       if (event.shiftKey && (active === first || active === panel)) {
         event.preventDefault()
         last.focus()

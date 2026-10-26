@@ -115,7 +115,7 @@ export function ProxySequenceAssignment({ onClose }: { onClose: () => void }) {
       })}</ol>
       {replacements > 0 && !submitted && <label className="mt-3 flex items-start gap-2"><input type="checkbox" checked={confirmed} disabled={busy} onChange={event => setConfirmed(event.target.checked)} /><span>{replacements === 1 ? t('Replace existing proxy settings for the selected profile.') : t('Replace existing proxy settings for {count} selected profiles.', { count: replacements })}</span></label>}
       {busy && submitted && <p role="status" className="mt-3 text-ink-dim">{t('Assignment may continue if this dialog closes. Review current profiles before starting another assignment.')}</p>}
-      {result && <div className="mt-3" role="status"><p>{t('{assigned} assigned; {skipped} skipped', { assigned: result.assigned.length, skipped: result.skipped.length })}</p><p className="mt-1 text-ink-dim">{t('Review skipped or unconfirmed profiles. Close and reopen to inspect current versions before assigning again.')}</p></div>}
+      {result && <div className="mt-3" role="status"><p>{t('{assigned} assigned; {skipped} skipped', { assigned: result.assigned.length, skipped: result.skipped.length })}</p>{result.skipped.length > 0 && <p className="mt-1 text-ink-dim">{t('Review skipped or unconfirmed profiles. Close and reopen to inspect current versions before assigning again.')}</p>}</div>}
     </div>}
     {error && <p role="alert" className="mt-3 break-words text-danger">{error}</p>}
   </Modal>

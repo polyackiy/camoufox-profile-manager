@@ -148,6 +148,8 @@ class ProxySequenceUI(StageTwoUI):
         dialog.get_by_role('checkbox', name='选择代理 Office', exact=True).check()
         dialog.get_by_role('button', name='预览分配关系', exact=True).click()
         expect(dialog.get_by_role('list', name='代理分配关系预览')).to_contain_text('Account 001')
+        self.page.keyboard.press('Tab')
+        self.assertTrue(dialog.evaluate('(element) => element.contains(document.activeElement)'))
         dialog.get_by_role('button', name='确认分配', exact=True).click()
         expect(dialog.get_by_text('已分配 1 个，已跳过 0 个', exact=True)).to_be_visible()
         self.assertLessEqual(dialog.evaluate('(element) => element.scrollWidth'), dialog.evaluate('(element) => element.clientWidth'))
