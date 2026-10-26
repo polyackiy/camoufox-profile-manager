@@ -67,7 +67,10 @@ async def create_workflow(request: WorkflowDefinition):
     if len(engine().store.list()) >= 100:
         raise HTTPException(409, "The installation already has 100 workflows.")
     await validate_targets(request, actor)
-    return public(engine().store.save(request, actor))
+    try:
+        return public(engine().store.save(request, actor))
+    except WorkflowConflict as exc:
+        raise HTTPException(409, str(exc)) from None
 
 
 @router.put(

@@ -406,6 +406,44 @@ async def test_global_slots_and_active_run_limit_bound_multiple_workflows(runtim
     await asyncio.gather(*list(runtime.engine.tasks.values()))
 
 
+async def test_concurrent_submissions_cannot_exceed_installation_run_limit(runtime, monkeypatch):
+    runtime.hold_navigation.clear()
+    values = [await definition(runtime) for _ in range(8)]
+    selected = [await targets(runtime) for _ in values]
+    authorize = runtime.engine.authorized
+    pending = 0
+    barrier = asyncio.Event()
+
+    async def delayed_authorization(*args):
+        nonlocal pending
+        pending += 1
+        if pending >= 8:
+            barrier.set()
+        await asyncio.wait_for(barrier.wait(), 5)
+        return await authorize(*args)
+
+    monkeypatch.setattr(runtime.engine, "authorized", delayed_authorization)
+    replies = await asyncio.wait_for(
+        asyncio.gather(
+            *(start(runtime, value, rows) for value, rows in zip(values, selected, strict=True)),
+            return_exceptions=True,
+        ),
+        10,
+    )
+    assert sum(isinstance(reply, WorkflowConflict) for reply in replies) == 4
+    assert len(runtime.engine.tasks) == 4
+    runtime.hold_navigation.set()
+    await asyncio.gather(*list(runtime.engine.tasks.values()))
+
+
+async def test_definition_limit_is_enforced_in_store_for_concurrent_api_admission(runtime):
+    for _ in range(100):
+        await definition(runtime)
+    with pytest.raises(WorkflowConflict, match="100 workflows"):
+        await definition(runtime)
+    assert len(runtime.engine.store.list()) == 100
+
+
 async def test_maintenance_cannot_begin_until_cancelled_actions_drain(runtime, tmp_path):
     from camoufox_pm.core.maintenance import MaintenanceBlocked, MaintenanceGate
 

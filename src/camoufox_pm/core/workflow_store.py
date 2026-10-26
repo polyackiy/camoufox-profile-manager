@@ -41,6 +41,7 @@ class WorkflowStore:
             "next_run_at": planned_after(definition, datetime.now()),
         }
         with self.db:
+            self.db.execute("BEGIN IMMEDIATE")
             if expected:
                 changed = self.db.execute(
                     "UPDATE workflows SET body=?,revision=? WHERE id=? AND revision=?",
@@ -49,6 +50,8 @@ class WorkflowStore:
                 if not changed:
                     raise WorkflowConflict("Workflow changed. Reload before saving or running.")
             else:
+                if self.db.execute("SELECT COUNT(*) FROM workflows").fetchone()[0] >= 100:
+                    raise WorkflowConflict("The installation already has 100 workflows.")
                 self.db.execute(
                     "INSERT INTO workflows(id,revision,body) VALUES(?,?,?)",
                     (value["id"], value["revision"], json.dumps(value)),
@@ -97,6 +100,17 @@ class WorkflowStore:
                 definition = self.get(value["workflow_id"])
                 if not definition or definition["revision"] != value["revision"]:
                     raise WorkflowConflict("Workflow changed. Reload before saving or running.")
+                active = value["state"] in {"queued", "running"}
+                if (
+                    active
+                    and self.db.execute(
+                        "SELECT COUNT(*) FROM workflow_runs WHERE active=1"
+                    ).fetchone()[0]
+                    >= 4
+                ):
+                    raise WorkflowConflict(
+                        "Four workflow runs are already active. Wait or cancel a run."
+                    )
                 self.db.execute(
                     "INSERT INTO workflow_receipts(id,workflow_id) VALUES(?,?)",
                     (value["id"], value["workflow_id"]),
@@ -106,7 +120,7 @@ class WorkflowStore:
                     (
                         value["id"],
                         value["workflow_id"],
-                        int(value["state"] in {"queued", "running"}),
+                        int(active),
                         json.dumps(value),
                     ),
                 )
