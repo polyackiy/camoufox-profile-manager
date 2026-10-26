@@ -607,7 +607,7 @@ export interface Workflow { id: string; revision: number; definition: WorkflowDe
 export interface WorkflowRun {
   id: string; workflow_id: string; revision: number; state: string; cancel_requested: boolean
   started_at: string; finished_at: string | null
-  targets: (WorkflowTarget & { state: string; message: string | null; steps: { name: string; action: string; state: string }[] })[]
+  targets: (WorkflowTarget & { state: string; message: string | null; error_code?: string | null; steps: { name: string; action: string; state: string }[] })[]
 }
 export interface WorkflowStart { request_id: string; revision: number; targets: WorkflowTarget[]; retry_of?: string; replay_confirmed?: boolean }
 export const workflowsAPI = {

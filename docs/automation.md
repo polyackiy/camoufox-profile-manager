@@ -17,7 +17,8 @@ summary. **Start workflow** submits those profile IDs and their current versions
 The picker reads all pages up to 10,000 profiles; larger installations can use
 the explicit-target API.
 
-The executor starts a new managed session, waits for the ready Playwright context,
+The executor starts a new managed session with an explicit neutral `about:blank`
+tab, waits for the ready Playwright context,
 then creates its tab and navigates. Destination URLs are never startup arguments.
 This preserves the readiness boundary for authenticated proxies. Existing browsers
 are skipped and remain untouched. The run closes its exact session after completion,
@@ -106,6 +107,11 @@ internal owners and raw browser exceptions. Validation errors remove raw inputs
 and exception context. Profile archives exclude workflows; whole-installation
 update checkpoints include their database tables.
 
+Failed target receipts may include a fixed `error_code` (`timeout`,
+`browser_startup`, `proxy_connection`, `configuration`, `filesystem`,
+`session_unavailable`, `operation_conflict` or `unexpected`) for troubleshooting.
+These codes never contain exception text or arbitrary exception class names.
+
 Schema **5** adds definitions, receipts and tombstones. Older schema-aware managers
 refuse this database; application rollback needs its matching pre-upgrade data
 checkpoint. Keep independent backups. Sync remains experimental and opt-in;
@@ -159,7 +165,7 @@ and poll receipts; executable code is not loaded into the manager.
   Twenty-one English/Russian/Chinese contracts cover editing, review, lost
   responses, retry consent, compact layout, keyboard and operator access.
 - Real browser: `uv run pytest tests/browser/test_automation_workflow.py --no-network`.
-  Authenticated HTTPS/SOCKS5 fixtures require a browser-executed receipt, with
+  Headless and desktop authenticated HTTPS/SOCKS5 fixtures require a browser-executed receipt, with
   an ephemeral CA trusted only in disposable profiles.
 - Installed packages: the four-platform installed proxy workflow also exercises
   a real authenticated HTTPS-proxy workflow and exports a sanitized summary.

@@ -11,6 +11,7 @@ from pydantic import ValidationError
 
 from camoufox_pm.api.principal import Principal
 from camoufox_pm.core import profile_manager as pm_module
+from camoufox_pm.core.browser_session import BrowserLaunchError
 from camoufox_pm.core.leases import ProfileLocked
 from camoufox_pm.core.workflow_models import WorkflowDefinition, WorkflowStart, WorkflowStep
 from camoufox_pm.core.workflow_store import WorkflowConflict
@@ -186,7 +187,7 @@ async def test_ready_context_navigation_then_close_and_receipt_redaction(runtime
     done = await finished(runtime, run)
     assert done["state"] == "completed"
     assert [event[0] for event in runtime.events] == ["launch", "page", "navigate", "close"]
-    assert "args" not in runtime.events[0][2]
+    assert runtime.events[0][2]["args"] == ["-new-tab", "about:blank"]
     assert "example.test" not in json.dumps(done)
     assert "url" not in json.dumps(done)
     assert not runtime.manager.browser_sessions.active_sessions
@@ -496,5 +497,21 @@ async def test_launch_deadline_preserves_task_admission_and_releases_failed_leas
     done = await finished(runtime, run)
     assert runtime.launched.is_set(), "Launch must run inside its existing admission task"
     assert done["targets"][0]["state"] == "failed"
+    assert done["targets"][0]["error_code"] == "timeout"
+    assert (await runtime.manager.storage.get_lease(request.targets[0].profile_id))[0] is None
+    assert not runtime.manager.browser_sessions.active_sessions
+
+
+async def test_browser_startup_failure_exposes_only_fixed_code_and_releases_lease(
+    runtime, monkeypatch
+):
+    async def failed(*_args, **_kwargs):
+        raise BrowserLaunchError("https://private-user:private-password@private-proxy/")
+
+    monkeypatch.setattr(runtime.manager.browser_sessions, "launch", failed)
+    run, request = await start(runtime, await definition(runtime))
+    done = await finished(runtime, run)
+    assert done["targets"][0]["error_code"] == "browser_startup"
+    assert "private-" not in json.dumps(done)
     assert (await runtime.manager.storage.get_lease(request.targets[0].profile_id))[0] is None
     assert not runtime.manager.browser_sessions.active_sessions

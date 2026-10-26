@@ -151,6 +151,19 @@ class WorkflowTargetReceipt(BaseModel):
     row_version: int
     state: str
     message: str | None
+    error_code: (
+        Literal[
+            "timeout",
+            "browser_startup",
+            "proxy_connection",
+            "configuration",
+            "filesystem",
+            "session_unavailable",
+            "operation_conflict",
+            "unexpected",
+        ]
+        | None
+    ) = None
     steps: list[WorkflowStepReceipt]
 
 

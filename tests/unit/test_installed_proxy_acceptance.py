@@ -159,6 +159,7 @@ def test_workflow_diagnostics_allowlist_states_without_identity_or_error_text():
                     "profile_id": private,
                     "state": "failed",
                     "message": private,
+                    "error_code": private,
                     "steps": [{"state": private, "name": private, "url": private}],
                 },
                 {
@@ -171,6 +172,7 @@ def test_workflow_diagnostics_allowlist_states_without_identity_or_error_text():
     )
     assert private not in json.dumps(result)
     assert result["targets"][0]["steps"] == ["unknown"]
+    assert result["targets"][0]["error_code"] is None
     assert result["targets"][1]["category"] == "busy"
 
 

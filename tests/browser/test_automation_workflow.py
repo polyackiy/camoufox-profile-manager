@@ -16,8 +16,9 @@ from tests.support.proxy_protocols import certificates
 
 @pytest.mark.browser
 @pytest.mark.parametrize("protocol", ["https", "socks5"])
+@pytest.mark.parametrize("headless", [True, False], ids=["headless", "desktop"])
 async def test_workflow_navigation_after_authenticated_launch_readiness(
-    profile_manager, tmp_path, monkeypatch, protocol
+    profile_manager, tmp_path, monkeypatch, protocol, headless
 ):
     certs = certificates(tmp_path, dns_names=DNS_NAMES)
     monkeypatch.setenv("SSL_CERT_FILE", str(certs[0]))
@@ -25,7 +26,7 @@ async def test_workflow_navigation_after_authenticated_launch_readiness(
     launch = manager.browser_sessions.launch
 
     async def controlled_launch(profile_id, options, on_exit=None):
-        return await launch(profile_id, {**offline_launch(options), "headless": True}, on_exit)
+        return await launch(profile_id, {**offline_launch(options), "headless": headless}, on_exit)
 
     monkeypatch.setattr(manager.browser_sessions, "launch", controlled_launch)
     engine = WorkflowEngine(manager.storage, manager)

@@ -13,6 +13,7 @@ from camoufox_pm.api.principal import Principal
 from camoufox_pm.config import get_settings
 
 from .access import AccessControl
+from .browser_session import BrowserLaunchError
 from .leases import ProfileLocked
 from .sync_admission import profile_admission
 from .sync_guard import guard_profile
@@ -30,6 +31,25 @@ else:
 
 class WorkflowDenied(ValueError):
     pass
+
+
+def safe_failure_code(error):
+    """Fixed troubleshooting categories; never export exception messages/classes."""
+    if isinstance(error, asyncio.TimeoutError):
+        return "timeout"
+    if isinstance(error, BrowserLaunchError):
+        return "browser_startup"
+    if isinstance(error, ConnectionError):
+        return "proxy_connection"
+    if isinstance(error, ValueError):
+        return "configuration"
+    if isinstance(error, OSError):
+        return "filesystem"
+    if isinstance(error, KeyError):
+        return "session_unavailable"
+    if isinstance(error, WorkflowConflict):
+        return "operation_conflict"
+    return "unexpected"
 
 
 async def workflow_owner(storage, actor):
@@ -342,7 +362,12 @@ class WorkflowEngine:
                     self.store.save_run(job)
                     if step.action == "launch":
                         async with launch_deadline(self.launch_timeout):
-                            await self.profiles.launch_browser(profile_id)
+                            # Give desktop Firefox an explicit neutral tab. No
+                            # destination/authentication challenge belongs in
+                            # startup, before Playwright's handlers are ready.
+                            await self.profiles.launch_browser(
+                                profile_id, args=["-new-tab", "about:blank"]
+                            )
                         owned = self.profiles.browser_sessions.active_sessions[profile_id]
                     else:
                         # Never navigate/close a replacement or manually reopened
@@ -390,11 +415,12 @@ class WorkflowEngine:
                 state="skipped",
                 message="Profile is already open or busy. Close it before retrying.",
             )
-        except Exception:
+        except Exception as error:
             # Browser exceptions often contain URLs and proxy credentials. No
             # exception text, response bodies, page content or parameters in logs.
             row.update(
                 state="failed",
+                error_code=safe_failure_code(error),
                 message="Step failed. Check the profile, proxy and destination before retrying.",
             )
         finally:

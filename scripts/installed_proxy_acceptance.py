@@ -507,6 +507,16 @@ def workflow_diagnostics(run):
         "Step failed. Check the profile, proxy and destination before retrying.": "execution",
         "Browser cleanup failed. Stop this profile before retrying.": "cleanup",
     }
+    failure_codes = {
+        "timeout",
+        "browser_startup",
+        "proxy_connection",
+        "configuration",
+        "filesystem",
+        "session_unavailable",
+        "operation_conflict",
+        "unexpected",
+    }
 
     def state(value):
         return value if isinstance(value, str) and value in states else "unknown"
@@ -517,6 +527,9 @@ def workflow_diagnostics(run):
             {
                 "state": state(row.get("state")),
                 "category": categories.get(row.get("message"), "unknown"),
+                "error_code": (
+                    row.get("error_code") if row.get("error_code") in failure_codes else None
+                ),
                 "steps": [state(step.get("state")) for step in row.get("steps", [])[:12]],
             }
             for row in run.get("targets", [])[:100]
