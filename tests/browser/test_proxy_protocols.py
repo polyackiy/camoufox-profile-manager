@@ -110,13 +110,19 @@ async def test_real_browser_both_destinations_refusal_and_cleanup(tmp_path, prot
             if auth and protocol == "socks5":
                 assert ("auth", True) in fixture.events
                 assert set(session.camoufox.launch_options["proxy"]) == {"server"}
-            before = len([event for event in fixture.events if event[0] == "origin"])
             fixture.reject = True
+            refused_path = "/must-not-reach-origin-after-refusal"
             with pytest.raises(Error):
                 await page.goto(
-                    f"http://cpm-rejected.invalid:{fixture.http_port}/refused", timeout=8000
+                    f"http://cpm-rejected.invalid:{fixture.http_port}{refused_path}", timeout=8000
                 )
-            assert len([event for event in fixture.events if event[0] == "origin"]) == before
+            # A late favicon from an earlier successful navigation may still
+            # finish on an already accepted connection. Assert on the refused
+            # probe itself, rather than an unrelated global request counter.
+            assert not any(
+                event[0] == "origin" and refused_path.encode() in event[1]
+                for event in fixture.events
+            )
         finally:
             await close_session(manager, session, profile.id)
     assert not fixture.tasks
