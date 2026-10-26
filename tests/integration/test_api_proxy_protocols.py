@@ -40,6 +40,7 @@ async def test_aliases_stay_canonical_in_library_and_profile_database(client, al
 @pytest.mark.parametrize(
     "protocol,username,password",
     [
+        ("http", None, "private-password"),
         ("socks4", "private-user", "private-password"),
         ("socks4a", "private-user", None),
         ("socks5", "private-user", None),
