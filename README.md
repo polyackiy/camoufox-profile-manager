@@ -52,7 +52,7 @@ from it in January still looks like the same computer in June.
   [preview ordered assignments](docs/proxy-sequence.md) or assign one proxy to
   several closed profiles. Library passwords are write-only and require
   encryption. Assigned profiles retain independent copies. See the
-  [proxy guide](docs/proxy-library.md).
+  [proxy guide](docs/proxy-library.md) and [protocol acceptance matrix](docs/proxy-support.md).
 - **Multi-user, when you need it.** Nothing to configure for the usual case: the
   app binds to loopback and is open. Set `CPM_API_KEY` for machine clients, or
   create an account (`camoufox-pm user add`) and humans get a login screen —

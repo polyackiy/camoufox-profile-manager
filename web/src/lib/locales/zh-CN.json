@@ -1067,5 +1067,19 @@
   "Device synchronization blocks this operation": "设备同步阻止了此操作",
   "Assignment could not be confirmed. Reload profiles before trying again.": "无法确认分配结果。请重新加载配置后再试。",
   "Showing the first 200 matches. Narrow the search to find more.": "显示前 200 条匹配结果。请缩小搜索范围以查找更多结果。",
-  "Review skipped or unconfirmed profiles. Close and reopen to inspect current versions before assigning again.": "请检查已跳过或结果未确认的配置。再次分配前，请关闭并重新打开，以查看当前版本。"
+  "Review skipped or unconfirmed profiles. Close and reopen to inspect current versions before assigning again.": "请检查已跳过或结果未确认的配置。再次分配前，请关闭并重新打开，以查看当前版本。",
+  "SOCKS4 uses remote DNS (SOCKS4a). Username/password and IPv6 destinations are unsupported; use SOCKS5 for those.": "SOCKS4 使用远程 DNS（SOCKS4a）。不支持用户名/密码认证和 IPv6 目标地址；需要这些功能时请使用 SOCKS5。",
+  "Use host:port or [IPv6]:port without a URL or credentials in Server.": "请在“服务器”中输入 host:port 或 [IPv6]:port，不要包含 URL 协议或凭据。",
+  "SOCKS4 credentials are not supported, so this profile will fail to launch. Use SOCKS5, HTTP or HTTPS for username/password authentication.": "不支持 SOCKS4 凭据，因此该配置无法启动。需要用户名/密码认证时，请使用 SOCKS5、HTTP 或 HTTPS。",
+  "SOCKS5 username and password must each be 1–255 UTF-8 bytes.": "SOCKS5 用户名和密码各需包含 1–255 个 UTF-8 字节。",
+  "The proxy did not answer.": "代理没有响应。",
+  "The proxy rejected the credentials.": "代理拒绝了凭据。",
+  "The proxy refused the connection.": "代理拒绝了连接。",
+  "The proxy did not answer in time.": "代理未在规定时间内响应。",
+  "The proxy intercepts TLS, so its certificate could not be verified.": "无法验证代理连接的 TLS 证书。",
+  "This proxy protocol is not supported. Use HTTP, HTTPS, SOCKS4 or SOCKS5.": "不支持此代理协议。请使用 HTTP、HTTPS、SOCKS4 或 SOCKS5。",
+  "Could not reach the internet through the proxy.": "无法通过代理连接互联网。",
+  "Unsupported proxy address or credentials. Check the proxy settings.": "代理地址或凭据不受支持。请检查代理设置。",
+  "The HTTPS proxy did not answer in time. HTTPS requires a TLS connection to the proxy itself. If your provider supplies a standard HTTP CONNECT proxy, select HTTP; HTTP proxies can also open HTTPS websites. Otherwise, check the proxy address and port.": "HTTPS 代理未在规定时间内响应。HTTPS 要求与代理本身建立 TLS 连接。如果服务商提供标准 HTTP CONNECT 代理，请选择 HTTP；HTTP 代理也可以打开 HTTPS 网站。否则，请检查代理地址和端口。",
+  "The TLS certificate of the proxy or destination could not be verified. Check certificate trust; verification is never skipped.": "无法验证代理或目标网站的 TLS 证书。请检查证书信任设置；系统不会跳过验证。"
 }

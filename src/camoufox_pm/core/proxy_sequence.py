@@ -51,6 +51,7 @@ class ProxySequence:
         for item in assignments:
             ref = item["proxy"]
             config = self.inventory._secret_config(ref["id"], ref["row_version"])
+            config.validate_authentication()
             normalize_proxy_server(config.server)
             _stored_password(config.password)
 

@@ -62,6 +62,16 @@ class ProxyType(str, Enum):
     SOCKS4 = "socks4"
     SOCKS5 = "socks5"
 
+    @classmethod
+    def _missing_(cls, value):
+        # Persist the existing canonical values so older databases and managers
+        # never encounter a new enum merely because an import used an alias.
+        return (
+            {"socks4a": cls.SOCKS4, "socks5h": cls.SOCKS5}.get(value)
+            if isinstance(value, str)
+            else None
+        )
+
 
 class WebRTCMode(str, Enum):
     """WebRTC IP spoofing mode."""
@@ -81,8 +91,21 @@ class ProxyConfig(BaseModel):
     password: str | None = None
     country: str | None = None
 
+    def validate_authentication(self) -> None:
+        from .socks_relay import validate_credentials
+
+        if self.type == ProxyType.SOCKS4 and (self.username or self.password):
+            raise ValueError(
+                "SOCKS4 username/password authentication is unsupported. Use SOCKS5 instead."
+            )
+        if self.type == ProxyType.SOCKS5 and (self.username or self.password):
+            validate_credentials(self.username, self.password)
+        if self.password and not self.username:
+            raise ValueError("A proxy password requires a username")
+
     def to_camoufox_format(self) -> dict[str, str]:
         """Convert to the proxy dict Camoufox/Playwright expects."""
+        self.validate_authentication()
         config = {"server": f"{self.type.value}://{self.server}"}
         if self.username:
             config["username"] = self.username

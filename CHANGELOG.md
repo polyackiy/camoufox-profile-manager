@@ -7,6 +7,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- Check and use SOCKS4 with remote DNS through a session-owned SOCKS4a relay;
+  accept canonicalized `socks4a`/`socks5h` import aliases and document protocol,
+  authentication, DNS and acceptance boundaries (#116).
 - Preview and assign ordered saved-proxy lists to up to 100 stopped profiles,
   with explicit replacement, guarded per-profile results and safe retries using
   the original versions (#121). Includes the Chinese workflow.
@@ -22,6 +25,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   timeout diagnostics, without automatic protocol downgrade (#116).
 
 ### Security
+- Bound exit-address responses without decompression and preserve literal
+  credentials; reject unsupported authentication before saving proxy settings.
+- Resolve fresh proxy exit addresses with verified TLS for proxied launches;
+  block incomplete proxy-derived geography instead of exposing host defaults.
+- Add deterministic HTTP/HTTPS/SOCKS transport and real-browser TLS acceptance
+  using an ephemeral CA trusted only by isolated test profiles.
 - Recheck administrator authority after acquiring each profile lease during
   proxy assignment; reject credential copies without the encryption key and
   report synchronization ownership blocks without exposing internal errors.

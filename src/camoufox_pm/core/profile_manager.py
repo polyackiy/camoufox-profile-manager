@@ -107,6 +107,7 @@ class ProfileManager:
             from .models import ProxyConfig
 
             profile.proxy = ProxyConfig(**proxy_config)
+            profile.proxy.validate_authentication()
 
         # Pin a real device now, if one was chosen. Otherwise the first launch
         # pins a generated fingerprint instead.
@@ -235,6 +236,7 @@ class ProfileManager:
                         from camoufox_pm.core.models import ProxyConfig
 
                         value = ProxyConfig(**value)
+                    value.validate_authentication()
                 elif key == "proxy" and value is None:
                     value = None
                 # Coerce browser_settings dict to BrowserSettings
@@ -1007,7 +1009,7 @@ class ProfileManager:
             # After the write on purpose: this only touches the launch options, so it
             # cannot clobber the row, and it is the first await that is allowed to run
             # between reading the profile and saving it.
-            await proxy_check.prepare_authenticated_socks_geoip(profile.proxy, options)
+            await proxy_check.prepare_proxy_geoip(profile.proxy, options)
             await proxy_check.fill_what_geoip_would_have(profile.proxy, options)
 
             session = await self.browser_sessions.launch(

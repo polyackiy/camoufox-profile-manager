@@ -372,14 +372,17 @@ class BrowserSessionManager:
             try:
                 options = _browser_launch_options(launch_options)
                 proxy = options.get("proxy") or {}
-                if proxy.get("server", "").startswith("socks5://") and (
-                    proxy.get("username") or proxy.get("password")
+                server = proxy.get("server", "")
+                if server.startswith("socks4://") or (
+                    server.startswith("socks5://")
+                    and (proxy.get("username") or proxy.get("password"))
                 ):
                     relay = SocksRelay(
                         proxy["server"], proxy.get("username"), proxy.get("password")
                     )
                     await relay.start()
                     options["proxy"] = relay.browser_proxy
+                if server.startswith(("socks4://", "socks5://")):
                     prefs = dict(options.get("firefox_user_prefs") or {})
                     prefs["network.proxy.socks_remote_dns"] = True
                     options["firefox_user_prefs"] = prefs

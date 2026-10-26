@@ -21,6 +21,7 @@ from __future__ import annotations
 import asyncio
 import ssl
 import time
+from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from math import asin, cos, radians, sin, sqrt
@@ -40,16 +41,16 @@ from .models import (
     ProxyConfig,
     ProxyType,
 )
-from .socks_relay import validate_credentials
+from .proxy_import import normalize_proxy_server
+from .socks_relay import SocksRelay, validate_credentials
 
 # Three of the endpoints Camoufox asks for the exit address, so a check sees the
 # address the browser will. We make the request ourselves rather than calling
 # camoufox.ip.public_ip: that answer is cached for the life of the process, and a
 # check button has to see the proxy as it is now, not as it was an hour ago.
 #
-# One deliberate difference: Camoufox does not verify TLS here and we do, so a
-# proxy that intercepts TLS fails this check while still working at launch. That
-# is worth being told about rather than papering over.
+# The manager also supplies this verified, uncached answer before proxy launches,
+# instead of delegating that lookup to the SDK's unverified/cached HTTP path.
 IP_ENDPOINTS = (
     "https://api.ipify.org",
     "https://checkip.amazonaws.com",
@@ -63,11 +64,16 @@ NEARBY_KM = 100.0
 FAR_KM = 500.0
 
 DEFAULT_TIMEOUT = 10.0
+MAX_IP_RESPONSE_BYTES = 256
 
 HTTPS_TIMEOUT_ERROR = (
     "The HTTPS proxy did not answer in time. HTTPS requires a TLS connection to the proxy "
     "itself. If your provider supplies a standard HTTP CONNECT proxy, select HTTP; "
     "HTTP proxies can also open HTTPS websites. Otherwise, check the proxy address and port."
+)
+CERTIFICATE_ERROR = (
+    "The TLS certificate of the proxy or destination could not be verified. "
+    "Check certificate trust; verification is never skipped."
 )
 
 # The launch path is not a person waiting for an answer, so it gets Camoufox's own
@@ -149,6 +155,16 @@ def proxy_url(proxy: ProxyConfig) -> str:
 def preflight(proxy: ProxyConfig) -> list[Finding]:
     """What can be said about a proxy without touching the network."""
     findings: list[Finding] = []
+    try:
+        normalize_proxy_server(proxy.server)
+    except ValueError:
+        findings.append(
+            Finding(
+                "error",
+                "proxy",
+                "Use host:port or [IPv6]:port without a URL or credentials in Server.",
+            )
+        )
     if proxy.type == ProxyType.SOCKS4 and (proxy.username or proxy.password):
         findings.append(
             Finding(
@@ -295,19 +311,45 @@ async def resolve_exit_ip(
     """
     url = proxy_url(proxy) if proxy else None
     last_error: Exception | None = None
+    if proxy:
+        try:
+            normalize_proxy_server(proxy.server)
+            proxy.validate_authentication()
+        except ValueError:
+            raise ConnectionError(
+                "Unsupported proxy address or credentials. Check the proxy settings."
+            ) from None
 
-    async with httpx.AsyncClient(proxy=url, timeout=timeout) as client:
+    async with AsyncExitStack() as stack:
+        if proxy and proxy.type == ProxyType.SOCKS4:
+            relay = SocksRelay(f"socks4://{proxy.server}", negotiation_timeout=timeout)
+            stack.push_async_callback(relay.close)
+            await relay.start()
+            url = relay.browser_proxy["server"]
+        client = await stack.enter_async_context(httpx.AsyncClient(proxy=url, timeout=timeout))
         for endpoint in IP_ENDPOINTS:
             started = time.monotonic()
             try:
-                response = await client.get(endpoint)
-                response.raise_for_status()
+                async with client.stream(
+                    "GET", endpoint, headers={"Accept-Encoding": "identity"}
+                ) as response:
+                    response.raise_for_status()
+                    if response.headers.get("content-encoding", "identity").strip().lower() not in {
+                        "",
+                        "identity",
+                    }:
+                        raise ValueError("Compressed exit-address response is unsupported")
+                    body = bytearray()
+                    async for chunk in response.aiter_raw(chunk_size=MAX_IP_RESPONSE_BYTES + 1):
+                        if len(body) + len(chunk) > MAX_IP_RESPONSE_BYTES:
+                            raise ValueError("Exit-address response is too large")
+                        body.extend(chunk)
+                    answer = body.decode("ascii").strip()
             except Exception as exc:
                 last_error = exc
                 # Transport errors may contain a credential-bearing proxy URL.
                 logger.debug(f"Proxy check via {endpoint} failed: {type(exc).__name__}")
                 continue
-            answer = response.text.strip()
             if not valid_ipv4(answer) and not valid_ipv6(answer):
                 last_error = ValueError(f"{endpoint} answered with something else")
                 logger.debug(f"Proxy check via {endpoint} returned a non-IP response")
@@ -327,9 +369,10 @@ def _readable(error: Exception | None, proxy_type: ProxyType | None = None) -> s
         "The proxy refused the connection.",
         "The proxy did not answer in time.",
         "The proxy intercepts TLS, so its certificate could not be verified.",
-        "This proxy protocol cannot be checked; SOCKS4 is not supported.",
+        "Unsupported proxy address or credentials. Check the proxy settings.",
         "Could not reach the internet through the proxy.",
         HTTPS_TIMEOUT_ERROR,
+        CERTIFICATE_ERROR,
     }:
         return str(error)
     if isinstance(error, httpx.HTTPStatusError):
@@ -337,6 +380,8 @@ def _readable(error: Exception | None, proxy_type: ProxyType | None = None) -> s
             return "The proxy rejected the credentials."
         return f"The proxy answered {error.response.status_code}."
     if isinstance(error, httpx.ProxyError):
+        if "SSL" in str(error) or "CERTIFICATE" in str(error):
+            return CERTIFICATE_ERROR
         # httpx reports a failed CONNECT as a ProxyError, not as a status, so the
         # common case of wrong credentials arrives here rather than above.
         if "407" in str(error):
@@ -351,24 +396,22 @@ def _readable(error: Exception | None, proxy_type: ProxyType | None = None) -> s
         or isinstance(error, httpx.ConnectError)
         and ("SSL" in str(error) or "CERTIFICATE" in str(error))
     ):
-        return "The proxy intercepts TLS, so its certificate could not be verified."
+        return CERTIFICATE_ERROR
     if isinstance(error, httpx.UnsupportedProtocol):
-        return "This proxy protocol cannot be checked; SOCKS4 is not supported."
+        return "This proxy protocol is not supported. Use HTTP, HTTPS, SOCKS4 or SOCKS5."
     return "Could not reach the internet through the proxy."
 
 
-async def prepare_authenticated_socks_geoip(
-    proxy: ProxyConfig | None, options: dict[str, Any]
-) -> None:
-    """Resolve normal SOCKS5-auth launches via upstream DNS, without SDK caching.
+async def prepare_proxy_geoip(proxy: ProxyConfig | None, options: dict[str, Any]) -> None:
+    """Resolve proxy launches with verified TLS and no SDK cache.
 
     Coordinates intentionally disable SDK geoip; their existing fill path stays
     responsible for timezone and WebRTC. A normal launch needs a fresh exit IP
     before replacing its browser proxy with the session's local relay.
     """
-    if proxy is None or proxy.type != ProxyType.SOCKS5 or not (proxy.username or proxy.password):
+    if proxy is None:
         return
-    validate_credentials(proxy.username, proxy.password)
+    proxy.validate_authentication()
     if options.get("geoip") is not True:
         return
     try:
@@ -377,7 +420,7 @@ async def prepare_authenticated_socks_geoip(
         )
     except (ConnectionError, asyncio.TimeoutError):
         raise ConnectionError(
-            "Could not resolve the SOCKS5 exit address. Check the proxy before launching."
+            "Could not resolve the proxy exit address. Check the proxy before launching."
         ) from None
     options["geoip"] = ip
 
@@ -397,7 +440,7 @@ async def fill_what_geoip_would_have(proxy: ProxyConfig | None, options: dict[st
     goes with a spoofed v4 candidate — from the same endpoints and the same
     database Camoufox would have used. It deliberately does not touch the
     coordinates, which are the reason geoip is off in the first place. A lookup
-    that fails leaves the launch alone rather than blocking it.
+    that fails blocks a proxied launch; direct launches retain their previous behavior.
     """
     if options.get("geoip"):
         return
@@ -410,8 +453,14 @@ async def fill_what_geoip_would_have(proxy: ProxyConfig | None, options: dict[st
         return
 
     try:
-        ip, _ = await resolve_exit_ip(proxy, timeout=LAUNCH_TIMEOUT)
-    except ConnectionError as exc:
+        ip, _ = await asyncio.wait_for(
+            resolve_exit_ip(proxy, timeout=LAUNCH_TIMEOUT), timeout=LAUNCH_TIMEOUT
+        )
+    except (ConnectionError, asyncio.TimeoutError) as exc:
+        if proxy is not None:
+            raise ConnectionError(
+                "Could not resolve the proxy exit address. Check the proxy before launching."
+            ) from None
         logger.warning(f"Could not find the exit address, leaving the launch alone: {exc}")
         return
 
@@ -429,6 +478,10 @@ async def fill_what_geoip_would_have(proxy: ProxyConfig | None, options: dict[st
     try:
         location = await asyncio.to_thread(locate, ip)
     except LocationUnavailable as exc:
+        if proxy is not None:
+            raise ConnectionError(
+                "Could not place the proxy exit address. Install browser location resources before launching."
+            ) from None
         logger.warning(f"Could not place {ip}, leaving the timezone alone: {exc}")
         return
 
@@ -444,6 +497,8 @@ async def check(
 ) -> ProxyCheckResult:
     """Reach the internet through the proxy, place it, and compare it with the profile."""
     findings = preflight(proxy) if proxy else []
+    if any(finding.level == "error" for finding in findings):
+        return ProxyCheckResult(reachable=False, error=findings[0].message, findings=findings)
 
     try:
         ip, latency = await resolve_exit_ip(proxy, timeout=timeout)

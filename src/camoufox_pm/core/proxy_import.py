@@ -69,7 +69,7 @@ def _parse_line(line: str) -> ProxyConfig:
         parsed = urlsplit(line if "://" in line else "http://" + line)
     except ValueError:
         raise ValueError("Invalid proxy URL.") from None
-    if parsed.scheme not in {item.value for item in ProxyType}:
+    if parsed.scheme not in {item.value for item in ProxyType} | {"socks4a", "socks5h"}:
         raise ValueError("Use http, https, socks4 or socks5.")
     if parsed.path or parsed.query or parsed.fragment or "?" in line or "#" in line:
         raise ValueError("Proxy URLs cannot include a path, query or fragment.")
@@ -80,9 +80,11 @@ def _parse_line(line: str) -> ProxyConfig:
     username, password = _credential(parsed.username), _credential(parsed.password)
     if password and not username:
         raise ValueError("A password requires a username.")
-    return ProxyConfig(
+    config = ProxyConfig(
         type=ProxyType(parsed.scheme), server=server, username=username, password=password
     )
+    config.validate_authentication()
+    return config
 
 
 def parse_proxy_import(text: str) -> list[tuple[int, ProxyConfig]]:
