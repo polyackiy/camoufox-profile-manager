@@ -373,7 +373,13 @@ def untrusted_case(device, protocol, certs, trusted_ca):
         profile_id = profile_for(device, fixture, trusted_ca)
         health = device.call(f"/profiles/{profile_id}/check-proxy", {})
         assert not health["reachable"], "Untrusted health TLS was accepted"
-        before = service.snapshot()[1]
+
+    # A separate listener/loop prevents a late manager-health TLS alert from
+    # being mistaken for evidence that the browser rejected its certificate.
+    # No manager health request is made to this fresh fixture.
+    with FixtureService(protocol, certs) as service:
+        fixture = service.fixture
+        profile_id = profile_for(device, fixture, trusted_ca)
         path = "/proof/" + secrets.token_hex(12) + "-https"
         with launched(
             device,
@@ -381,7 +387,7 @@ def untrusted_case(device, protocol, certs, trusted_ca):
             ["-new-tab", f"https://cpm-origin.invalid:{fixture.https_port}{path}"],
             fixed_geoip=True,
         ):
-            wait_for(lambda: service.snapshot()[1] > before)
+            wait_for(lambda: service.snapshot()[1] > 0)
         assert not any(event[0] == "origin" for event in service.snapshot()[0]), (
             "Untrusted browser reached the origin"
         )
