@@ -56,18 +56,22 @@ def test_installed_fixture_records_untrusted_tls_alert_without_reading_an_origin
         assert not any(event[0] == "origin" for event in service.snapshot()[0])
 
 
-def test_installed_browser_receipt_requires_a_separate_page_request(tmp_path):
+@pytest.mark.parametrize("scheme,port", [("http", 80), ("https", 443)])
+def test_installed_browser_receipt_requires_a_separate_page_request(tmp_path, scheme, port):
     certs = certificates(tmp_path, dns_names=harness.DNS_NAMES)
     path = "/proof/" + "a" * 24 + "-https"
     with harness.FixtureService("http", certs) as service:
         fixture = service.fixture
         context = ssl.create_default_context(cafile=str(certs[0]))
         with httpx.Client(proxy=f"http://127.0.0.1:{fixture.proxy_port}", verify=context) as client:
-            response = client.get("https://cpm-origin.invalid:443" + path)
+            response = client.get(f"{scheme}://cpm-origin.invalid:{port}" + path)
             assert "fetch('/receipt/" in response.text
             events = service.snapshot()[0]
             assert harness.has_path(events, path)
             assert not harness.has_path(events, path.replace("/proof/", "/receipt/"))
+            receipt = path.replace("/proof/", "/receipt/")
+            client.get(f"{scheme}://cpm-origin.invalid:{port}" + receipt)
+            assert harness.has_path(service.snapshot()[0], receipt)
         asyncio.run(fixture.tunnel(None, None, 1))  # Unrecognized ports never dial.
 
 

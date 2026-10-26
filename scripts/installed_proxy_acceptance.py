@@ -252,7 +252,8 @@ def profile_for(device, fixture, ca):
 
 def has_path(events, path):
     return any(
-        event[0] == "origin" and event[1].split()[1] == path.encode("ascii") for event in events
+        event[0] == "origin" and urlsplit(event[1].split()[1].decode("ascii")).path == path
+        for event in events
     )
 
 
