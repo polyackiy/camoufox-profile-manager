@@ -9,9 +9,9 @@ on:
         options: [all, ubuntu-latest, windows-latest, macos-latest]
         default: all
       suite:
-        description: Full acceptance, synchronization roundtrip, canvas diagnosis, or recovery smoke
+        description: Full acceptance, automation workflows, synchronization, canvas, or recovery
         type: choice
-        options: [full, canvas, recovery, sync]
+        options: [full, automation, canvas, recovery, sync]
         default: full
       raster_mode:
         description: Diagnostic canvas backend override (default tests product behavior)
@@ -53,7 +53,7 @@ jobs:
       CPM_CANVAS_CACHE_PROBE: ${{ inputs.raster_mode == 'cache-lifecycle' && '1' || '0' }}
       CPM_BROWSER_WATCHDOG_SECONDS: '180'
       CPM_CANVAS_DIAGNOSTIC_DIR: canvas-diagnostics
-      CPM_BROWSER_TARGET: ${{ inputs.suite == 'sync' && 'tests/browser/test_sync_roundtrip.py' || inputs.suite == 'canvas' && 'tests/browser/test_fingerprint_stability.py::test_stable_canvas_survives_a_relaunch' || inputs.suite == 'recovery' && 'tests/browser/test_update_recovery.py' || 'tests' }}
+      CPM_BROWSER_TARGET: ${{ inputs.suite == 'automation' && 'tests/browser/test_automation_workflow.py' || inputs.suite == 'sync' && 'tests/browser/test_sync_roundtrip.py' || inputs.suite == 'canvas' && 'tests/browser/test_fingerprint_stability.py::test_stable_canvas_survives_a_relaunch' || inputs.suite == 'recovery' && 'tests/browser/test_update_recovery.py' || 'tests' }}
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v7

@@ -536,3 +536,18 @@ async def test_browser_startup_failure_exposes_only_fixed_code_and_releases_leas
     assert "private-" not in json.dumps(done)
     assert (await runtime.manager.storage.get_lease(request.targets[0].profile_id))[0] is None
     assert not runtime.manager.browser_sessions.active_sessions
+
+
+def test_source_startup_diagnostics_exclude_exception_text_names_and_locals():
+    from tests.browser.test_automation_workflow import startup_diagnostics
+
+    private = "private-password-and-profile-path"
+    unknown_error = type(private, (RuntimeError,), {})(private)
+    result = startup_diagnostics(unknown_error)
+    assert private not in json.dumps(result)
+    assert result == {"kind": "other", "frames": []}
+    wrapped = BrowserLaunchError(private)
+    wrapped.__cause__ = OSError(13, private, private)
+    result = startup_diagnostics(wrapped)
+    assert private not in json.dumps(result)
+    assert result["errno"] == 13

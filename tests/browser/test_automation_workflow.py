@@ -1,10 +1,16 @@
 """Real managed workflows behind authenticated proxies, using isolated TLS trust."""
 
 import asyncio
+from pathlib import Path
 from uuid import uuid4
 
 import pytest
-from scripts.installed_proxy_acceptance import DNS_NAMES, FixtureService, has_path
+from scripts.installed_proxy_acceptance import (
+    DNS_NAMES,
+    FixtureService,
+    has_path,
+    workflow_diagnostics,
+)
 
 from camoufox_pm.api.principal import Principal
 from camoufox_pm.core.workflow_models import WorkflowDefinition, WorkflowStart
@@ -12,6 +18,53 @@ from camoufox_pm.core.workflows import WorkflowEngine, workflow_owner
 from tests.browser.support import offline_launch
 from tests.browser.test_proxy_protocols import trust_test_ca
 from tests.support.proxy_protocols import certificates
+
+
+def startup_diagnostics(error):
+    """Only public library code locations/types, never text, locals or paths."""
+    for _ in range(4):
+        if error.__cause__ is None:
+            break
+        error = error.__cause__
+    kinds = {
+        "InvalidPropertyType",
+        "InvalidIP",
+        "InvalidProxy",
+        "UnknownIPLocation",
+        "InvalidLocale",
+        "ProfileDirectoryError",
+        "FpgenModelError",
+        "VirtualDisplayError",
+        "FileNotFoundError",
+        "PermissionError",
+        "ConnectionError",
+        "ValueError",
+        "TypeError",
+        "KeyError",
+        "TimeoutError",
+        "Error",
+        "BrowserLaunchError",
+        "OSError",
+        "RuntimeError",
+        "AssertionError",
+        "UnsupportedVersion",
+        "InvalidOS",
+        "NonFirefoxFingerprint",
+    }
+    kind = type(error).__name__
+    frames = []
+    trace = error.__traceback__
+    while trace:
+        code = trace.tb_frame.f_code
+        path = Path(code.co_filename)
+        if {"camoufox", "camoufox_pm", "playwright", "fpgen"}.intersection(path.parts):
+            frames.append({"file": path.name, "function": code.co_name, "line": trace.tb_lineno})
+        trace = trace.tb_next
+    result = {"kind": kind if kind in kinds else "other", "frames": frames[-4:]}
+    if isinstance(error, OSError):
+        result["errno"] = error.errno
+        result["winerror"] = getattr(error, "winerror", None)
+    return result
 
 
 @pytest.mark.browser
@@ -24,9 +77,16 @@ async def test_workflow_navigation_after_authenticated_launch_readiness(
     monkeypatch.setenv("SSL_CERT_FILE", str(certs[0]))
     manager = profile_manager
     launch = manager.browser_sessions.launch
+    startup = []
 
     async def controlled_launch(profile_id, options, on_exit=None):
-        return await launch(profile_id, {**offline_launch(options), "headless": headless}, on_exit)
+        try:
+            return await launch(
+                profile_id, {**offline_launch(options), "headless": headless}, on_exit
+            )
+        except Exception as error:
+            startup.append(startup_diagnostics(error))
+            raise
 
     monkeypatch.setattr(manager.browser_sessions, "launch", controlled_launch)
     engine = WorkflowEngine(manager.storage, manager)
@@ -73,7 +133,10 @@ async def test_workflow_navigation_after_authenticated_launch_readiness(
 
             async def browser_receipt():
                 while not has_path(service.snapshot()[0], path.replace("/proof/", "/receipt/")):
-                    assert not task.done(), "Workflow ended before the browser receipt"
+                    assert not task.done(), {
+                        "workflow": workflow_diagnostics(engine.store.run(run["id"])),
+                        "startup": startup,
+                    }
                     await asyncio.sleep(0.05)
 
             # Observe an actual browser execution signal instead of assuming a
