@@ -7,6 +7,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- Create up to 25 fresh profiles from a template with server-validated naming,
+  explicit saved-proxy mapping, durable per-row retry receipts and recent-batch
+  recovery after a lost response (#120). Chinese covers the new workflow.
 - Preview selected profiles and launch/stop them with bounded concurrency,
   per-profile results, cancellation of waiting requests and explicit retry of
   incomplete operations (#119). Interactive queues do not replay after reload.

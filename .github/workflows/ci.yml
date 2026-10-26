@@ -88,6 +88,10 @@ jobs:
         working-directory: .
         run: uv run python web/tests/batch_operations_ui.py
 
+      - name: Template batch creation UI contracts
+        working-directory: .
+        run: uv run python web/tests/template_batches_ui.py
+
       - name: Synchronization onboarding UI contracts
         working-directory: .
         run: uv run python web/tests/sync_ui.py

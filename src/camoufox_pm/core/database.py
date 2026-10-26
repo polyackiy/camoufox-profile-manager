@@ -260,10 +260,12 @@ class DatabaseManager:
         from .extension_library import initialize_tables as initialize_extensions
         from .profile_templates import initialize_tables as initialize_templates
         from .saved_filters import initialize_tables as initialize_saved_filters
+        from .template_batches import initialize_tables as initialize_template_batches
 
         initialize_extensions(self._connection)
         initialize_templates(self._connection)
         initialize_saved_filters(self._connection)
+        initialize_template_batches(self._connection)
         self._connection.commit()
 
     async def _create_indexes(self):

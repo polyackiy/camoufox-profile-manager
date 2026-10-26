@@ -1,7 +1,18 @@
-"""Template requests deliberately have no proxy, fingerprint or browser-data fields."""
+"""Reusable settings and bounded batch requests with saved-proxy references only."""
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from typing import Annotated, Any
 
+from pydantic import (
+    UUID4,
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    field_validator,
+    model_validator,
+)
+
+from camoufox_pm.api.models.system import ApiResponse
 from camoufox_pm.core.models import BrowserSettings, ProfileTags, normalize_tags
 
 
@@ -73,3 +84,37 @@ class TemplateProfileRequest(BaseModel):
     @classmethod
     def nonempty_name(cls, value):
         return TemplateCreateRequest.nonempty_name(value)
+
+
+class TemplateProxyReference(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    id: str = Field(min_length=1, max_length=255)
+    row_version: int = Field(ge=0)
+
+
+class TemplateBatchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    batch_id: UUID4
+    row_version: int = Field(ge=0)
+    names: list[
+        Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=255)]
+    ] = Field(min_length=1, max_length=25)
+    group: str | None = Field(None, min_length=1, max_length=255)
+    proxy_refs: list[TemplateProxyReference] = Field(default_factory=list, max_length=25)
+    allow_duplicate_names: bool = False
+
+    @model_validator(mode="after")
+    def valid_mapping(self):
+        if any(any(ord(char) < 32 or ord(char) == 127 for char in name) for name in self.names):
+            raise ValueError("Profile names cannot contain control characters")
+        if self.proxy_refs and len(self.proxy_refs) != len(self.names):
+            raise ValueError("Select one distinct proxy per profile, or no proxies")
+        if len({ref.id for ref in self.proxy_refs}) != len(self.proxy_refs):
+            raise ValueError("Select one distinct proxy per profile, or no proxies")
+        return self
+
+
+class TemplateBatchResponse(ApiResponse[dict[str, Any]]):
+    errors: list[int] = Field(
+        default_factory=list, description="Positions without an active created profile"
+    )
