@@ -14,6 +14,17 @@ Screenshots use fictional hosts and accounts.
 3. Save, then run **Check**. The result includes reachability, exit IP, location
    and latency when available. Checks run only when requested.
 
+The protocol describes the connection **to the proxy**, not the websites you
+want to visit. An **HTTP** proxy normally opens HTTPS websites through CONNECT;
+choose **HTTPS** only if the provider supports TLS to the proxy itself. Selecting
+HTTPS for a plain HTTP port can time out before authentication. Ask the provider
+for the correct protocol and port; the manager does not downgrade automatically.
+
+In the profile and library forms, enter only `proxy.example:8080` in **Server**.
+Put the username and password in their separate fields. A complete URL such as
+`socks5://user:password@proxy.example:1080` belongs in **Import a list**, not in
+the Server field.
+
 Passwords are write-only: reopening an entry never retrieves its password.
 Leaving the password unchanged preserves it; explicitly clearing it removes it.
 Saving passwords requires the manager's encryption key. Desktop setup creates

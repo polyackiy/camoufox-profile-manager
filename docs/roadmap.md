@@ -3,6 +3,31 @@
 This is a rough, non-binding plan. Priorities may change based on feedback.
 Track progress in [GitHub Issues](https://github.com/polyackiy/camoufox-profile-manager/issues).
 
+## Priorities after 0.6.0
+
+The [current commercial-workflow comparison and acceptance plan (#117)](https://github.com/polyackiy/camoufox-profile-manager/issues/117)
+was reviewed on 2026-10-25 against official AdsPower, Dolphin Anty, GoLogin and
+Multilogin documentation. The goal remains a practical free desktop alternative.
+Prioritize complete everyday workflows over adding protocol names to a dropdown:
+
+1. Finish [proxy acceptance and diagnostics (#116)](https://github.com/polyackiy/camoufox-profile-manager/issues/116):
+   installed browser checks, HTTP CONNECT versus TLS-to-proxy HTTPS, SOCKS
+   authentication/DNS/IPv6 coverage and actionable failures.
+2. Add explicit rotating-proxy IP-change operations with cooldown, exit-IP
+   verification and a preview of affected profiles sharing the endpoint.
+3. Add mass creation from templates, sequential one-proxy-per-profile assignment
+   and a cancellable launch queue with bounded concurrency and per-profile results.
+4. Add reusable automation jobs with run logs and cancellation. Treat interactive
+   multi-window action synchronization as a separate feature from device data sync.
+5. Improve first-run diagnostics, protocol-aware paste and redacted support reports;
+   keep release dependencies current and exercise installed upgrades and recovery.
+6. Retain experimental opt-in device synchronization until the remaining security
+   and installed compatibility work in #82/#90 has evidence.
+
+The linked plan records sources, current capabilities and acceptance criteria.
+Existing installers, proxy library, cookies, templates, extensions, roles and
+activity records are the baseline for these improvements.
+
 ## Desktop adoption — current implementation
 
 Stage one now has native installers/build automation, in-app browser setup,
