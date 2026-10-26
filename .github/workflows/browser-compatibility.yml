@@ -48,7 +48,7 @@ jobs:
     env:
       # Bound a stuck SDK launch/close while allowing multi-launch workflows.
       # Pytest 9.1 emits the current test and thread stacks before exiting.
-      PYTEST_ADDOPTS: -vv -o faulthandler_timeout=600 -o faulthandler_exit_on_timeout=true
+      PYTEST_ADDOPTS: ${{ inputs.suite == 'automation' && '-vv --capture=tee-sys -o faulthandler_timeout=600 -o faulthandler_exit_on_timeout=true' || '-vv -o faulthandler_timeout=600 -o faulthandler_exit_on_timeout=true' }}
       CPM_CANVAS_RASTER_MODE: ${{ (inputs.raster_mode == 'text-probes' || inputs.raster_mode == 'cache-lifecycle' || inputs.raster_mode == 'process-lifecycle' || inputs.raster_mode == 'native-firefox') && 'default' || inputs.raster_mode || 'default' }}
       CPM_CANVAS_CACHE_PROBE: ${{ inputs.raster_mode == 'cache-lifecycle' && '1' || '0' }}
       CPM_BROWSER_WATCHDOG_SECONDS: '180'

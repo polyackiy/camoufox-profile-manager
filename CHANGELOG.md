@@ -29,6 +29,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   incomplete operations (#119). Interactive queues do not replay after reload.
 
 ### Fixed
+- Close accepted SOCKS relay sockets even if their handler is cancelled before
+  its first instruction, preventing leaked connections and stalled teardown (#136).
 - Keep declared profile screens independent of physical-monitor inference on
   headed launches, preventing fpgen constraint failures without changing saved
   hardware or forking Camoufox (#135).

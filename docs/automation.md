@@ -45,6 +45,9 @@ failure and checks the declared screen and stored pin after launch/close.
 
 Teardown drains before the lease is released, including after timeouts. Closing
 the manager requests cancellation, drains accepted work and closes managed browsers.
+Session-owned SOCKS relays own accepted sockets before scheduling handlers, so
+cancellation before a handler starts still closes the connection and discards
+credentials.
 
 ## Progress, cancellation and retry
 

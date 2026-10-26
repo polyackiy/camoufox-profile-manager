@@ -180,15 +180,6 @@ async def test_declared_desktop_screen_does_not_inherit_restrictive_host_bounds(
             raise RestrictiveConstraints("Synthetic monitor/model constraints conflict")
         return generate(**options)
 
-    # Model the observed public fpgen failure without relying on a random draw
-    # or the runner's monitor geometry. Keep real Camoufox/browser execution.
-    monkeypatch.setattr(utils, "generate_fingerprint", restrictive_model)
-    monkeypatch.setattr(utils, "has_display", lambda _env: True)
-    monkeypatch.setattr(
-        utils,
-        "get_screen_cons",
-        lambda headless: None if headless is True else Screen(max_width=640, max_height=480),
-    )
     manager = profile_manager
     launch = manager.browser_sessions.launch
 
@@ -201,11 +192,30 @@ async def test_declared_desktop_screen_does_not_inherit_restrictive_host_bounds(
         browser_settings={"screen": "1920x1080", "window_width": 1280, "window_height": 720},
     )
     try:
-        await manager.launch_browser(profile.id, args=["-new-tab", "about:blank"])
+        # Establish an actual saved identity before changing the host-display
+        # conditions. BrowserSettings.screen is stored intent; fpgen owns the
+        # generated hardware, so the saved pin is the comparison baseline.
+        await manager.launch_browser(profile.id, headless=True, args=["-new-tab", "about:blank"])
         pinned = (await manager.get_profile(profile.id)).fingerprint
         session = manager.browser_sessions.active_sessions[profile.id]
         page = await session.context.new_page()
-        assert await page.evaluate("[screen.width, screen.height]") == [1920, 1080]
+        expected_screen = await page.evaluate("[screen.width, screen.height]")
+        assert expected_screen == [pinned["screen.width"], pinned["screen.height"]]
+        await manager.close_browser(profile.id)
+
+        # Model the observed public fpgen failure without relying on a random
+        # draw or the runner's monitor. Keep real headed browser execution.
+        monkeypatch.setattr(utils, "generate_fingerprint", restrictive_model)
+        monkeypatch.setattr(utils, "has_display", lambda _env=None: True)
+        monkeypatch.setattr(
+            utils,
+            "get_screen_cons",
+            lambda headless: None if headless is True else Screen(max_width=640, max_height=480),
+        )
+        await manager.launch_browser(profile.id, args=["-new-tab", "about:blank"])
+        session = manager.browser_sessions.active_sessions[profile.id]
+        page = await session.context.new_page()
+        assert await page.evaluate("[screen.width, screen.height]") == expected_screen
         await manager.close_browser(profile.id)
         assert (await manager.get_profile(profile.id)).fingerprint == pinned
     finally:
