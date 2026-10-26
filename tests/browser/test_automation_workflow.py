@@ -62,8 +62,9 @@ def startup_diagnostics(error):
         trace = trace.tb_next
     result = {"kind": kind if kind in kinds else "other", "frames": frames[-4:]}
     if isinstance(error, OSError):
-        result["errno"] = error.errno
-        result["winerror"] = getattr(error, "winerror", None)
+        for key in ("errno", "winerror"):
+            value = getattr(error, key, None)
+            result[key] = value if type(value) is int else None
     return result
 
 

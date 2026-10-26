@@ -67,19 +67,19 @@ jobs:
           uv run --no-sync playwright install-deps firefox
           sudo apt-get install -y xvfb libgl1-mesa-dri libegl1 mesa-utils libnss3-tools
       - name: Install isolated-profile NSS certificate tools (macOS)
-        if: runner.os == 'macOS' && (inputs.suite == '' || inputs.suite == 'full')
+        if: runner.os == 'macOS' && (inputs.suite == '' || inputs.suite == 'full' || inputs.suite == 'automation')
         run: |
           brew list nss >/dev/null 2>&1 || brew install nss
           echo "CPM_TEST_NSS_CERTUTIL=$(brew --prefix nss)/bin/certutil" >> "$GITHUB_ENV"
       - name: Install isolated-profile NSS certificate tools (Windows)
         id: nss
-        if: runner.os == 'Windows' && (inputs.suite == '' || inputs.suite == 'full')
+        if: runner.os == 'Windows' && (inputs.suite == '' || inputs.suite == 'full' || inputs.suite == 'automation')
         uses: msys2/setup-msys2@ec48f7c5447b3140e2b088413ae3a55687bccb6e # v2
         with:
           install: mingw-w64-x86_64-nss
           cache: true
       - name: Select the NSS certutil binary (Windows)
-        if: runner.os == 'Windows' && (inputs.suite == '' || inputs.suite == 'full')
+        if: runner.os == 'Windows' && (inputs.suite == '' || inputs.suite == 'full' || inputs.suite == 'automation')
         shell: pwsh
         env:
           CPM_NSS_ROOT: ${{ steps.nss.outputs.msys2-location }}
@@ -115,7 +115,7 @@ jobs:
         shell: bash
         run: uv run --no-sync pytest "$CPM_BROWSER_TARGET" -m browser --no-network --junitxml=browser-results.xml
       - name: Verify repeated Windows canvas restarts
-        if: runner.os == 'Windows' && inputs.suite != 'recovery' && inputs.suite != 'sync' && inputs.raster_mode != 'text-probes' && inputs.raster_mode != 'process-lifecycle' && inputs.raster_mode != 'native-firefox'
+        if: runner.os == 'Windows' && inputs.suite != 'recovery' && inputs.suite != 'sync' && inputs.suite != 'automation' && inputs.raster_mode != 'text-probes' && inputs.raster_mode != 'process-lifecycle' && inputs.raster_mode != 'native-firefox'
         shell: pwsh
         # A single clean run does not settle the previously observed drift.
         run: |

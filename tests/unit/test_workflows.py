@@ -551,3 +551,6 @@ def test_source_startup_diagnostics_exclude_exception_text_names_and_locals():
     result = startup_diagnostics(wrapped)
     assert private not in json.dumps(result)
     assert result["errno"] == 13
+    wrapped.__cause__.errno = private
+    wrapped.__cause__.winerror = private
+    assert private not in json.dumps(startup_diagnostics(wrapped))

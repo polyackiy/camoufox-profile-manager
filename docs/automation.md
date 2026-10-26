@@ -167,6 +167,9 @@ and poll receipts; executable code is not loaded into the manager.
 - Real browser: `uv run pytest tests/browser/test_automation_workflow.py --no-network`.
   Headless and desktop authenticated HTTPS/SOCKS5 fixtures require a browser-executed receipt, with
   an ephemeral CA trusted only in disposable profiles.
+  The Browser compatibility workflow also offers an `automation` dispatch suite
+  for these four cases; it installs the same isolated-profile NSS tools. Full PR
+  browser acceptance remains separate and required before merge.
 - Installed packages: the four-platform installed proxy workflow also exercises
   a real authenticated HTTPS-proxy workflow and exports a sanitized summary.
   This distinguishes source/static checks from frozen-package proof.
