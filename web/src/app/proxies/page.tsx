@@ -5,6 +5,7 @@ import { Check, LoaderCircle, Network, Pencil, Plus, Search, Trash2, Upload } fr
 import { useI18n } from '@/components/i18n-provider'
 import { EmptyState } from '@/components/empty-state'
 import { Modal } from '@/components/modal'
+import { ProxySequenceAssignment } from '@/components/proxy-sequence-assignment'
 import { ProxyAssignment } from '@/components/proxy-assignment'
 import { ProxyForm } from '@/components/proxy-form'
 import { ProxyImport } from '@/components/proxy-import'
@@ -20,6 +21,7 @@ export default function ProxiesPage() {
   const [search, setSearch] = useState('')
   const [form, setForm] = useState<{ proxy: LibraryProxy | null } | null>(null)
   const [importing, setImporting] = useState(false)
+  const [sequenceOpen, setSequenceOpen] = useState(false)
   const [assigning, setAssigning] = useState<LibraryProxy | null>(null)
   const [deleting, setDeleting] = useState<LibraryProxy | null>(null)
   const [deleteBusy, setDeleteBusy] = useState(false)
@@ -81,7 +83,7 @@ export default function ProxiesPage() {
     <header className="sticky top-0 z-20 flex min-h-[52px] flex-wrap items-center gap-3 border-b border-line bg-canvas/85 px-5 py-2 backdrop-blur">
       <h1 className="text-[14px] font-semibold">{t('Proxy library')}</h1><span className="font-mono text-ink-faint">{proxies.length}</span>
       <div className="relative ml-2 min-w-[160px] flex-1 max-w-[280px]"><Search size={13} aria-hidden="true" className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-dim" /><input className="field h-[30px] pl-7" aria-label={t('Search library proxies')} placeholder={t('Search name, server or country')} value={search} onChange={event => setSearch(event.target.value)} /></div>
-      <div className="ml-auto flex gap-2"><button className="btn btn-default" onClick={() => setImporting(true)}><Upload size={13} aria-hidden="true" />{t('Import')}</button><button className="btn btn-primary" onClick={() => setForm({ proxy: null })}><Plus size={14} aria-hidden="true" />{t('New proxy')}</button></div>
+      <div className="ml-auto flex max-w-full flex-wrap gap-2"><button className="btn btn-default" onClick={() => setSequenceOpen(true)}>{t('Assign proxy list')}</button><button className="btn btn-default" onClick={() => setImporting(true)}><Upload size={13} aria-hidden="true" />{t('Import')}</button><button className="btn btn-primary" onClick={() => setForm({ proxy: null })}><Plus size={14} aria-hidden="true" />{t('New proxy')}</button></div>
     </header>
     <div className="border-b border-line px-5 py-4"><p className="text-ink-dim">{t('Save named proxies once, check them on demand, and assign copies to stopped profiles. Editing or deleting a library entry never changes proxies already assigned to profiles.')}</p><p className="mt-1 text-ink-dim">{t('Checks run only when requested. Stored passwords remain hidden.')}</p></div>
     {error ? <EmptyState icon={<Network size={18} />} title={t('Cannot load proxy library')} body={t(error)} action={<button className="btn btn-default" onClick={load}>{t('Retry')}</button>} /> : loading ? <p className="px-5 py-8 text-ink-dim" role="status">{t('Loading…')}</p> : !proxies.length ? <EmptyState icon={<Network size={18} />} title={t('No library proxies yet')} body={t('Add a named proxy or import a list. Profiles can still use their own manually configured proxies.')} action={<button className="btn btn-primary" onClick={() => setForm({ proxy: null })}>{t('Create a proxy')}</button>} /> : !shown.length ? <EmptyState icon={<Search size={18} />} title={t('No matching proxies')} body={t('Try a different name, server or country.')} action={<button className="btn btn-default" onClick={() => setSearch('')}>{t('Clear search')}</button>} /> : <div className="overflow-x-auto"><table className="w-full min-w-[820px] border-collapse text-left">
@@ -105,6 +107,7 @@ export default function ProxiesPage() {
     </table></div>}
     {form && <ProxyForm key={`${form.proxy?.id ?? 'new'}:${form.proxy?.row_version ?? 0}`} proxy={form.proxy} onClose={() => setForm(null)} onReload={reloadDraft} onSaved={proxy => { upsert(proxy); setForm(null); toast('ok', t('Library proxy saved'), proxy.name) }} />}
     {importing && <ProxyImport onClose={() => setImporting(false)} onImported={load} />}
+    {sequenceOpen && <ProxySequenceAssignment onClose={() => setSequenceOpen(false)} />}
     {assigning && <ProxyAssignment proxy={assigning} onClose={() => { setAssigning(null); load() }} />}
     <Modal open={!!deleting} title={t('Delete library proxy')} width={460} onClose={() => { if (!deleteBusy) setDeleting(null) }} footer={<><button className="btn btn-default" onClick={() => setDeleting(null)} disabled={deleteBusy}>{t('Cancel')}</button><button className="btn btn-danger" onClick={remove} disabled={deleteBusy || deleteStale}>{deleteBusy ? t('Deleting…') : t('Delete')}</button></>}>
       <p>{t('Delete "{name}" from the library?', { name: deleting?.name })}</p><p className="mt-1 break-all font-mono text-ink-dim">{deleting && `${deleting.type}://${deleting.server}`}</p><p className="mt-3 text-ink-dim">{t('Existing profiles keep their copied proxy settings. Only this reusable library entry is removed.')}</p>

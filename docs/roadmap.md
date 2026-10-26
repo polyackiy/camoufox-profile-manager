@@ -21,6 +21,7 @@ after the combined install → create → assign → run → stop/recover workfl
    with naming and proxy mapping preview.
 3. [Sequential proxy-list assignment (#121)](https://github.com/polyackiy/camoufox-profile-manager/issues/121)
    with per-target lease/version checks and no accidental proxy sharing.
+   See [the reviewed mapping and retry contract](proxy-sequence.md).
 4. Finish [proxy acceptance and diagnostics (#116)](https://github.com/polyackiy/camoufox-profile-manager/issues/116)
    alongside these workflows, including protocol/DNS/auth coverage.
 5. [Beginner onboarding, Russian UI and Chinese verification (#123)](https://github.com/polyackiy/camoufox-profile-manager/issues/123).

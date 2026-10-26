@@ -65,6 +65,15 @@ backups therefore keep their proxy configuration independently of the library.
 Library health describes the connection itself. Run a profile's proxy check
 after assignment to check its timezone and other geography settings too.
 
+## Assign a proxy list in order
+
+Choose **Assign proxy list** to select up to 100 profiles and the same number of
+saved proxies. Selection order defines each pair. Review the exact mapping and
+confirm replacement of existing settings before applying it. Each saved entry
+is used once; the existing single-proxy assignment remains the explicit way to
+share an entry across several profiles. Different saved entries do not guarantee
+different exit IPs. See [sequential assignment and recovery](proxy-sequence.md).
+
 ## Storage and recovery
 
 Library passwords are encrypted in the instance database. List and edit responses
