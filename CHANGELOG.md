@@ -7,6 +7,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- Add private declarative automation workflows with named launch/navigation/wait/
+  close steps, explicit profile/version review, bounded global concurrency,
+  optional schedules, durable sanitized history, cancellation and confirmed
+  replay of incomplete profiles (#122). Includes English, Russian and Chinese UI.
 - Add Russian interface translations with grammatical count forms alongside
   English and Simplified Chinese. First-run setup explains the install → create
   → run/stop path and keeps interface language separate from profile fingerprints
@@ -32,6 +36,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   timeout diagnostics, without automatic protocol downgrade (#116).
 
 ### Security
+- Recheck workflow authority and sync admission at execution; hold profile
+  admission across sequences and drain accepted work before update maintenance.
+  Preserve request-ID tombstones after history pruning, redact validation inputs
+  and allowlist run responses. Schema 5 fences older managers.
 - Exercise disposable installed packages on four desktop targets against local
   proxy/TLS fixtures, including certificate refusal, relay teardown and restart;
   export only sanitized acceptance reports with package checksums (#116).

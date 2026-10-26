@@ -34,5 +34,6 @@ async def client(tmp_path, monkeypatch):
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as http_client:
         yield http_client
 
+    await dependencies.get_scheduler().stop()
     await storage.close()
     set_backup_manager(None)

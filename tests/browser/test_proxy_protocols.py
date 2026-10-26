@@ -19,14 +19,14 @@ from tests.browser.support import offline_launch
 from tests.support.proxy_protocols import certificates, proxy_fixture
 
 
-def trust_test_ca(directory, ca):
+def trust_test_ca(directory, ca, *, existing=False):
     configured = os.environ.get("CPM_TEST_NSS_CERTUTIL")
     executable = configured or shutil.which("certutil")
     if not executable or (os.name == "nt" and not configured):
         if os.environ.get("CI"):
             pytest.fail("CI must supply the NSS certutil binary for isolated TLS acceptance")
         pytest.skip("Install NSS certutil to run isolated browser TLS acceptance")
-    directory.mkdir()
+    directory.mkdir(exist_ok=existing)
     commands = [
         [executable, "-N", "-d", f"sql:{directory}", "--empty-password"],
         [

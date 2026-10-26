@@ -37,6 +37,7 @@ from camoufox_pm.api.routes import (
     sync,
     system,
     templates,
+    workflows,
 )
 from camoufox_pm.config import get_settings
 from camoufox_pm.core.backups import ProfileBackupManager
@@ -231,7 +232,7 @@ for _prefix, _in_schema in (("/api/v1", True), ("/api", False)):
         dependencies=protected,
         include_in_schema=_in_schema,
     )
-    for _router in (recovery.router, runtime.router, proxies.router):
+    for _router in (recovery.router, runtime.router, proxies.router, workflows.router):
         app.include_router(
             _router,
             prefix=_prefix,

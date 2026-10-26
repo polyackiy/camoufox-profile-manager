@@ -29,6 +29,7 @@ from contextlib import contextmanager
 from importlib.metadata import version
 from pathlib import Path
 from urllib.parse import urlsplit
+from uuid import uuid4
 
 import psutil
 from playwright.sync_api import sync_playwright
@@ -452,6 +453,73 @@ def positive_case(device, protocol, auth, certs, *, restart=False):
         }
 
 
+def workflow_case(device, certs):
+    """The installed workflow navigates only after authenticated launch readiness."""
+    with FixtureService("https", certs, auth=True) as service:
+        fixture = service.fixture
+        profile_id = profile_for(device, fixture, certs[0])
+        wait_for_initial_backup(device, profile_id)
+        baseline = listener_ports(device.process.pid)
+        nonce = secrets.token_hex(12)
+        paths = [f"/proof/{nonce}-{scheme}" for scheme in ("http", "https")]
+        steps = [{"name": "Start", "action": "launch"}]
+        for scheme, port, path in zip(
+            ("http", "https"), (fixture.http_port, fixture.https_port), paths, strict=True
+        ):
+            steps.extend(
+                [
+                    {
+                        "name": "Controlled navigation",
+                        "action": "navigate",
+                        "url": f"{scheme}://cpm-origin.invalid:{port}{path}",
+                    },
+                    {"name": "Receipt window", "action": "wait", "seconds": 1},
+                ]
+            )
+        steps.append({"name": "Finish", "action": "close"})
+        workflow = device.call(
+            "/workflows",
+            {"name": "Disposable installed workflow", "steps": steps, "concurrency": 1},
+        )
+        profile = device.call(f"/profiles/{profile_id}")
+        run = device.call(
+            f"/workflows/{workflow['id']}/runs",
+            {
+                "request_id": str(uuid4()),
+                "revision": workflow["revision"],
+                "targets": [{"profile_id": profile_id, "row_version": profile["row_version"]}],
+            },
+        )
+        route = f"/workflows/{workflow['id']}/runs/{run['id']}"
+        try:
+            wait_for(lambda: device.call(route)["state"] not in {"queued", "running"}, seconds=240)
+            result = device.call(route)
+            assert result["state"] == "completed", "Installed workflow did not complete"
+            assert all(step["state"] == "completed" for step in result["targets"][0]["steps"])
+            wait_for(
+                lambda: all(
+                    has_path(service.snapshot()[0], path.replace("/proof/", "/receipt/"))
+                    for path in paths
+                )
+            )
+            assert not device.call("/browsers/active")["active_browsers"]
+            wait_for(lambda: listener_ports(device.process.pid) == baseline)
+            history = json.dumps(device.call(f"/workflows/{workflow['id']}/runs"))
+            assert fixture.password not in history and "cpm-origin.invalid" not in history
+            return {
+                "protocol": "https",
+                "authentication": True,
+                "completed_steps": len(steps),
+                "http_receipt": True,
+                "https_receipt": True,
+                "sanitized_history": True,
+                "relay_cleanup": True,
+            }
+        finally:
+            device.call(f"/workflows/{workflow['id']}/runs/{run['id']}/cancel", {})
+            device.call("/browsers/close-all", {})
+
+
 def browser_tls_probe(device, protocol, certs, trusted_ca, *, accepted):
     with FixtureService(protocol, certs) as service:
         fixture = service.fixture
@@ -552,6 +620,9 @@ def main():
                     for protocol in ("http", "https"):
                         phase = protocol + "-untrusted"
                         result["cases"].append(untrusted_case(device, protocol, other_certs, certs))
+                    phase = "workflow-https-password"
+                    print("Installed workflow acceptance: authenticated HTTPS proxy", flush=True)
+                    result["workflow"] = workflow_case(device, certs)
                     result["passed"] = True
                 finally:
                     with contextlib.ExitStack() as cleanup:

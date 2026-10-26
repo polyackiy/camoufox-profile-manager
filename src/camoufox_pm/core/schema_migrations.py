@@ -7,7 +7,7 @@ New versions must add an explicit numbered migration before increasing CURRENT.
 
 import sqlite3
 
-CURRENT_SCHEMA = 4
+CURRENT_SCHEMA = 5
 
 
 def check_schema(connection: sqlite3.Connection) -> int:
@@ -81,3 +81,21 @@ def complete_migration(connection: sqlite3.Connection) -> None:
                 "INSERT OR REPLACE INTO manager_features(feature, version) VALUES ('sync-lifecycle', 1)"
             )
             connection.execute("PRAGMA user_version = 4")
+
+    if current < 5:
+        # A pre-workflow manager cannot reconcile durable active-run receipts.
+        with connection:
+            connection.execute("BEGIN IMMEDIATE")
+            connection.execute(
+                "CREATE TABLE IF NOT EXISTS workflows (id TEXT PRIMARY KEY, revision INTEGER NOT NULL, body TEXT NOT NULL)"
+            )
+            connection.execute(
+                "CREATE TABLE IF NOT EXISTS workflow_runs (id TEXT PRIMARY KEY, workflow_id TEXT NOT NULL REFERENCES workflows(id) ON DELETE CASCADE, active INTEGER NOT NULL, body TEXT NOT NULL)"
+            )
+            connection.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS workflow_one_active_run ON workflow_runs(workflow_id) WHERE active=1"
+            )
+            connection.execute(
+                "CREATE TABLE IF NOT EXISTS workflow_receipts (id TEXT PRIMARY KEY, workflow_id TEXT NOT NULL REFERENCES workflows(id) ON DELETE CASCADE)"
+            )
+            connection.execute("PRAGMA user_version = 5")

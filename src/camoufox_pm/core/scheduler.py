@@ -76,6 +76,9 @@ class TaskScheduler:
         # browser. In memory only — if the process dies, its child browsers die
         # with it, so there is nothing left to close after a restart.
         self._timed_closes: dict[str, tuple[datetime, Schedule]] = {}
+        from .workflows import WorkflowEngine
+
+        self.workflows = WorkflowEngine(storage, profile_manager)
 
     def clock(self) -> datetime:
         """The scheduler's idea of now, so callers plan with the clock tests inject."""
@@ -83,6 +86,13 @@ class TaskScheduler:
 
     async def start(self) -> None:
         """Reconcile what fell due while we were down, then start the loop."""
+        self.workflows.maintenance_gate = self.maintenance_gate
+        try:
+            await self.workflows.start()
+        except ValueError:
+            logger.info(
+                "Another manager owns workflow execution; existing schedules remain available"
+            )
         await self.reconcile_missed()
         self._stop = asyncio.Event()
         self._task = asyncio.create_task(self._loop())
@@ -99,6 +109,7 @@ class TaskScheduler:
             except asyncio.CancelledError:
                 pass
             self._task = None
+        await self.workflows.stop()
         logger.info("Task scheduler stopped")
 
     async def reconcile_missed(self) -> None:
@@ -168,6 +179,7 @@ class TaskScheduler:
         picked up within one poll, with no cache to invalidate.
         """
         now = self._now()
+        await self.workflows.tick(now)
 
         for profile_id, (close_at, source) in list(self._timed_closes.items()):
             if close_at <= now:

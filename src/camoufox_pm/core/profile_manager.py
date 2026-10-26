@@ -891,6 +891,20 @@ class ProfileManager:
         window_size: str | None = None,
         **kwargs: Any,
     ) -> dict[str, Any]:
+        from .sync_admission import profile_admission
+
+        # Serialize launches with workflows, edits and sync admission across
+        # cooperating instances; the live browser retains its existing lease.
+        async with profile_admission(self, profile_id):
+            return await self._launch_browser(profile_id, headless, window_size, **kwargs)
+
+    async def _launch_browser(
+        self,
+        profile_id: str,
+        headless: bool = False,
+        window_size: str | None = None,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
         """Launch a Camoufox browser for a profile.
 
         The lease is taken first and is the authority on "is this profile

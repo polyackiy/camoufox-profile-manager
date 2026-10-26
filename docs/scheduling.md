@@ -1,5 +1,10 @@
 # Scheduling
 
+The unreleased [Automation workflows](automation.md) section on this screen adds
+reusable launch → navigation/wait → close sequences, explicit target review,
+bounded execution and durable step history. Its optional schedules use the same
+interval/daily expressions and missed-run policy described here.
+
 The app can run two things against a profile on a schedule, from the
 **Schedules** screen or the [REST API](api.md#schedules). The scheduler lives
 inside the `camoufox-pm` process — no cron, no extra service — because that

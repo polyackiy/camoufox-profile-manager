@@ -88,7 +88,9 @@ class DesktopUI(unittest.TestCase):
             if path == "/sync/status":
                 return route.fulfill(json={"phase": "not_enrolled"}, headers=sync_headers)
             return route.fulfill(body="null", content_type="application/json", headers=sync_headers)
-        if path == "/auth/session":
+        if path == "/workflows":
+            data = {"workflows": []}
+        elif path == "/auth/session":
             data = {"user_auth_enabled": self.auth_required, "authenticated": not self.auth_required, "username": None, "role": "administrator", "actor_kind": "anonymous_local", "can_manage_access": True}
         elif path == "/system/config":
             data, envelope = self.config, True

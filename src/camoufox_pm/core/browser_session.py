@@ -192,6 +192,7 @@ class BrowserSession:
         self._terminated = False
         self.socks_relay = socks_relay
         self._termination_task: asyncio.Task[None] | None = None
+        self.context: Any = None
 
     async def terminate(self) -> None:
         """Drain one strongly owned teardown, including after caller cancellation."""
@@ -404,6 +405,9 @@ class BrowserSessionManager:
 
             process_id = _resolve_process_id(browser) or _resolve_process_id(camoufox)
             session = BrowserSession(profile_id, camoufox, process_id, socks_relay=relay)
+            # Expose the ready Playwright context; automation never reaches into
+            # AsyncCamoufox internals or passes destination URLs at startup.
+            session.context = browser
             session.on_exit = on_exit
             session.on_stopped = self.on_stopped
             self.active_sessions[profile_id] = session

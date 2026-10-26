@@ -596,6 +596,30 @@ export const schedulesAPI = {
   },
 }
 
+export interface WorkflowStep { name: string; action: 'launch' | 'navigate' | 'wait' | 'close'; url?: string | null; seconds?: number | null }
+export interface WorkflowTarget { profile_id: string; row_version: number }
+export interface WorkflowDefinition {
+  name: string; steps: WorkflowStep[]; concurrency: number
+  timing: { kind: 'interval' | 'daily'; interval_minutes?: number | null; at_time?: string | null; days?: number[] | null } | null
+  schedule_enabled: boolean; scheduled_targets: WorkflowTarget[]
+}
+export interface Workflow { id: string; revision: number; definition: WorkflowDefinition; next_run_at: string | null }
+export interface WorkflowRun {
+  id: string; workflow_id: string; revision: number; state: string; cancel_requested: boolean
+  started_at: string; finished_at: string | null
+  targets: (WorkflowTarget & { state: string; message: string | null; steps: { name: string; action: string; state: string }[] })[]
+}
+export interface WorkflowStart { request_id: string; revision: number; targets: WorkflowTarget[]; retry_of?: string; replay_confirmed?: boolean }
+export const workflowsAPI = {
+  list: () => request<{ workflows: Workflow[] }>(`${API_PREFIX}/workflows`),
+  create: (body: WorkflowDefinition) => request<Workflow>(`${API_PREFIX}/workflows`, { method: 'POST', body: JSON.stringify(body) }),
+  update: (id: string, body: WorkflowDefinition & { revision: number }) => request<Workflow>(`${API_PREFIX}/workflows/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(body) }),
+  remove: (value: Workflow) => request(`${API_PREFIX}/workflows/${encodeURIComponent(value.id)}?revision=${value.revision}`, { method: 'DELETE' }),
+  start: (id: string, body: WorkflowStart) => request<WorkflowRun>(`${API_PREFIX}/workflows/${encodeURIComponent(id)}/runs`, { method: 'POST', body: JSON.stringify(body) }),
+  runs: (id: string) => request<{ runs: WorkflowRun[] }>(`${API_PREFIX}/workflows/${encodeURIComponent(id)}/runs`),
+  cancel: (id: string, run: string) => request(`${API_PREFIX}/workflows/${encodeURIComponent(id)}/runs/${encodeURIComponent(run)}/cancel`, { method: 'POST' }),
+}
+
 export interface SystemConfig {
   version: string
   host: string

@@ -260,6 +260,7 @@ another host holds it.
 | Document | What it covers |
 | -------- | -------------- |
 | [docs/getting-started.md](docs/getting-started.md) | Desktop installation and first steps |
+| [docs/automation.md](docs/automation.md) | Unreleased reusable workflows, scheduling and safe cancellation |
 | [docs/cli.md](docs/cli.md) | Every command and flag |
 | [docs/api.md](docs/api.md) | The REST API, endpoint by endpoint |
 | [docs/profile-settings.md](docs/profile-settings.md) | What each setting does, how the pinned machine works, and what Camoufox cannot do |
