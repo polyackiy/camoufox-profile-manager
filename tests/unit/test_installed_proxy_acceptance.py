@@ -108,8 +108,15 @@ def test_restart_waits_for_public_backup_receipt_without_mutating_or_replaying_l
     assert calls == [("/system/backups", None)] * 3
 
 
-def test_workflow_preparation_retries_only_additive_busy_backup():
+def test_workflow_preparation_retries_only_additive_busy_backup(monkeypatch):
     calls = []
+    wait = harness.wait_for
+
+    def bounded_wait(check, seconds):
+        assert seconds == 360  # Crash lease TTL (300) plus scheduler interval.
+        return wait(check, seconds=3)
+
+    monkeypatch.setattr(harness, "wait_for", bounded_wait)
 
     def call(path, body):
         calls.append((path, body))
@@ -117,14 +124,27 @@ def test_workflow_preparation_retries_only_additive_busy_backup():
             raise harness.InstalledAPIError(409)
         return {"data": {"backups": [{"profile_id": "target"}]}}
 
-    harness.prepare_workflow_backup(SimpleNamespace(call=call), "target")
+    report = {}
+    harness.prepare_workflow_backup(SimpleNamespace(call=call), "target", report)
     assert calls == [("/system/backups", {"profile_ids": ["target"]})] * 2
+    assert report == {
+        "workflow_preparation": {"attempts": 2, "busy_responses": 1, "prepared": True}
+    }
 
     def forbidden(path, body):
         raise harness.InstalledAPIError(403)
 
     with pytest.raises(harness.InstalledAPIError):
         harness.prepare_workflow_backup(SimpleNamespace(call=forbidden), "target")
+
+    def skipped(path, body):
+        return {"data": {"backups": [], "skipped": [{"reason": "private secret file"}]}}
+
+    report = {}
+    with pytest.raises(RuntimeError):
+        harness.prepare_workflow_backup(SimpleNamespace(call=skipped), "target", report)
+    assert "private secret file" not in json.dumps(report)
+    assert report["workflow_preparation"]["skipped"] is True
 
 
 def test_workflow_diagnostics_allowlist_states_without_identity_or_error_text():

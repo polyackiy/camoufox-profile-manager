@@ -453,21 +453,39 @@ def positive_case(device, protocol, auth, certs, *, restart=False):
         }
 
 
-def prepare_workflow_backup(device, profile_id):
+def prepare_workflow_backup(device, profile_id, report=None):
     # Use the public manual operation instead of waiting for the next automatic
     # scheduler tick. A successful response also means its profile lease has
     # been released. Only this additive preparation may retry a busy response;
     # accepted workflow/launch mutations are never replayed.
+    diagnostics = {"attempts": 0, "busy_responses": 0, "prepared": False}
+    if report is not None:
+        report["workflow_preparation"] = diagnostics
+
     def create():
+        diagnostics["attempts"] += 1
         try:
             result = device.call("/system/backups", {"profile_ids": [profile_id]})["data"]
         except InstalledAPIError as error:
             if error.status == 409:
+                diagnostics["busy_responses"] += 1
                 return False
             raise
-        return any(item["profile_id"] == profile_id for item in result["backups"])
+        diagnostics["prepared"] = any(
+            item["profile_id"] == profile_id for item in result["backups"]
+        )
+        if not diagnostics["prepared"]:
+            # Export no arbitrary skip/error text, which may contain file paths
+            # or secrets. A non-busy backup failure requires investigation.
+            diagnostics["skipped"] = bool(result.get("skipped"))
+            raise RuntimeError("Installed workflow backup preparation was skipped")
+        return True
 
-    wait_for(create, seconds=180)
+    # The preceding restart deliberately terminates the installed process. If
+    # its automatic backup batch still owns the recovery lease, its normal
+    # five-minute crash expiry must elapse. Observe public admission for up to
+    # that TTL plus one scheduler interval; never clear/shorten a live lease.
+    wait_for(create, seconds=360)
 
 
 def workflow_diagnostics(run):
@@ -511,7 +529,7 @@ def workflow_case(device, certs, report):
     with FixtureService("https", certs, auth=True) as service:
         fixture = service.fixture
         profile_id = profile_for(device, fixture, certs[0])
-        prepare_workflow_backup(device, profile_id)
+        prepare_workflow_backup(device, profile_id, report)
         baseline = listener_ports(device.process.pid)
         nonce = secrets.token_hex(12)
         paths = [f"/proof/{nonce}-{scheme}" for scheme in ("http", "https")]
