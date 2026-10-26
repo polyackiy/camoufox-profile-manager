@@ -6,10 +6,11 @@ import { EmptyState } from "@/components/empty-state";
 import { Modal } from "@/components/modal";
 import { TemplateEditor } from "@/components/template-editor";
 import { TemplateFromProfileModal } from "@/components/template-from-profile-modal";
+import { TemplateBatchCreate, TemplateBatchHistory } from "@/components/template-batch-create";
 import { useToast } from "@/components/toast";
 import { isStaleWrite, type Profile } from "@/lib/api";
 import { profilesForSelection } from "@/lib/profile-selection";
-import { templatesAPI, type ProfileTemplate } from "@/lib/templates-api";
+import { templatesAPI, type ProfileTemplate, type TemplateBatch } from "@/lib/templates-api";
 
 export default function TemplatesPage() {
   const { t } = useI18n();
@@ -23,6 +24,9 @@ export default function TemplatesPage() {
   } | null>(null);
   const [deleting, setDeleting] = useState<ProfileTemplate | null>(null);
   const [creating, setCreating] = useState<ProfileTemplate | null>(null);
+  const [batchTemplate, setBatchTemplate] = useState<ProfileTemplate | null>(null);
+  const [reviewBatch, setReviewBatch] = useState<TemplateBatch | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [profileName, setProfileName] = useState("");
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -121,7 +125,8 @@ export default function TemplatesPage() {
           value={search}
           onChange={(event) => setSearch(event.target.value)}
         />
-        <div className="ml-auto flex gap-2">
+        <div className="ml-auto flex max-w-full flex-wrap justify-end gap-2">
+          <button className="btn btn-default" onClick={() => setHistoryOpen(true)}>{t('Recent batches')}</button>
           <button className="btn btn-default" onClick={pickProfile}>
             <Copy size={13} aria-hidden="true" />
             {t("From profile")}
@@ -137,7 +142,7 @@ export default function TemplatesPage() {
       </header>
       <p className="border-b border-line px-5 py-4 text-ink-dim">
         {t(
-          "Reuse browser settings, notes, tags and extension snapshots. Each new profile starts with fresh browser data, no proxy and its own identity. Existing profiles never change when a template is edited.",
+          "Reuse settings and extension snapshots with fresh browser data and independent identities. Batch creation can assign saved proxies explicitly. Editing a template never changes existing profiles.",
         )}
       </p>
       {error ? (
@@ -207,6 +212,7 @@ export default function TemplatesPage() {
                 >
                   {t("Create profile")}
                 </button>
+                <button className="btn btn-default" onClick={() => setBatchTemplate(item)}>{t('Create batch')}</button>
                 <button
                   className="btn btn-default"
                   aria-label={t("Edit {name}", { name: item.name })}
@@ -243,6 +249,8 @@ export default function TemplatesPage() {
           }}
         />
       )}
+      {(batchTemplate || reviewBatch) && <TemplateBatchCreate template={batchTemplate ?? items.find(item => item.id === reviewBatch?.template_id) ?? null} existing={reviewBatch} onClose={() => { setBatchTemplate(null); setReviewBatch(null); load() }} />}
+      {historyOpen && <TemplateBatchHistory onClose={() => setHistoryOpen(false)} onReview={batch => { setHistoryOpen(false); setReviewBatch(batch) }} />}
       <Modal
         open={!!deleting}
         title={t("Delete template")}

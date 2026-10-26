@@ -22,7 +22,39 @@ export interface TemplateDraft {
 interface Envelope<T> {
   data: T;
 }
+export interface TemplateBatchRequest {
+  batch_id: string
+  row_version: number
+  names: string[]
+  group: string | null
+  proxy_refs: { id: string; row_version: number }[]
+  allow_duplicate_names: boolean
+}
+export interface TemplateBatchPreview {
+  names: string[]
+  proxy_mapping: { id: string; name: string; type: string; server: string }[]
+}
+export interface TemplateBatch {
+  id: string
+  template_id: string
+  created_at: string
+  request: TemplateBatchRequest
+  preview: TemplateBatchPreview
+  items: { position: number; name: string; profile_id: string | null; status: 'created' | 'pending' | 'failed' | 'in_trash' | 'unavailable'; error: string | null }[]
+}
 export const templatesAPI = {
+  async previewBatch(template: ProfileTemplate, request: TemplateBatchRequest) {
+    return (await apiRequest<Envelope<TemplateBatchPreview>>(`/api/v1/templates/${encodeURIComponent(template.id)}/batch-preview`, { method: 'POST', body: JSON.stringify(request) })).data
+  },
+  async createBatch(templateId: string, request: TemplateBatchRequest) {
+    return (await apiRequest<Envelope<TemplateBatch>>(`/api/v1/templates/${encodeURIComponent(templateId)}/profile-batches`, { method: 'POST', body: JSON.stringify(request) })).data
+  },
+  async recentBatches() {
+    return (await apiRequest<Envelope<{ batches: TemplateBatch[] }>>('/api/v1/template-profile-batches')).data.batches
+  },
+  async getBatch(id: string) {
+    return (await apiRequest<Envelope<TemplateBatch>>(`/api/v1/template-profile-batches/${encodeURIComponent(id)}`)).data
+  },
   async list() {
     return (
       await apiRequest<Envelope<{ templates: ProfileTemplate[] }>>(

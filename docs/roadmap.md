@@ -23,7 +23,10 @@ after the combined install → create → assign → run → stop/recover workfl
    with per-target lease/version checks and no accidental proxy sharing.
 4. Finish [proxy acceptance and diagnostics (#116)](https://github.com/polyackiy/camoufox-profile-manager/issues/116)
    alongside these workflows, including protocol/DNS/auth coverage.
-5. [Beginner onboarding and Russian UI (#123)](https://github.com/polyackiy/camoufox-profile-manager/issues/123).
+5. [Beginner onboarding, Russian UI and Chinese verification (#123)](https://github.com/polyackiy/camoufox-profile-manager/issues/123).
+   English and Simplified Chinese already exist. Add Russian and verify Chinese
+   coverage, placeholders, compact layouts and the complete everyday workflows;
+   changing interface language must not change a profile's fingerprint language.
 
 Small fixes and reviewed features accumulate on main; do not publish a release
 for each individual feature. Refresh dependencies and run security review,

@@ -70,7 +70,8 @@ from it in January still looks like the same computer in June.
   See [cookies](docs/cookies.md).
 - **Templates and Firefox extensions** — reuse browser settings in independent
   profiles and manage local add-ons without modifying Camoufox. Assigned add-ons
-  travel with profile archives. See [templates](docs/templates.md) and
+  travel with profile archives. Create numbered [profile batches](docs/template-batches.md)
+  with an explicit proxy mapping and safe retry. See [templates](docs/templates.md) and
   [extensions](docs/extensions.md).
 - **Tags and saved views** — label profiles individually or in bulk, then save
   your search, filters and ordering for repeated work. See

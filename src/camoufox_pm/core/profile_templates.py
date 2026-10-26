@@ -185,7 +185,9 @@ class ProfileTemplates:
                 "DELETE FROM template_extensions WHERE template_id=?", (template_id,)
             )
 
-    async def create_profile(self, template_id, row_version, name, group=None):
+    async def create_profile(
+        self, template_id, row_version, name, group=None, *, before_publish=None, on_publish=None
+    ):
         template = self.get(template_id)
         if template["row_version"] != row_version:
             raise StaleWriteError(template_id, row_version)
@@ -206,6 +208,8 @@ class ProfileTemplates:
             (profile.extensions, _), cancelled = await drain_operation(task)
             if cancelled:
                 raise asyncio.CancelledError
+            if before_publish is not None:
+                await before_publish()
             # Publish the complete row only after snapshot files exist. A write
             # reservation guards the generated ID; never upsert another identity.
             with self.connection:
@@ -221,6 +225,8 @@ class ProfileTemplates:
                     "SELECT 1 FROM profiles WHERE id=?", (profile.id,)
                 ).fetchone():
                     raise ValueError("Profile ID collision; retry creating the profile")
+                if on_publish is not None:
+                    on_publish(profile)
                 self.manager.storage.db._upsert_profile(profile)
             published = True
             return profile
