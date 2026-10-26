@@ -7,6 +7,7 @@ import { Check, Info, LoaderCircle, RefreshCw, TriangleAlert, X } from 'lucide-r
 import { useI18n } from '@/components/i18n-provider'
 import type { Translator } from '@/lib/i18n'
 import { Modal } from '@/components/modal'
+import { proxyAuthenticationError } from '@/lib/proxy-auth'
 import { ProxyProtocolHelp } from '@/components/proxy-protocol-help'
 import { useToast } from '@/components/toast'
 import {
@@ -232,13 +233,15 @@ export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) 
     return settings
   }
 
+  const authenticationError = canManageAccess && form.proxyServer.trim() ? proxyAuthenticationError(form.proxyType, form.proxyUsername, form.proxyPassword) : null
+
   function buildProxy() {
     if (!form.proxyServer.trim()) return null
     return {
       type: form.proxyType,
       server: form.proxyServer.trim(),
-      username: form.proxyUsername.trim() || undefined,
-      password: form.proxyPassword.trim() || undefined,
+      username: form.proxyUsername || undefined,
+      password: form.proxyPassword || undefined,
     }
   }
 
@@ -275,6 +278,7 @@ export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) 
       return
     }
 
+    if (authenticationError) { toast('error', t(authenticationError)); return }
     setSaving(true)
     try {
       const payload: Record<string, unknown> = {
@@ -461,7 +465,7 @@ export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) 
           <button type="button" className="btn btn-default" onClick={onClose}>
             {t('Cancel')}
           </button>
-          <button type="submit" form="profile-form" className="btn btn-primary" disabled={saving}>
+          <button type="submit" form="profile-form" className="btn btn-primary" disabled={saving || !!authenticationError}>
             {saving && <LoaderCircle size={13} className="animate-spin" />}
             {isEdit ? t('Save changes') : t('Create profile')}
           </button>
@@ -632,14 +636,7 @@ export function ProfileForm({ open, profile, groups, onClose, onSaved }: Props) 
 
           <ProxyProtocolHelp type={form.proxyType} id="pf-proxy-type-help" className="col-span-2" />
 
-          {/* SOCKS5 authentication uses the managed relay; only SOCKS4
-              credentials remain unsupported by this Playwright launch path. */}
-          {form.proxyType === 'socks4' &&
-            (form.proxyUsername.trim() || form.proxyPassword.trim()) && (
-              <p className="col-span-2 text-danger">
-                {t('SOCKS4 credentials are not supported. Use SOCKS5, HTTP or HTTPS for authenticated connections.')}
-              </p>
-            )}
+          {authenticationError && <p role="alert" className="col-span-2 text-danger">{t(authenticationError)}</p>}
 
           {form.proxyType === 'socks5' && <p className="col-span-2 text-ink-dim">{t('SOCKS5 authentication is handled automatically by a local relay. No extension or manual browser setup is needed.')}</p>}
 

@@ -146,3 +146,12 @@ browser binary and is covered by the `browser`-marked tests.
 
 Open an issue using the bug-report template. Include the version, your OS, and
 steps to reproduce.
+
+## Proxy protocol acceptance
+
+Changes to proxy parsing, browser proxy setup, TLS, DNS or relay lifetime need
+the controlled [proxy acceptance suite](docs/proxy-support.md#reproduce-acceptance).
+Use its ephemeral CA and synthetic endpoints rather than real provider accounts.
+Record the tested revision, wrapper/browser pair and platform; distinguish source
+CI from installed-package acceptance. Never commit working provider credentials
+or introduce certificate-validation or direct-connection fallbacks to pass a test.

@@ -412,7 +412,8 @@ def test_a_process_id_is_found_through_the_nested_transport():
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("ending", ["close", "natural", "failure", "cancel"])
-async def test_authenticated_socks5_relay_follows_session_lifetime(monkeypatch, ending):
+@pytest.mark.parametrize("protocol", ["socks4", "socks5"])
+async def test_socks_relay_follows_session_lifetime(monkeypatch, ending, protocol):
     from camoufox_pm.core.socks_relay import SocksRelay
 
     relays = []
@@ -444,7 +445,10 @@ async def test_authenticated_socks5_relay_follows_session_lifetime(monkeypatch, 
     monkeypatch.setattr(bs, "SocksRelay", RecordingRelay)
     manager = BrowserSessionManager()
     original = {
-        "proxy": {"server": "socks5://127.0.0.1:1", "username": "user", "password": "secret"}
+        "proxy": {
+            "server": f"{protocol}://127.0.0.1:1",
+            **({"username": "user", "password": "secret"} if protocol == "socks5" else {}),
+        }
     }
     task = asyncio.create_task(manager.launch("p", original))
     await started.wait()
@@ -465,7 +469,8 @@ async def test_authenticated_socks5_relay_follows_session_lifetime(monkeypatch, 
             assert await manager.close("p")
     assert set(options_seen[0]["proxy"]) == {"server"}
     assert options_seen[0]["firefox_user_prefs"]["network.proxy.socks_remote_dns"] is True
-    assert original["proxy"]["password"] == "secret"
+    if protocol == "socks5":
+        assert original["proxy"]["password"] == "secret"
     assert not manager.is_live("p")
     assert relays[0]._closed and not relays[0]._tasks
     with pytest.raises(OSError):

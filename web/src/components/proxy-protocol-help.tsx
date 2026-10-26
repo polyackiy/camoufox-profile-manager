@@ -13,6 +13,6 @@ export function ProxyProtocolHelp({ type, id, className = '' }: {
       ? t('HTTP also works with HTTPS websites. Select HTTPS only when your provider supports a TLS connection to the proxy itself.')
       : type === 'socks5'
         ? t('SOCKS5 supports username/password authentication. Enter host:port here and credentials in the separate fields.')
-        : t('SOCKS4 does not support username/password authentication. Use SOCKS5 for authenticated connections.')}
+        : t('SOCKS4 uses remote DNS (SOCKS4a). Username/password and IPv6 destinations are unsupported; use SOCKS5 for those.')}
   </p>
 }

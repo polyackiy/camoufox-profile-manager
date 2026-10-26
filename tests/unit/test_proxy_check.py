@@ -3,6 +3,8 @@
 compare() is pure, so every rule is tested here without a proxy or a network.
 """
 
+from contextlib import asynccontextmanager
+
 import httpx
 import pytest
 
@@ -160,6 +162,10 @@ class FakeResponse:
     def __init__(self, text: str, status: int = 200):
         self.text = text
         self.status_code = status
+        self.headers = {}
+
+    async def aiter_raw(self, **kwargs):
+        yield self.text.encode()
 
     def raise_for_status(self):
         if self.status_code >= 400:
@@ -185,6 +191,10 @@ class FakeClient:
         if isinstance(answer, Exception):
             raise answer
         return FakeResponse(answer)
+
+    @asynccontextmanager
+    async def stream(self, method, url, **kwargs):
+        yield await self.get(url)
 
 
 @pytest.fixture
@@ -241,7 +251,7 @@ async def test_no_endpoint_gives_an_address(answers):
         (httpx.ProxyError("407 Proxy Authentication Required"), "rejected the credentials"),
         (httpx.HTTPStatusError("boom", request=None, response=httpx.Response(502)), "answered 502"),
         (httpx.TimeoutException("slow"), "did not answer in time"),
-        (httpx.UnsupportedProtocol("socks4h"), "SOCKS4 is not supported"),
+        (httpx.UnsupportedProtocol("unknown"), "This proxy protocol is not supported"),
     ],
 )
 @pytest.mark.asyncio
@@ -288,7 +298,7 @@ async def test_other_protocol_timeouts_do_not_suggest_a_protocol_change(answers,
     "failure, expected",
     [
         (httpx.ProxyError("407 Proxy Authentication Required"), "rejected the credentials"),
-        (httpx.ConnectError("CERTIFICATE_VERIFY_FAILED"), "certificate could not be verified"),
+        (httpx.ConnectError("CERTIFICATE_VERIFY_FAILED"), "Check certificate trust"),
     ],
 )
 @pytest.mark.asyncio
@@ -413,7 +423,7 @@ async def test_auth_socks_normal_geoip_uses_original_upstream_and_literal_ip(mon
 
     monkeypatch.setattr(proxy_check, "resolve_exit_ip", resolve)
     options = {"geoip": True}
-    await proxy_check.prepare_authenticated_socks_geoip(proxy, options)
+    await proxy_check.prepare_proxy_geoip(proxy, options)
     assert seen == [proxy]
     assert options["geoip"] == "203.0.113.7"
 
@@ -429,7 +439,7 @@ async def test_auth_socks_explicit_coordinates_keep_existing_geoip_fill_path(mon
 
     monkeypatch.setattr(proxy_check, "resolve_exit_ip", unexpected)
     options = {"geoip": False, "config": {"geolocation:latitude": 12}}
-    await proxy_check.prepare_authenticated_socks_geoip(proxy, options)
+    await proxy_check.prepare_proxy_geoip(proxy, options)
     assert options == {"geoip": False, "config": {"geolocation:latitude": 12}}
 
 
@@ -445,7 +455,7 @@ async def test_auth_socks_geoip_failure_blocks_without_sdk_local_lookup(monkeypa
     monkeypatch.setattr(proxy_check, "resolve_exit_ip", refuse)
     options = {"geoip": True}
     with pytest.raises(ConnectionError, match="Check the proxy") as caught:
-        await proxy_check.prepare_authenticated_socks_geoip(proxy, options)
+        await proxy_check.prepare_proxy_geoip(proxy, options)
     assert "secret" not in str(caught.value)
 
 

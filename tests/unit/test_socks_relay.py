@@ -160,12 +160,16 @@ async def test_stalled_client_times_out_and_connection_limit_rejects():
 
 
 @pytest.mark.asyncio
-async def test_unreachable_upstream_returns_failure():
+@pytest.mark.parametrize("protocol", ["socks4", "socks5"])
+async def test_unreachable_upstream_returns_failure(protocol):
     server = await asyncio.start_server(lambda r, w: w.close(), "127.0.0.1", 0)
     port = server.sockets[0].getsockname()[1]
     server.close()
     await server.wait_closed()
-    relay = SocksRelay(f"socks5://127.0.0.1:{port}", "alice", "secret")
+    relay = SocksRelay(
+        f"{protocol}://127.0.0.1:{port}",
+        *(("alice", "secret") if protocol == "socks5" else (None, None)),
+    )
     await relay.start()
     try:
         reader, writer, reply = await connect(relay)

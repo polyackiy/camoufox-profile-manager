@@ -1,4 +1,4 @@
-"""Session-owned TCP SOCKS5 relay for Firefox's authenticated proxy limitation.
+"""Session-owned TCP relay for authenticated SOCKS5 and remote-DNS SOCKS4a.
 
 Only the loopback listener is unauthenticated. Upstream credentials stay in
 memory, domain requests are forwarded verbatim, and failures never connect to
@@ -42,20 +42,34 @@ class SocksRelay:
     def __init__(
         self,
         server: str,
-        username: str | None,
-        password: str | None,
+        username: str | None = None,
+        password: str | None = None,
         *,
         negotiation_timeout: float = 10.0,
         max_connections: int = 128,
     ) -> None:
         parsed = urlsplit(server)
-        if parsed.scheme != "socks5" or not parsed.hostname or parsed.port is None:
-            raise ValueError("SOCKS5 requires a host and port")
+        if (
+            parsed.scheme not in {"socks5", "socks4"}
+            or not parsed.hostname
+            or parsed.port is None
+            or not 1 <= parsed.port <= 65535
+            or parsed.path
+            or parsed.query
+            or parsed.fragment
+        ):
+            raise ValueError("SOCKS requires a host and port")
         if parsed.username is not None or parsed.password is not None:
             raise ValueError("Provide SOCKS credentials separately")
         self._host = parsed.hostname
         self._port = parsed.port
-        self._username, self._password = validate_credentials(username, password)
+        self._version = 4 if parsed.scheme == "socks4" else 5
+        if self._version == 4:
+            if username or password:
+                raise ValueError("SOCKS4 username/password authentication is unsupported")
+            self._username = self._password = b""
+        else:
+            self._username, self._password = validate_credentials(username, password)
         self._timeout = negotiation_timeout
         self._max_connections = max_connections
         self._server: asyncio.Server | None = None
@@ -117,6 +131,25 @@ class SocksRelay:
                 upstream_reader, upstream_writer = await asyncio.open_connection(
                     self._host, self._port
                 )
+                if self._version == 4:
+                    if header[3] == 4:
+                        raise ConnectionError("SOCKS4 cannot connect to an IPv6 destination")
+                    if header[3] == 3:
+                        domain = address[1:]
+                        if b"\x00" in domain:
+                            raise ConnectionError("Invalid SOCKS4a destination")
+                        destination = b"\x00\x00\x00\x01\x00" + domain + b"\x00"
+                    else:
+                        destination = address + b"\x00"
+                    upstream_writer.write(b"\x04\x01" + destination_port + destination)
+                    await upstream_writer.drain()
+                    reply4 = await upstream_reader.readexactly(8)
+                    if reply4[:2] != b"\x00\x5a":
+                        raise ConnectionError("SOCKS4 connection rejected")
+                    writer.write(b"\x05\x00\x00\x01" + reply4[4:8] + reply4[2:4])
+                    await writer.drain()
+                    connected = True
+                    return upstream_reader
                 upstream_writer.write(b"\x05\x01\x02")
                 await upstream_writer.drain()
                 if await upstream_reader.readexactly(2) != b"\x05\x02":

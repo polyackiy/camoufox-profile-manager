@@ -21,7 +21,12 @@ async def seeded(manager):
     profile = await manager.create_profile(
         "account",
         generate_fingerprint=False,
-        proxy_config={"type": "http", "server": "localhost:8080", "password": "secret"},
+        proxy_config={
+            "type": "http",
+            "server": "localhost:8080",
+            "username": "fixture-user",
+            "password": "secret",
+        },
     )
     path = Path(profile.storage_path)
     (path / "cookies.sqlite").write_bytes(b"identity")
@@ -266,3 +271,31 @@ async def test_backup_refuses_unreadable_credentials_and_keeps_previous_checkpoi
         assert [backup["id"] for backup in backups.list_backups()] == [good["id"]]
     finally:
         get_settings.cache_clear()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("legacy_kind", ["password_without_username", "socks4_credentials"])
+async def test_legacy_unsupported_proxy_still_exports_backs_up_and_restores(
+    profile_manager, tmp_path, legacy_kind
+):
+    from camoufox_pm.core.models import ProxyType
+
+    profile, path = await seeded(profile_manager)
+    # Model loading/storage deliberately stay permissive for pre-existing data;
+    # only new explicit configuration and launches enforce authentication policy.
+    if legacy_kind == "password_without_username":
+        profile.proxy.username = None
+    else:
+        profile.proxy.type = ProxyType.SOCKS4
+    await profile_manager.storage.save_profile(profile)
+    exported = await profile_manager.export_profile(profile.id, tmp_path / "legacy.camoufox.zip")
+    assert exported.is_file() and exported.stat().st_size > 0
+    backups = ProfileBackupManager(profile_manager)
+    result = await backups.create_backups([profile.id])
+    assert not result["skipped"] and len(result["backups"]) == 1
+    restored = await backups.restore_backup(result["backups"][0]["id"])
+    assert restored.id != profile.id and restored.proxy == profile.proxy
+    assert Path(restored.storage_path, "cookies.sqlite").read_bytes() == b"identity"
+    assert (path / "cookies.sqlite").read_bytes() == b"identity"
+    with pytest.raises(ValueError):
+        restored.to_camoufox_launch_options()

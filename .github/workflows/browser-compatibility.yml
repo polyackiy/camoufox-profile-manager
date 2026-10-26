@@ -42,8 +42,9 @@ jobs:
       matrix:
         os: ${{ fromJSON(inputs.platform == 'ubuntu-latest' && '["ubuntu-latest"]' || inputs.platform == 'windows-latest' && '["windows-latest"]' || inputs.platform == 'macos-latest' && '["macos-latest"]' || '["ubuntu-latest", "windows-latest", "macos-latest"]') }}
     runs-on: ${{ matrix.os }}
-    # The full native suite includes a three-launch encrypted sync roundtrip.
-    timeout-minutes: 50
+    # Includes a three-launch sync roundtrip and nine isolated proxy/TLS cases.
+    # Per-test browser watchdogs remain unchanged.
+    timeout-minutes: 65
     env:
       # Bound a stuck SDK launch/close while allowing multi-launch workflows.
       # Pytest 9.1 emits the current test and thread stacks before exiting.
@@ -64,7 +65,28 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           uv run --no-sync playwright install-deps firefox
-          sudo apt-get install -y xvfb libgl1-mesa-dri libegl1 mesa-utils
+          sudo apt-get install -y xvfb libgl1-mesa-dri libegl1 mesa-utils libnss3-tools
+      - name: Install isolated-profile NSS certificate tools (macOS)
+        if: runner.os == 'macOS' && (inputs.suite == '' || inputs.suite == 'full')
+        run: |
+          brew list nss >/dev/null 2>&1 || brew install nss
+          echo "CPM_TEST_NSS_CERTUTIL=$(brew --prefix nss)/bin/certutil" >> "$GITHUB_ENV"
+      - name: Install isolated-profile NSS certificate tools (Windows)
+        id: nss
+        if: runner.os == 'Windows' && (inputs.suite == '' || inputs.suite == 'full')
+        uses: msys2/setup-msys2@ec48f7c5447b3140e2b088413ae3a55687bccb6e # v2
+        with:
+          install: mingw-w64-x86_64-nss
+          cache: true
+      - name: Select the NSS certutil binary (Windows)
+        if: runner.os == 'Windows' && (inputs.suite == '' || inputs.suite == 'full')
+        shell: pwsh
+        env:
+          CPM_NSS_ROOT: ${{ steps.nss.outputs.msys2-location }}
+        run: |
+          $nssTool = Join-Path $env:CPM_NSS_ROOT 'mingw64/bin/certutil.exe'
+          if (!(Test-Path $nssTool)) { throw 'NSS certificate utility is missing' }
+          "CPM_TEST_NSS_CERTUTIL=$nssTool" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
       - name: Install the upstream paired browser and resources
         env:
           GITHUB_TOKEN: ${{ github.token }}

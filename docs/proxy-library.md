@@ -101,9 +101,10 @@ processes on the same computer can reach it while active: it is not an isolation
 boundary against untrusted local users or software.
 
 This covers TCP browser connections. It is not a system VPN and does not add
-SOCKS UDP support or replace the profile's WebRTC settings. SOCKS4 has narrower
-support: credentials are unsupported and the health checker does not support
-that protocol. Prefer SOCKS5 for a checked, authenticated SOCKS configuration.
+SOCKS UDP support or replace the profile's WebRTC settings. In the unreleased
+0.7.0 work, SOCKS4 supports checked remote-DNS connections through SOCKS4a,
+with no credentials or IPv6 destinations. Stable 0.6.0 still lacks this checker.
+See the [protocol support and acceptance matrix](proxy-support.md).
 
 ### Why a relay instead of an extension?
 
@@ -115,8 +116,8 @@ The relay is ready before browser startup and avoids writing provider credential
 extension files. Both approaches can be implemented without forking Camoufox;
 the relay is the manager's current integration choice.
 
-For authenticated SOCKS5, the manager resolves the exit IP through the original
-upstream proxy before normal GeoIP setup, then passes the literal IP to Camoufox.
+In the unreleased 0.7.0 work, all normal proxy launches resolve the exit IP through the original
+upstream proxy before normal GeoIP setup, then pass the literal IP to Camoufox.
 This avoids local DNS resolution of the IP-check service and cached results tied
 to a reused loopback port. A failed lookup stops that launch with an actionable
 error. Profiles with explicit coordinates retain their existing geography logic.

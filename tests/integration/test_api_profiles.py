@@ -185,7 +185,12 @@ async def test_a_profile_round_trips_through_an_archive(client):
             "name": "warmed-up",
             "notes": "months of history",
             "browser_settings": {"os": "macos", "timezone": "Europe/Berlin"},
-            "proxy_config": {"type": "http", "server": "1.2.3.4:8080", "password": "secret"},
+            "proxy_config": {
+                "type": "http",
+                "server": "1.2.3.4:8080",
+                "username": "fixture-user",
+                "password": "secret",
+            },
         },
     )
     original = created.json()

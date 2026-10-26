@@ -811,11 +811,11 @@ export function readProxyCheck(check: ProxyCheckRecord, locale: Locale = 'en'): 
   // latency with it. The tooltip is the only place left to read them.
   const lines = [
     check.reachable ? t('Proxy answered') : t('Proxy did not answer'),
-    check.error,
+    check.error ? t(check.error) : null,
     check.ip,
     [check.country, check.timezone].filter(Boolean).join(' · ') || null,
     check.latency_ms !== null ? `${check.latency_ms} ms` : null,
-    ...notes.map((finding) => finding.message),
+    ...notes.map((finding) => t(finding.message)),
     t('Checked {time}', { time: formatLastUsed(check.checked_at, locale).toLowerCase() }),
   ].filter(Boolean)
 

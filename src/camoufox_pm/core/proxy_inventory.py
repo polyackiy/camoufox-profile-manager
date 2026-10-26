@@ -137,6 +137,7 @@ class ProxyInventory:
             **{key: value for key, value in values.items() if key in _CONFIG_FIELDS}
         )
         config.server = normalize_proxy_server(config.server)
+        config.validate_authentication()
         if config.password and not config.username:
             raise ValueError("A proxy password requires a username")
         password = _stored_password(config.password)
@@ -171,6 +172,25 @@ class ProxyInventory:
         )
         if has_password and not username:
             raise ValueError("A proxy password requires a username")
+        protocol = ProxyType(changes.get("type", current["type"]))
+        if protocol == ProxyType.SOCKS4 and (username or has_password):
+            raise ValueError(
+                "SOCKS4 username/password authentication is unsupported. Use SOCKS5 instead."
+            )
+        if protocol == ProxyType.SOCKS5 and {"type", "username", "password"}.intersection(changes):
+            password = (
+                changes["password"]
+                if "password" in changes
+                else (
+                    self._secret_config(proxy_id, expected_version).password
+                    if has_password
+                    else None
+                )
+            )
+            config = ProxyConfig(
+                type=protocol, server=current["server"], username=username, password=password
+            )
+            config.validate_authentication()
         columns = []
         values = []
         for field in ("name", "type", "server", "username", "password", "country"):
@@ -247,6 +267,7 @@ class ProxyInventory:
         if not 1 <= len(profiles) <= 100:
             raise ValueError("Select between 1 and 100 profiles")
         config = self._secret_config(proxy_id, proxy_row_version)
+        config.validate_authentication()
         result: dict[str, builtins.list[Any]] = {"assigned": [], "skipped": []}
         for target in profiles:
             if authorize is not None:
