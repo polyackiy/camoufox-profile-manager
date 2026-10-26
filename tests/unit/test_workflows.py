@@ -406,8 +406,11 @@ async def test_long_run_stays_visible_and_cancellable_after_many_missed_occurren
     assert history[0]["state"] == "running"
     runtime.engine.cancel(active["id"])
     runtime.hold_navigation.set()
-    await finished(runtime, active)
-    assert len(runtime.engine.store.runs(value["id"])) == 30
+    done = await finished(runtime, active)
+    assert done["state"] == "cancelled"
+    history = runtime.engine.store.runs(value["id"])
+    assert len(history) == 30
+    assert history[0]["id"] == active["id"]
     assert not runtime.manager.browser_sessions.active_sessions
 
 

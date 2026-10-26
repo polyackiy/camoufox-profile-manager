@@ -52,10 +52,21 @@ def safe_failure_code(error):
     return "unexpected"
 
 
-async def workflow_owner(storage, actor):
+async def workflow_owner(storage, actor, session_hash=None):
     user = await storage.get_user_by_username(actor.username) if actor.kind == "session" else None
-    if actor.kind == "session" and not user:
-        raise WorkflowDenied("Workflow access denied.")
+    if actor.kind == "session":
+        if not user or not session_hash:
+            raise WorkflowDenied("Workflow access denied.")
+        # Resolve identity before rechecking its immutable session binding: an
+        # in-flight cookie must not inherit a newly recreated username between
+        # middleware authentication and this lookup (including across processes).
+        session = await storage.get_session(session_hash)
+        if (
+            not session
+            or session["user_id"] != user["id"]
+            or datetime.fromisoformat(session["expires_at"]) <= datetime.now()
+        ):
+            raise WorkflowDenied("Workflow access denied.")
     return {"kind": actor.kind, "username": actor.username, "user_id": user["id"] if user else None}
 
 

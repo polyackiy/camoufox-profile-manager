@@ -27,7 +27,10 @@ async def owner():
     actor = await refreshed_principal(current_principal())
     if actor.role == "viewer":
         raise HTTPException(403, "Workflow access denied.")
-    return await workflow_owner(get_storage_manager(), actor)
+    try:
+        return await workflow_owner(get_storage_manager(), actor, request_session_hash.get())
+    except WorkflowDenied:
+        raise HTTPException(403, "Workflow access denied.") from None
 
 
 async def owned(workflow_id):

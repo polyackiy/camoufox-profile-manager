@@ -79,15 +79,23 @@ class WorkflowStore:
             )
 
     def runs(self, workflow_id):
-        return [
+        values = [
             json.loads(row[0])
             for row in self.db.execute(
-                "SELECT body FROM workflow_runs WHERE workflow_id=? AND "
-                "(active=1 OR id IN (SELECT id FROM workflow_runs WHERE workflow_id=? "
-                "AND active=0 ORDER BY rowid DESC LIMIT 30)) ORDER BY active DESC,rowid DESC",
-                (workflow_id, workflow_id),
+                "SELECT body FROM workflow_runs WHERE workflow_id=? "
+                "ORDER BY active DESC,rowid DESC LIMIT 31",
+                (workflow_id,),
             )
         ]
+        return sorted(
+            values,
+            key=lambda item: (item["state"] in {"queued", "running"}, self._finished_at(item)),
+            reverse=True,
+        )
+
+    @staticmethod
+    def _finished_at(value):
+        return value.get("finished_at") or value.get("started_at", "")
 
     def run(self, run_id):
         row = self.db.execute("SELECT body FROM workflow_runs WHERE id=?", (run_id,)).fetchone()
@@ -144,13 +152,24 @@ class WorkflowStore:
                 "UPDATE workflow_runs SET active=?,body=? WHERE id=?",
                 (int(active), json.dumps(value), value["id"]),
             )
-            # Never prune active work. Bound retained, finished receipts per definition.
-            self.db.execute(
-                "DELETE FROM workflow_runs WHERE workflow_id=? AND active=0 AND id NOT IN "
-                "(SELECT id FROM workflow_runs WHERE workflow_id=? AND active=0 "
-                "ORDER BY rowid DESC LIMIT 30)",
-                (value["workflow_id"], value["workflow_id"]),
-            )
+            if not active:
+                # A long run may finish after many newer missed occurrences.
+                # Retain by completion, not original insertion, so its final
+                # result cannot disappear before the user can read it. Parsing
+                # the bounded finished set only on completion avoids a SQLite
+                # JSON-extension dependency and work on every running step.
+                rows = self.db.execute(
+                    "SELECT id,body FROM workflow_runs WHERE workflow_id=? "
+                    "AND active=0 ORDER BY rowid DESC",
+                    (value["workflow_id"],),
+                ).fetchall()
+                recent = sorted(
+                    rows, key=lambda row: self._finished_at(json.loads(row[1])), reverse=True
+                )
+                self.db.executemany(
+                    "DELETE FROM workflow_runs WHERE id=? AND active=0",
+                    [(row[0],) for row in recent[30:]],
+                )
 
     def interrupted(self):
         for row in self.db.execute("SELECT body FROM workflow_runs WHERE active=1").fetchall():

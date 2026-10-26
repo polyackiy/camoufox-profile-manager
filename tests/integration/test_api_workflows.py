@@ -7,7 +7,9 @@ from uuid import uuid4
 import pytest
 
 from camoufox_pm.api import dependencies
+from camoufox_pm.api.routes import workflows as workflow_routes
 from camoufox_pm.core import auth
+from camoufox_pm.core.workflow_models import WorkflowDefinition
 from tests.integration.test_profile_authorization import PASSWORD, setup_actor
 
 DEFINITION = {
@@ -190,6 +192,28 @@ async def test_definitions_are_private_even_between_administrators(client, monke
         await client.post(f"/api/v1/workflows/{value['id']}/runs", json=request_for(value, own))
     ).status_code == 404
     assert (await client.delete(f"/api/v1/workflows/{value['id']}?revision=1")).status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_inflight_cookie_cannot_inherit_a_recreated_username_workspace(client, monkeypatch):
+    manager, _, _ = await setup_actor(client, "operator", monkeypatch)
+    refresh = workflow_routes.refreshed_principal
+
+    async def replace_after_cookie_validation(actor):
+        current = await refresh(actor)
+        await manager.storage.delete_user("member")
+        replacement = auth.new_user_id()
+        await manager.storage.create_user(replacement, "member", "unused", role="operator")
+        dependencies.get_scheduler().workflows.store.save(
+            WorkflowDefinition(**{**DEFINITION, "name": "New account private definition"}),
+            {"kind": "session", "username": "member", "user_id": replacement},
+        )
+        return current
+
+    monkeypatch.setattr(workflow_routes, "refreshed_principal", replace_after_cookie_validation)
+    response = await client.get("/api/v1/workflows")
+    assert response.status_code == 403
+    assert "New account private definition" not in response.text
 
 
 @pytest.mark.asyncio
