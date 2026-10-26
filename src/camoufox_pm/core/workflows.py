@@ -1,6 +1,7 @@
 """Durable receipts, bounded execution and explicit replay for managed browsers."""
 
 import asyncio
+import sys
 from collections import deque
 from contextlib import nullcontext
 from datetime import datetime
@@ -17,6 +18,14 @@ from .sync_admission import profile_admission
 from .sync_guard import guard_profile
 from .workflow_models import WorkflowDefinition, WorkflowStart, planned_after
 from .workflow_store import WorkflowConflict, WorkflowStore
+
+if sys.version_info >= (3, 11):
+    from asyncio import timeout as launch_deadline
+else:
+    # The upstream timeout context was backported for Python 3.10. Unlike
+    # wait_for on 3.10/3.11 it does not move work into a second task, which would
+    # correctly fail the task-bound profile admission check.
+    from async_timeout import timeout as launch_deadline
 
 
 class WorkflowDenied(ValueError):
@@ -44,6 +53,7 @@ class WorkflowEngine:
         self._ready = asyncio.Event()
         self._stop = asyncio.Event()
         self.available = False
+        self.launch_timeout = 120.0
 
     def admission(self):
         return self.maintenance_gate.operation() if self.maintenance_gate else nullcontext()
@@ -215,6 +225,10 @@ class WorkflowEngine:
                 async def worker():
                     while waiting:
                         async with self.slots:
+                            # Another worker may drain the queue while this one
+                            # waits behind another run for a global slot.
+                            if not waiting:
+                                return
                             row = waiting.popleft()
                             if cancel.is_set():
                                 row["state"] = "cancelled"
@@ -321,9 +335,8 @@ class WorkflowEngine:
                     current["state"] = "running"
                     self.store.save_run(job)
                     if step.action == "launch":
-                        await asyncio.wait_for(
-                            self.profiles.launch_browser(profile_id), timeout=120
-                        )
+                        async with launch_deadline(self.launch_timeout):
+                            await self.profiles.launch_browser(profile_id)
                         owned = self.profiles.browser_sessions.active_sessions[profile_id]
                     else:
                         # Never navigate/close a replacement or manually reopened

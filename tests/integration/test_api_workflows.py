@@ -112,6 +112,8 @@ async def test_definition_cas_validation_and_delete(client):
         await client.delete("/api/v1/workflows/" + created["id"] + "?revision=2")
     ).status_code == 200
     assert (await client.get("/api/v1/workflows")).json()["workflows"] == []
+    events = await dependencies.get_storage_manager().list_audit(action="delete_workflow")
+    assert events[0]["object_id"] == created["id"]
 
 
 @pytest.mark.asyncio
@@ -195,8 +197,8 @@ async def test_revocation_during_launch_stops_before_navigation(
     body = request_for(value, own)
     response = await client.post(f"/api/v1/workflows/{value['id']}/runs", json=body)
     assert response.status_code == 202
-    await browser_stub.launched.wait()
     try:
+        await asyncio.wait_for(browser_stub.launched.wait(), 10)
         if revoked == "grant":
             await manager.storage.delete_profile_grant("member", own.id)
         elif revoked == "session":

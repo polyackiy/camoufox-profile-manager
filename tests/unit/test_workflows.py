@@ -124,6 +124,14 @@ async def finished(runtime, run):
     return runtime.engine.store.run(run["id"])
 
 
+async def observed_navigations(runtime, count):
+    async def observed():
+        while sum(event[0] == "navigate" for event in runtime.events) < count:
+            await asyncio.sleep(0.001)
+
+    await asyncio.wait_for(observed(), 10)
+
+
 @pytest.mark.parametrize(
     "url",
     [
@@ -201,7 +209,7 @@ async def test_cancel_drains_accepted_launch_and_never_navigates(runtime):
     value = await definition(runtime)
     runtime.hold_launch.clear()
     run, _ = await start(runtime, value, await targets(runtime, 2))
-    await runtime.launched.wait()
+    await asyncio.wait_for(runtime.launched.wait(), 10)
     runtime.engine.cancel(run["id"])
     assert not runtime.engine.tasks[run["id"]].done()
     runtime.hold_launch.set()
@@ -215,7 +223,7 @@ async def test_cancel_navigation_waits_for_it_and_does_not_start_the_next_target
     value = await definition(runtime)
     runtime.hold_navigation.clear()
     run, _ = await start(runtime, value, await targets(runtime, 3))
-    await runtime.navigation_started.wait()
+    await asyncio.wait_for(runtime.navigation_started.wait(), 10)
     runtime.engine.cancel(run["id"])
     assert not runtime.engine.tasks[run["id"]].done()
     runtime.hold_navigation.set()
@@ -228,7 +236,7 @@ async def test_browser_and_edit_admission_cannot_take_over_a_workflow(runtime):
     value = await definition(runtime)
     runtime.hold_navigation.clear()
     run, request = await start(runtime, value)
-    await runtime.navigation_started.wait()
+    await asyncio.wait_for(runtime.navigation_started.wait(), 10)
     profile_id = request.targets[0].profile_id
     with pytest.raises(ProfileLocked):
         await runtime.manager.launch_browser(profile_id)
@@ -281,7 +289,7 @@ async def test_new_account_revokes_anonymous_execution_before_navigation(runtime
     value = await definition(runtime)
     runtime.hold_launch.clear()
     run, _ = await start(runtime, value)
-    await runtime.launched.wait()
+    await asyncio.wait_for(runtime.launched.wait(), 10)
     await runtime.manager.storage.create_user(str(uuid4()), "owner", "unused-test-hash")
     runtime.hold_launch.set()
     done = await finished(runtime, run)
@@ -293,11 +301,8 @@ async def test_concurrency_is_bounded_and_other_instance_cannot_reconcile_live_j
     value = await definition(runtime, concurrency=2)
     runtime.hold_navigation.clear()
     run, _ = await start(runtime, value, await targets(runtime, 5))
-    await runtime.navigation_started.wait()
-    for _ in range(20):
-        if sum(event[0] == "navigate" for event in runtime.events) == 2:
-            break
-        await asyncio.sleep(0)
+    await asyncio.wait_for(runtime.navigation_started.wait(), 10)
+    await observed_navigations(runtime, 2)
     assert sum(event[0] == "navigate" for event in runtime.events) == 2
     second = WorkflowEngine(runtime.manager.storage, runtime.manager)
     with pytest.raises(WorkflowConflict, match="unavailable"):
@@ -392,10 +397,7 @@ async def test_global_slots_and_active_run_limit_bound_multiple_workflows(runtim
     for _ in range(4):
         value = await definition(runtime, concurrency=2)
         await start(runtime, value, await targets(runtime, 2))
-    for _ in range(100):
-        if sum(event[0] == "navigate" for event in runtime.events) == 4:
-            break
-        await asyncio.sleep(0.001)
+    await observed_navigations(runtime, 4)
     assert sum(event[0] == "navigate" for event in runtime.events) == 4
     value = await definition(runtime)
     with pytest.raises(WorkflowConflict, match="Four workflow"):
@@ -412,7 +414,7 @@ async def test_maintenance_cannot_begin_until_cancelled_actions_drain(runtime, t
     runtime.hold_navigation.clear()
     value = await definition(runtime)
     run, _ = await start(runtime, value)
-    await runtime.navigation_started.wait()
+    await asyncio.wait_for(runtime.navigation_started.wait(), 10)
     with pytest.raises(MaintenanceBlocked):
         gate.acquire("update-owner")
     runtime.engine.cancel(run["id"])
@@ -445,4 +447,16 @@ async def test_cancelled_wait_is_not_reported_as_completed(runtime):
         "cancelled",
         "cancelled",
     ]
+    assert not runtime.manager.browser_sessions.active_sessions
+
+
+async def test_launch_deadline_preserves_task_admission_and_releases_failed_lease(runtime):
+    runtime.engine.launch_timeout = 0.01
+    runtime.hold_launch.clear()
+    value = await definition(runtime)
+    run, request = await start(runtime, value)
+    done = await finished(runtime, run)
+    assert runtime.launched.is_set(), "Launch must run inside its existing admission task"
+    assert done["targets"][0]["state"] == "failed"
+    assert (await runtime.manager.storage.get_lease(request.targets[0].profile_id))[0] is None
     assert not runtime.manager.browser_sessions.active_sessions

@@ -453,12 +453,65 @@ def positive_case(device, protocol, auth, certs, *, restart=False):
         }
 
 
-def workflow_case(device, certs):
+def prepare_workflow_backup(device, profile_id):
+    # Use the public manual operation instead of waiting for the next automatic
+    # scheduler tick. A successful response also means its profile lease has
+    # been released. Only this additive preparation may retry a busy response;
+    # accepted workflow/launch mutations are never replayed.
+    def create():
+        try:
+            result = device.call("/system/backups", {"profile_ids": [profile_id]})["data"]
+        except InstalledAPIError as error:
+            if error.status == 409:
+                return False
+            raise
+        return any(item["profile_id"] == profile_id for item in result["backups"])
+
+    wait_for(create, seconds=180)
+
+
+def workflow_diagnostics(run):
+    states = {
+        "queued",
+        "running",
+        "completed",
+        "cancelled",
+        "failed",
+        "skipped",
+        "denied",
+        "interrupted",
+        "missed",
+    }
+    categories = {
+        "Profile is already open or busy. Close it before retrying.": "busy",
+        "A selected profile changed. Reload and review the targets.": "changed",
+        "Workflow access was revoked. Remaining steps were stopped.": "access",
+        "Step failed. Check the profile, proxy and destination before retrying.": "execution",
+        "Browser cleanup failed. Stop this profile before retrying.": "cleanup",
+    }
+
+    def state(value):
+        return value if isinstance(value, str) and value in states else "unknown"
+
+    return {
+        "state": state(run.get("state")),
+        "targets": [
+            {
+                "state": state(row.get("state")),
+                "category": categories.get(row.get("message"), "unknown"),
+                "steps": [state(step.get("state")) for step in row.get("steps", [])[:12]],
+            }
+            for row in run.get("targets", [])[:100]
+        ],
+    }
+
+
+def workflow_case(device, certs, report):
     """The installed workflow navigates only after authenticated launch readiness."""
     with FixtureService("https", certs, auth=True) as service:
         fixture = service.fixture
         profile_id = profile_for(device, fixture, certs[0])
-        wait_for_initial_backup(device, profile_id)
+        prepare_workflow_backup(device, profile_id)
         baseline = listener_ports(device.process.pid)
         nonce = secrets.token_hex(12)
         paths = [f"/proof/{nonce}-{scheme}" for scheme in ("http", "https")]
@@ -473,7 +526,7 @@ def workflow_case(device, certs):
                         "action": "navigate",
                         "url": f"{scheme}://cpm-origin.invalid:{port}{path}",
                     },
-                    {"name": "Receipt window", "action": "wait", "seconds": 1},
+                    {"name": "Receipt window", "action": "wait", "seconds": 60},
                 ]
             )
         steps.append({"name": "Finish", "action": "close"})
@@ -492,7 +545,13 @@ def workflow_case(device, certs):
         )
         route = f"/workflows/{workflow['id']}/runs/{run['id']}"
         try:
-            wait_for(lambda: device.call(route)["state"] not in {"queued", "running"}, seconds=240)
+
+            def finished():
+                current = device.call(route)
+                report["workflow"] = workflow_diagnostics(current)
+                return current["state"] not in {"queued", "running"}
+
+            wait_for(finished, seconds=400)
             result = device.call(route)
             assert result["state"] == "completed", "Installed workflow did not complete"
             assert all(step["state"] == "completed" for step in result["targets"][0]["steps"])
@@ -622,7 +681,7 @@ def main():
                         result["cases"].append(untrusted_case(device, protocol, other_certs, certs))
                     phase = "workflow-https-password"
                     print("Installed workflow acceptance: authenticated HTTPS proxy", flush=True)
-                    result["workflow"] = workflow_case(device, certs)
+                    result["workflow"] = workflow_case(device, certs, result)
                     result["passed"] = True
                 finally:
                     with contextlib.ExitStack() as cleanup:

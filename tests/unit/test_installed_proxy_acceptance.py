@@ -108,6 +108,52 @@ def test_restart_waits_for_public_backup_receipt_without_mutating_or_replaying_l
     assert calls == [("/system/backups", None)] * 3
 
 
+def test_workflow_preparation_retries_only_additive_busy_backup():
+    calls = []
+
+    def call(path, body):
+        calls.append((path, body))
+        if len(calls) == 1:
+            raise harness.InstalledAPIError(409)
+        return {"data": {"backups": [{"profile_id": "target"}]}}
+
+    harness.prepare_workflow_backup(SimpleNamespace(call=call), "target")
+    assert calls == [("/system/backups", {"profile_ids": ["target"]})] * 2
+
+    def forbidden(path, body):
+        raise harness.InstalledAPIError(403)
+
+    with pytest.raises(harness.InstalledAPIError):
+        harness.prepare_workflow_backup(SimpleNamespace(call=forbidden), "target")
+
+
+def test_workflow_diagnostics_allowlist_states_without_identity_or_error_text():
+    private = "private-password-and-destination"
+    result = harness.workflow_diagnostics(
+        {
+            "id": private,
+            "state": "failed",
+            "request": private,
+            "targets": [
+                {
+                    "profile_id": private,
+                    "state": "failed",
+                    "message": private,
+                    "steps": [{"state": private, "name": private, "url": private}],
+                },
+                {
+                    "state": "skipped",
+                    "message": "Profile is already open or busy. Close it before retrying.",
+                    "steps": [],
+                },
+            ],
+        }
+    )
+    assert private not in json.dumps(result)
+    assert result["targets"][0]["steps"] == ["unknown"]
+    assert result["targets"][1]["category"] == "busy"
+
+
 @pytest.mark.parametrize("relative", ["..", "../user-browser", "."])
 def test_browser_trust_refuses_paths_outside_disposable_data(tmp_path, relative, monkeypatch):
     data = tmp_path / "data"

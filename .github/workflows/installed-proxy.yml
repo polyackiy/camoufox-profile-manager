@@ -11,6 +11,8 @@ on:
       - 'src/camoufox_pm/core/proxy*.py'
       - 'src/camoufox_pm/core/socks_relay.py'
       - 'src/camoufox_pm/core/browser_session.py'
+      - 'src/camoufox_pm/core/workflow*.py'
+      - 'src/camoufox_pm/api/routes/workflows.py'
       - 'packaging/camoufox-pm.spec'
       - 'packaging/launch.py'
       - 'pyproject.toml'

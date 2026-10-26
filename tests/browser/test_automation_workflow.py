@@ -52,7 +52,7 @@ async def test_workflow_navigation_after_authenticated_launch_readiness(
                     "action": "navigate",
                     "url": f"https://cpm-origin.invalid:{fixture.https_port}{path}",
                 },
-                {"name": "Receipt window", "action": "wait", "seconds": 1},
+                {"name": "Receipt window", "action": "wait", "seconds": 60},
                 {"name": "Finish", "action": "close"},
             ],
         )
@@ -68,9 +68,27 @@ async def test_workflow_navigation_after_authenticated_launch_readiness(
                     targets=[{"profile_id": profile.id, "row_version": profile.row_version}],
                 ),
             )
-            await asyncio.wait_for(engine.tasks[run["id"]], 150)
+            task = engine.tasks[run["id"]]
+
+            async def browser_receipt():
+                while not has_path(service.snapshot()[0], path.replace("/proof/", "/receipt/")):
+                    assert not task.done(), "Workflow ended before the browser receipt"
+                    await asyncio.sleep(0.05)
+
+            # Observe an actual browser execution signal instead of assuming a
+            # one-second sleep is enough on every native CI host. Then exercise
+            # real cancellation/cleanup; installed acceptance covers full close.
+            await asyncio.wait_for(browser_receipt(), 150)
+            engine.cancel(run["id"])
+            await asyncio.wait_for(task, 30)
             saved = engine.store.run(run["id"])
-            assert saved["state"] == "completed", saved["targets"]
+            assert saved["state"] == "cancelled", saved["targets"]
+            assert [step["state"] for step in saved["targets"][0]["steps"]] == [
+                "completed",
+                "completed",
+                "cancelled",
+                "cancelled",
+            ]
             assert has_path(service.snapshot()[0], path.replace("/proof/", "/receipt/"))
             assert not manager.browser_sessions.is_live(profile.id)
         finally:
