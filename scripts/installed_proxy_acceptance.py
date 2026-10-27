@@ -339,10 +339,10 @@ def package_identity():
     return {"format": packages[0].suffix, "sha256": digest.hexdigest()}
 
 
-def positive_case(device, protocol, auth, certs, *, restart=False):
+def positive_case(device, protocol, auth, certs, *, restart=False, report=None):
     with FixtureService(protocol, certs, auth=auth) as service:
         fixture = service.fixture
-        profile_id = profile_for(device, fixture, certs[0])
+        profile_id = profile_for(device, fixture, certs[0], report)
         health = device.call(f"/profiles/{profile_id}/check-proxy", {})
         assert health["reachable"] and health["location"]["ip"] == EXIT_IP, (
             "Installed health check failed"
@@ -373,7 +373,7 @@ def positive_case(device, protocol, auth, certs, *, restart=False):
                 "Installed proxy acceptance: completing backup before restart",
                 flush=True,
             )
-            prepare_profile_backup(device, profile_id)
+            prepare_profile_backup(device, profile_id, report)
             device.close()
             device.start()
             device.login()
@@ -443,6 +443,33 @@ def positive_case(device, protocol, auth, certs, *, restart=False):
         }
 
 
+def backup_skip_code(skipped, profile_id):
+    """Fixed report codes from public backup failures, never their private text."""
+    if not isinstance(skipped, list) or len(skipped) != 1:
+        return "other"
+    item = skipped[0]
+    if not isinstance(item, dict) or item.get("profile_id") != profile_id:
+        return "other"
+    reason = item.get("reason")
+    if not isinstance(reason, str):
+        return "other"
+    if re.fullmatch(
+        rf"Profile {re.escape(profile_id)} is leased by another holder"
+        r"(?: \([A-Za-z0-9_.:-]{1,512}\))?",
+        reason,
+    ):
+        return "busy"
+    if reason == "Profile data directory is missing; backup was not created":
+        return "missing_data"
+    if reason.startswith("Stored proxy credentials could not be decrypted. "):
+        return "credentials"
+    if reason.startswith("Cannot archive symbolic link: "):
+        return "symbolic_link"
+    if re.match(r"^\[Errno [0-9]{1,3}\] ", reason):
+        return "filesystem"
+    return "other"
+
+
 def prepare_profile_backup(device, profile_id, report=None):
     # Use the public manual operation instead of waiting for the next automatic
     # scheduler tick. A successful response also means its profile lease has
@@ -450,7 +477,7 @@ def prepare_profile_backup(device, profile_id, report=None):
     # accepted workflow/launch mutations are never replayed.
     diagnostics = {"attempts": 0, "busy_responses": 0, "prepared": False}
     if report is not None:
-        report["workflow_preparation"] = diagnostics
+        report["backup_preparation"] = diagnostics
 
     def create():
         diagnostics["attempts"] += 1
@@ -465,6 +492,17 @@ def prepare_profile_backup(device, profile_id, report=None):
             item["profile_id"] == profile_id for item in result["backups"]
         )
         if not diagnostics["prepared"]:
+            code = backup_skip_code(result.get("skipped"), profile_id)
+            diagnostics["last_skip_code"] = code
+            if code == "filesystem":
+                match = re.match(r"^\[Errno ([0-9]{1,3})\] ", result["skipped"][0]["reason"])
+                diagnostics["errno"] = int(match[1]) if match else None
+            if code == "busy":
+                # Per-profile admission can be returned as a partial 200 batch,
+                # while whole-backup admission is a 409. Both are additive-only
+                # preparation retries; never repeat a browser/workflow launch.
+                diagnostics["busy_responses"] += 1
+                return False
             # Export no arbitrary skip/error text, which may contain file paths
             # or secrets. A non-busy backup failure requires investigation.
             diagnostics["skipped"] = bool(result.get("skipped"))
@@ -599,10 +637,10 @@ def workflow_case(device, certs, report):
             device.call("/browsers/close-all", {})
 
 
-def browser_tls_probe(device, protocol, certs, trusted_ca, *, accepted):
+def browser_tls_probe(device, protocol, certs, trusted_ca, *, accepted, report=None):
     with FixtureService(protocol, certs) as service:
         fixture = service.fixture
-        profile_id = profile_for(device, fixture, trusted_ca)
+        profile_id = profile_for(device, fixture, trusted_ca, report)
         nonce = secrets.token_hex(12)
         path = f"/tls-probe/{nonce}"
         service.monitor([f"https://cpm-origin.invalid:{fixture.https_port}{path}"], nonce)
@@ -628,15 +666,17 @@ def browser_tls_probe(device, protocol, certs, trusted_ca, *, accepted):
         )
 
 
-def untrusted_case(device, protocol, certs, trusted_certs):
+def untrusted_case(device, protocol, certs, trusted_certs, *, report=None):
     with FixtureService(protocol, certs) as service:
         fixture = service.fixture
-        profile_id = profile_for(device, fixture, trusted_certs[0])
+        profile_id = profile_for(device, fixture, trusted_certs[0], report)
         health = device.call(f"/profiles/{profile_id}/check-proxy", {})
         assert not health["reachable"], "Untrusted health TLS was accepted"
 
-    browser_tls_probe(device, protocol, trusted_certs, trusted_certs[0], accepted=True)
-    browser_tls_probe(device, protocol, certs, trusted_certs[0], accepted=False)
+    browser_tls_probe(
+        device, protocol, trusted_certs, trusted_certs[0], accepted=True, report=report
+    )
+    browser_tls_probe(device, protocol, certs, trusted_certs[0], accepted=False, report=report)
     return {
         "protocol": protocol,
         "untrusted_peer": "proxy" if protocol == "https" else "destination",
@@ -693,12 +733,19 @@ def main():
                         print(f"Installed proxy acceptance: {phase}", flush=True)
                         result["cases"].append(
                             positive_case(
-                                device, protocol, auth, certs, restart=protocol == "socks5" and auth
+                                device,
+                                protocol,
+                                auth,
+                                certs,
+                                restart=protocol == "socks5" and auth,
+                                report=result,
                             )
                         )
                     for protocol in ("http", "https"):
                         phase = protocol + "-untrusted"
-                        result["cases"].append(untrusted_case(device, protocol, other_certs, certs))
+                        result["cases"].append(
+                            untrusted_case(device, protocol, other_certs, certs, report=result)
+                        )
                     phase = "workflow-https-password"
                     print("Installed workflow acceptance: authenticated HTTPS proxy", flush=True)
                     result["workflow"] = workflow_case(device, certs, result)
