@@ -1530,3 +1530,45 @@ def test_prefix_restart_fsync_failure_never_acknowledges_loss(relay, monkeypatch
     assert start_resumable(relay, revision, data).json()["offset"] == 0
     assert send_chunk(relay, revision, 0, data).status_code == 200
     assert relay.rpc("upload_finish", revision_id=revision).status_code == 200
+
+
+@pytest.mark.parametrize("revoked", [False, True])
+def test_prefix_restart_requires_original_current_writer(relay, revoked):
+    revision, data = str(uuid4()), b"x" * 100
+    start_resumable(relay, revision, data)
+    send_chunk(relay, revision, 0, data[:40])
+    pending = relay.directory / "blobs" / f".pending-{relay.root.owner_id}-{revision}"
+    pending.unlink()
+    peer, peer_id = generate_device(), str(uuid4())
+    devices = (peer.certificate(relay.root.owner_id, peer_id),)
+    if not revoked:
+        devices += relay.membership.membership.devices
+    successor = approve_membership(
+        relay.root, relay.secrets.authority_key, devices, previous=relay.membership
+    )
+    assert (
+        relay.rpc("update_membership", membership=successor.model_dump(mode="json")).status_code
+        == 200
+    )
+    if not revoked:
+        relay.device_id, relay.key = peer_id, peer.signing_key
+    assert start_resumable(relay, revision, data).status_code == (403 if revoked else 409)
+    assert not pending.exists()
+    with closing(sqlite3.connect(relay.directory / "relay.sqlite3")) as db:
+        assert db.execute(
+            "SELECT offset FROM upload_offsets WHERE revision=?", (revision,)
+        ).fetchone() == (40,)
+
+
+def test_prefix_restart_never_resets_ready_or_committed_objects(relay):
+    revision, data = str(uuid4()), b"x" * 100
+    start_resumable(relay, revision, data)
+    send_chunk(relay, revision, 0, data)
+    assert relay.rpc("upload_finish", revision_id=revision).status_code == 200
+    final = relay.directory / "blobs" / f"{relay.root.owner_id}-{revision}.blob"
+    assert start_resumable(relay, revision, data).json()["offset"] == len(data)
+    assert final.read_bytes() == data
+    with closing(sqlite3.connect(relay.directory / "relay.sqlite3")) as db, db:
+        db.execute("UPDATE revisions SET state='committed' WHERE id=?", (revision,))
+    assert start_resumable(relay, revision, data).status_code == 409
+    assert final.read_bytes() == data
