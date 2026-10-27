@@ -42,6 +42,8 @@ from scripts.installed_sync_acceptance import (
 )
 from tests.support.proxy_protocols import ProxyFixture, certificates
 
+from camoufox_pm.core.operation_diagnostics import validated_diagnostic
+
 HEALTH_NAMES = ("api.ipify.org", "checkip.amazonaws.com", "icanhazip.com")
 DNS_NAMES = ("cpm-origin.invalid", *HEALTH_NAMES)
 EXIT_IP = "8.8.8.8"  # Known by the paired browser's local GeoIP database.
@@ -506,6 +508,16 @@ def prepare_profile_backup(device, profile_id, report=None):
             item["profile_id"] == profile_id for item in result["backups"]
         )
         if not diagnostics["prepared"]:
+            skipped = result.get("skipped")
+            if (
+                isinstance(skipped, list)
+                and len(skipped) == 1
+                and isinstance(skipped[0], dict)
+                and skipped[0].get("profile_id") == profile_id
+            ):
+                failure = validated_diagnostic(skipped[0].get("diagnostic"), area="backup")
+                if failure is not None:
+                    diagnostics["operation_diagnostic"] = failure
             code = backup_skip_code(result.get("skipped"), profile_id)
             diagnostics["last_skip_code"] = code
             if code == "filesystem":
@@ -742,6 +754,18 @@ def main():
                     result["browser_version"] = public_version(browser_status["version"])
                     # Assert this is the packaged UI, not a dev server.
                     device.page.get_by_role("button", name="New profile", exact=True).wait_for()
+                    phase = "backup-diagnostic"
+                    skipped = device.call(
+                        "/system/backups", {"profile_ids": ["diagnostic-missing-profile"]}
+                    )["data"]
+                    assert not skipped["backups"] and len(skipped["skipped"]) == 1
+                    diagnostic = validated_diagnostic(
+                        skipped["skipped"][0].get("diagnostic"), area="backup"
+                    )
+                    assert diagnostic is not None
+                    assert diagnostic["stage"] == "profile_lookup"
+                    assert diagnostic["category"] == "missing_profile"
+                    result["diagnostic_check"] = diagnostic
                     for protocol, auth in CASES:
                         phase = protocol + ("-password" if auth else "-none")
                         print(f"Installed proxy acceptance: {phase}", flush=True)
@@ -789,6 +813,8 @@ def main():
         )
         if isinstance(error, InstalledAPIError):
             result["http_status"] = error.status
+            if error.diagnostic is not None:
+                result["operation_diagnostic"] = error.diagnostic
         raise RuntimeError(
             f"Installed proxy acceptance failed at {phase} ({type(error).__name__})"
         ) from None

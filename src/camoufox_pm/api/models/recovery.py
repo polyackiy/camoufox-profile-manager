@@ -4,6 +4,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
+from camoufox_pm.core.operation_diagnostics import OperationDiagnostic
+
 from .profiles import ProfileResponse
 
 
@@ -19,6 +21,7 @@ class BackupInfo(BaseModel):
 class BackupSkip(BaseModel):
     profile_id: str
     reason: str
+    diagnostic: OperationDiagnostic | None = None
 
 
 class BackupListData(BaseModel):

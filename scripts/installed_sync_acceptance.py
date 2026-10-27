@@ -34,6 +34,7 @@ from cryptography.x509.oid import NameOID
 from playwright.sync_api import expect, sync_playwright
 from pydantic import SecretStr
 
+from camoufox_pm.core.operation_diagnostics import validated_diagnostic
 from camoufox_pm.sync.relay import create_relay_app
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -42,9 +43,10 @@ _PROCESSES: list[subprocess.Popen] = []
 
 
 class InstalledAPIError(RuntimeError):
-    def __init__(self, status, category="unclassified"):
+    def __init__(self, status, category="unclassified", diagnostic=None):
         self.status = status
         self.category = category
+        self.diagnostic = validated_diagnostic(diagnostic, area="sync")
         super().__init__("Installed API rejected the operation")
 
 
@@ -58,13 +60,19 @@ def installed_api_error(response):
         "Synchronization runtime is unavailable": "runtime_unavailable",
     }
     category = "unclassified"
+    diagnostic = None
     try:
-        detail = response.json().get("detail")
+        payload = response.json()
+        detail = payload.get("detail")
         if isinstance(detail, str):
             category = categories.get(detail, category)
-    except (ValueError, AttributeError):
+        if category == "runtime_failed" and response.status == 409:
+            details = payload.get("error", {}).get("details")
+            if isinstance(details, list) and len(details) == 1 and isinstance(details[0], dict):
+                diagnostic = details[0].get("diagnostic")
+    except (ValueError, AttributeError, TypeError):
         pass
-    return InstalledAPIError(response.status, category)
+    return InstalledAPIError(response.status, category, diagnostic)
 
 
 def tls_fixture(directory):
@@ -338,6 +346,30 @@ class Device:
             self.environment = original
             self.restart()
 
+    def check_runtime_diagnostic(self):
+        """A missing-profile lookup proves diagnostics without changing profiles."""
+        # Stop this observer page's refreshes, then settle existing read-only
+        # ceremony admission. The invalid POST is issued exactly once.
+        self.page.goto("about:blank")
+        self.call("/sync/devices")
+        before = self.call("/sync/profiles")
+        response = self.context.request.post(
+            self.origin + "/api/v1/sync/profiles/diagnostic-missing-profile/acquire",
+            data=self.unlock_body,
+            headers={"Origin": self.origin},
+            timeout=180000,
+        )
+        error = installed_api_error(response)
+        assert error.status == 409 and error.category == "runtime_failed"
+        assert response.headers.get("cache-control") == "no-store"
+        assert error.diagnostic is not None
+        assert error.diagnostic["stage"] == "execute"
+        assert error.diagnostic["category"] == "invalid_state"
+        assert error.diagnostic["site"] == "core.profile_operations"
+        assert self.call("/sync/profiles") == before
+        self.page.goto(self.origin + "/")
+        return error.diagnostic
+
     @property
     def unlock_body(self):
         return {"password": self.password} if self.vault_kind == "encrypted_file" else {}
@@ -509,7 +541,7 @@ def observe(device, profile_id, site, stage):
         device.call("/browsers/close-all", {})
 
 
-def exercise(owner, recipient, relay_url, registration, site):
+def exercise(owner, recipient, relay_url, registration, site, report):
     print("Installed acceptance: owner recovery and relay registration", flush=True)
     password = owner.unlock_body
     owner.call(
@@ -528,6 +560,8 @@ def exercise(owner, recipient, relay_url, registration, site):
     print("Installed acceptance: owner restart and persistent key access", flush=True)
     owner.restart()
     owner.check_unavailable_linux_vault()
+    print("Installed acceptance: secret-free runtime diagnostic", flush=True)
+    report["diagnostic_check"] = owner.check_runtime_diagnostic()
     # The subsequent profile opt-in and pairing approval must load persisted keys.
     original = owner.call(
         "/profiles",
@@ -683,7 +717,11 @@ def main():
     ):
         parser.error("Use run_with_ci_keychain.py for disposable macOS native acceptance")
     phase = "setup"
+    revision = os.environ.get("GITHUB_SHA", "")
+    if not re.fullmatch(r"(?:[0-9a-f]{40}|[0-9a-f]{64})", revision):
+        revision = "unknown"
     result = {
+        "revision": revision,
         "platform": sys.platform,
         "passed": False,
         "manager": "two-installed-desktop-processes",
@@ -748,6 +786,7 @@ def main():
                             relay_url,
                             registration,
                             f"http://127.0.0.1:{site.server_port}",
+                            result,
                         )
                         result["passed"] = True
                     finally:
@@ -785,6 +824,8 @@ def main():
         if isinstance(exc, InstalledAPIError):
             result["http_status"] = exc.status
             result["api_error_category"] = exc.category
+            if exc.diagnostic is not None:
+                result["operation_diagnostic"] = exc.diagnostic
         raise RuntimeError(
             f"Installed synchronization acceptance failed at {phase} ({type(exc).__name__}); private diagnostics not exported"
         ) from None

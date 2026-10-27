@@ -3,10 +3,69 @@
 import os
 import ssl
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from cryptography import x509
 from scripts import installed_sync_acceptance as harness
+
+
+def diagnostic():
+    return {
+        "version": 1,
+        "area": "sync",
+        "stage": "execute",
+        "category": "invalid_state",
+        "site": "core.profile_operations",
+        "line": 64,
+    }
+
+
+@pytest.mark.parametrize("invalid", [False, True])
+def test_installed_error_retains_only_validated_operation_evidence(invalid):
+    evidence = diagnostic()
+    if invalid:
+        evidence["password"] = "private-credential"
+    payload = {
+        "detail": "Synchronization operation failed; inspect its state and retry",
+        "error": {"details": [{"diagnostic": evidence}]},
+        "request": "private-profile-path-and-url",
+    }
+    error = harness.installed_api_error(SimpleNamespace(status=409, json=lambda: payload))
+    assert error.category == "runtime_failed"
+    assert error.diagnostic == (None if invalid else diagnostic())
+    assert "private-" not in str(error.__dict__)
+
+
+def test_installed_missing_profile_probe_does_not_replay_or_change_profiles():
+    calls = []
+    pages = []
+
+    def call(path):
+        calls.append(("GET", path))
+        return {"profiles": []}
+
+    def post(url, **kwargs):
+        calls.append(("POST", url))
+        assert kwargs["data"] == {} and kwargs["headers"] == {"Origin": "http://local"}
+        return SimpleNamespace(
+            status=409,
+            headers={"cache-control": "no-store"},
+            json=lambda: {
+                "detail": "Synchronization operation failed; inspect its state and retry",
+                "error": {"details": [{"diagnostic": diagnostic()}]},
+            },
+        )
+
+    device = object.__new__(harness.Device)
+    device.vault_kind = "native"
+    device.origin = "http://local"
+    device.call = call
+    device.page = SimpleNamespace(goto=pages.append)
+    device.context = SimpleNamespace(request=SimpleNamespace(post=post))
+    assert device.check_runtime_diagnostic() == diagnostic()
+    assert [verb for verb, _path in calls] == ["GET", "GET", "POST", "GET"]
+    assert pages == ["about:blank", "http://local/"]
 
 
 @pytest.mark.parametrize(

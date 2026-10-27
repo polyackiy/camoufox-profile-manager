@@ -78,6 +78,8 @@ async def test_lease_conflicts_are_409_and_backups_report_skips(recovery_client)
     ).status_code == 409
     backup = (await client.post("/api/v1/system/backups", json={})).json()["data"]
     assert backup["backups"] == [] and backup["skipped"][0]["profile_id"] == profile_id
+    diagnostic = backup["skipped"][0]["diagnostic"]
+    assert diagnostic["category"] == "profile_busy" and diagnostic["area"] == "backup"
     await storage.release_lease(profile_id, "remote")
     await client.delete(f"/api/v1/profiles/{profile_id}")
     await storage.acquire_lease(profile_id, "remote", 300, include_deleted=True)
@@ -85,3 +87,47 @@ async def test_lease_conflicts_are_409_and_backups_report_skips(recovery_client)
     assert (
         await client.delete(f"/api/v1/trash/profiles/{profile_id}?confirm=true")
     ).status_code == 409
+
+
+async def test_missing_profile_backup_reports_safe_lookup_without_creating_backup(recovery_client):
+    client = recovery_client
+    before = (await client.get("/api/v1/system/backups")).json()["data"]
+    response = await client.post(
+        "/api/v1/system/backups", json={"profile_ids": ["private-missing-profile"]}
+    )
+    assert response.status_code == 200
+    value = response.json()["data"]
+    assert not value["backups"] and len(value["skipped"]) == 1
+    diagnostic = value["skipped"][0]["diagnostic"]
+    assert diagnostic["version"] == 1 and diagnostic["area"] == "backup"
+    assert diagnostic["stage"] == "profile_lookup" and diagnostic["category"] == "missing_profile"
+    assert "private" not in str(diagnostic)
+    assert (await client.get("/api/v1/system/backups")).json()["data"] == before
+
+
+async def test_archive_failure_diagnostic_preserves_profile_and_releases_lease(
+    recovery_client, monkeypatch
+):
+    import errno
+
+    from camoufox_pm.core import profile_archive
+
+    client = recovery_client
+    profile = await create(client)
+    data = Path(profile["storage_path"]) / "cookies.sqlite"
+    data.write_bytes(b"private-session-content")
+
+    def refuse(*args, **kwargs):
+        raise OSError(errno.EACCES, "private-profile-path")
+
+    monkeypatch.setattr(profile_archive, "export_profile", refuse)
+    response = await client.post("/api/v1/system/backups", json={"profile_ids": [profile["id"]]})
+    value = response.json()["data"]
+    assert response.status_code == 200 and not value["backups"]
+    diagnostic = value["skipped"][0]["diagnostic"]
+    assert diagnostic["category"] == "permission_denied"
+    assert diagnostic["area"] == "backup" and diagnostic["stage"] == "backup_profile"
+    assert "private" not in str(diagnostic)
+    assert data.read_bytes() == b"private-session-content"
+    assert await get_profile_manager().storage.get_lease(profile["id"]) == (None, None)
+    assert not (await client.get("/api/v1/system/backups")).json()["data"]["backups"]

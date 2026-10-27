@@ -6,6 +6,7 @@ import httpx
 import pytest
 from fastapi import FastAPI
 
+from camoufox_pm.api.errors import install_error_handlers
 from camoufox_pm.api.routes import sync
 
 
@@ -32,6 +33,7 @@ async def api(monkeypatch):
     monkeypatch.setattr(sync, "_operation_in_progress", False)
     monkeypatch.setattr(sync, "_ceremonies", lambda service: Ceremonies())
     app = FastAPI()
+    install_error_handlers(app)
     app.include_router(sync.router)
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://test"
@@ -240,6 +242,120 @@ async def test_runtime_import_listing_and_invalid_operations(runtime_api):
         response = await client.post("/sync/profiles" + path, json=body, headers=headers)
         assert response.status_code in {404, 422}
     assert len(calls) == 2
+
+
+@pytest.mark.parametrize("stage", ["runtime_setup", "service_setup", "execute"])
+async def test_runtime_failures_return_only_closed_diagnostics_after_authorization(
+    runtime_api, monkeypatch, stage
+):
+    import errno
+
+    client, _calls = runtime_api
+    executions = []
+
+    class Runtime:
+        async def acquire(self, *args, **kwargs):
+            executions.append(True)
+            raise OSError(errno.EACCES, "private-profile-password-and-host")
+
+    def factory():
+        if stage == "runtime_setup":
+            raise OSError(errno.EACCES, "private-profile-password-and-host")
+        return Runtime()
+
+    def service():
+        raise OSError(errno.EACCES, "private-profile-password-and-host")
+
+    monkeypatch.setattr(sync, "_runtime_factory", factory)
+    if stage == "service_setup":
+        monkeypatch.setattr(sync, "_resolve_service", service)
+    path = "/sync/profiles/abcd1234/acquire"
+    denied = await client.post(path, json={"password": "private-unlock"})
+    assert denied.status_code == 401 and denied.json()["error"]["details"] is None
+    response = await client.post(
+        path, json={"password": "private-unlock"}, headers={"cookie": "test=owner"}
+    )
+    assert response.status_code == 409
+    assert response.headers["cache-control"] == "no-store"
+    assert response.headers["pragma"] == "no-cache"
+    assert "private-" not in response.text
+    assert (
+        response.json()["detail"] == "Synchronization operation failed; inspect its state and retry"
+    )
+    diagnostic = response.json()["error"]["details"][0]["diagnostic"]
+    assert diagnostic["version"] == 1 and diagnostic["area"] == "sync"
+    assert diagnostic["stage"] == stage and diagnostic["category"] == "permission_denied"
+    expected_site = "api.sync" if stage == "execute" else "core.profile_operations"
+    assert diagnostic["site"] == expected_site and 1 <= diagnostic["line"] <= 10000
+    assert executions == ([True] if stage == "execute" else [])
+    assert not sync._operation_in_progress
+
+
+@pytest.mark.parametrize("revoked", [False, True])
+async def test_post_operation_authorization_failure_keeps_existing_security_contract(
+    runtime_api, monkeypatch, revoked
+):
+    import errno
+
+    client, executions = runtime_api
+    checks = []
+
+    async def owner(request, expected_id=None):
+        checks.append(True)
+        if len(checks) == 4:
+            if revoked:
+                raise sync._error(401, "Invalid session")
+            raise OSError(errno.ENOSPC, "private-database-location")
+        return "owner"
+
+    monkeypatch.setattr(sync, "_live_owner", owner)
+    response = await client.post(
+        "/sync/profiles/abcd1234/acquire",
+        json={"password": "private-unlock"},
+        headers={"cookie": "test=owner"},
+    )
+    assert len(executions) == 1 and len(checks) == (4 if revoked else 5)
+    assert not sync._operation_in_progress
+    assert "private-" not in response.text
+    assert response.headers["cache-control"] == "no-store"
+    if revoked:
+        assert response.status_code == 401 and response.json()["error"]["details"] is None
+    else:
+        assert response.status_code == 409
+        diagnostic = response.json()["error"]["details"][0]["diagnostic"]
+        assert diagnostic["stage"] == "final_authorization"
+        assert diagnostic["category"] == "disk_full"
+
+
+@pytest.mark.parametrize("revoked", [False, True])
+async def test_failed_runtime_requires_live_authority_before_exporting_metadata(
+    runtime_api, monkeypatch, revoked
+):
+    client, _calls = runtime_api
+    checks, attempts = [], []
+
+    async def owner(request, expected_id=None):
+        checks.append(True)
+        if len(checks) == 3:
+            if revoked:
+                raise sync._error(403, "A live administrator owner session is required")
+            raise OSError("private-authority-store")
+        return "owner"
+
+    def fail():
+        attempts.append(True)
+        raise ValueError("private-operation-data")
+
+    monkeypatch.setattr(sync, "_live_owner", owner)
+    monkeypatch.setattr(sync, "_runtime_factory", fail)
+    response = await client.post(
+        "/sync/profiles/abcd1234/acquire", json={}, headers={"cookie": "test=owner"}
+    )
+    assert response.status_code == (403 if revoked else 409)
+    assert response.json()["error"]["details"] is None
+    assert response.headers["cache-control"] == "no-store"
+    assert "private-" not in response.text
+    assert attempts == [True] and len(checks) == 3 and not sync._operation_in_progress
 
 
 @pytest.mark.asyncio

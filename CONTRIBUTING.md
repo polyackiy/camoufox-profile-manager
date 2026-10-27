@@ -33,8 +33,8 @@ Please make sure the following pass before opening a pull request:
 uv run ruff check src tests        # lint
 uv run ruff format --check src tests  # formatting
 uv run mypy src/camoufox_pm        # type-check
-uv run pytest -m "not browser" -W always::ResourceWarning -W 'error:unclosed database:ResourceWarning' -W error::pytest.PytestUnraisableExceptionWarning
-                                  # fast tests; SQLite leaks fail (no browser)
+uv run pytest -m "not browser" -W error::ResourceWarning -W error::pytest.PytestUnraisableExceptionWarning
+                                  # fast tests; owned-resource leaks fail (no browser)
 uv run pytest -m browser           # opt-in: real Camoufox launch
 
 # Frontend
@@ -46,10 +46,21 @@ CI runs the same checks on Python 3.10–3.13.
 Own SQLite handles explicitly: `with closing(sqlite3.connect(path)) as db, db:`
 keeps commit/rollback and closes the connection on every exit. A connection's
 transaction context alone does not close it. Preserve deliberate process-kill
-tests which exercise crash recovery. Unclosed SQLite resource warnings and
-unraisable exceptions are errors in backend CI; other resource warnings remain
-visible. Fix resource owners rather than filtering warnings or using garbage
-collection as cleanup.
+tests which exercise crash recovery. All resource warnings and unraisable
+exceptions are errors in backend CI. Fix resource owners rather than filtering
+warnings or using garbage collection as cleanup.
+
+Proxy probes retain TCP streams through httpcore's public trace extension until
+the HTTPX pool and any unadopted streams have closed. The trace contract is pinned
+to httpcore 1.0.9; upgrade it together with the real-socket lifecycle tests in
+`tests/unit/test_proxy_resource_lifecycle.py`. Keep TLS checks, remote DNS, bounded
+response bodies and whole-endpoint deadlines intact. Never log trace metadata:
+it may contain proxy credentials or request data.
+
+Synchronization/backup error metadata uses a closed, versioned schema. See
+[operation diagnostics](docs/operation-diagnostics.md) for its privacy boundary,
+role checks and installed acceptance. Export only validated diagnostic objects;
+metadata must never authorize mutation retries or suppress a backup failure.
 
 Ubuntu CI normalizes direct and deb822 sources plus the hosted runner's
 `/etc/apt/apt-mirrors.txt` with `scripts/configure_ci_apt.py`. Unit tests use

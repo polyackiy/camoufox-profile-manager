@@ -7,6 +7,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- Add versioned operation diagnostics for authorized synchronization failures and
+  skipped administrator backups, with fixed categories and allowlisted source
+  sites; installed reports validate metadata without exporting private errors (#140).
 - Add private declarative automation workflows with named launch/navigation/wait/
   close steps, explicit profile/version review, bounded global concurrency,
   optional schedules, durable sanitized history, cancellation and confirmed
@@ -29,6 +32,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   incomplete operations (#119). Interactive queues do not replay after reload.
 
 ### Fixed
+- Close failed/cancelled SOCKS probe TCP connections before returning, including
+  streams not adopted by the HTTP pool; bound complete endpoint exchanges and
+  reject all resource/unraisable warnings in backend CI (#139).
 - Normalize Ubuntu CI mirror-list indirection as well as direct APT sources,
   retaining repository trust and bounding package download retries/timeouts (#134).
 - Close SQLite handles in recovery key probes and test helpers on success and
