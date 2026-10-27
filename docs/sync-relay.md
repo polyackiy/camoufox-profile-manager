@@ -131,6 +131,22 @@ page need not be the last page. Clients must validate transition proofs and know
 high-water marks; a signed historical request cannot prove that no later request
 exists. A malicious relay can freeze or fork valid history.
 
+## Resumable staging integrity
+
+A chunk is acknowledged only after flush/fsync, close, and readback of its exact
+bytes from a private regular single-link file. Length comes from the opened
+handle's EOF; finalization counts bytes and verifies the full SHA-256 digest,
+rather than trusting a stat-size snapshot. Invalid duplicates never advance the
+confirmed offset.
+
+When the original authenticated writer resumes the same revision/hash/length,
+missing or shorter uncommitted staging restarts at offset zero under the writer
+transaction. This reuses the client's original encrypted file. It does not renew
+the upload deadline, release quota, replace a ready/committed object, change
+checkout/history, or replay a browser operation. Unsafe paths and active legacy
+writers still fail closed. A final inode left by a rename-before-metadata crash
+remains available for full hash verification, rather than being reset.
+
 ## Encrypted objects and quotas
 
 `PUT /v1/owners/{owner_id}/blobs/{revision_id}` streams encrypted bytes with a

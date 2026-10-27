@@ -32,6 +32,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   incomplete operations (#119). Interactive queues do not replay after reload.
 
 ### Fixed
+- Prove resumable relay chunk bytes after close before acknowledging an offset,
+  use open-handle EOF and counted/hash-checked bytes instead of cached file size,
+  and safely restart only missing/short private uncommitted prefixes using the
+  original ciphertext and unchanged upload deadline (#143).
 - Serialize first creation and schema inspection of synchronization control state
   with a private bounded OS lock; preserve invalid-store rejection and release
   ownership after timeout/error or process exit (#144).

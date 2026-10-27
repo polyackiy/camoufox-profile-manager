@@ -431,3 +431,32 @@ def test_relay_diagnostic_drops_unknown_frames_and_private_http_detail():
     assert response.status_code == 409
     assert response.headers["cache-control"] == "no-store"
     assert report == {"relay_refusals": []}
+
+
+def test_relay_storage_observer_is_bounded_private_and_restored(monkeypatch, tmp_path):
+    import os
+
+    from scripts.installed_sync_acceptance import observe_relay_storage
+
+    from camoufox_pm.sync import relay
+
+    path = tmp_path / "private-unexported-name"
+    path.write_bytes(b"private bytes")
+    original_length = relay._opened_length
+    original_restart = relay._restart_lost_prefix
+    original_stat = os.fstat
+
+    def stale(descriptor):
+        values = list(original_stat(descriptor))
+        values[6] = 0
+        return os.stat_result(values)
+
+    monkeypatch.setattr(os, "fstat", stale)
+    report = {}
+    with pytest.raises(RuntimeError), observe_relay_storage(report), path.open("rb") as stream:
+        for _ in range(12):
+            assert relay._opened_length(stream) == len(b"private bytes")
+        raise RuntimeError("private error")
+    assert relay._opened_length is original_length
+    assert relay._restart_lost_prefix is original_restart
+    assert report == {"relay_storage_checks": ["metadata_shorter_than_eof"] * 8}

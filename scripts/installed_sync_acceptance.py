@@ -38,6 +38,7 @@ from scripts.installed_backup_preparation import prepare_profile_backup as _prep
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from camoufox_pm.core.operation_diagnostics import operation_diagnostic, validated_diagnostic
+from camoufox_pm.sync import relay as relay_module
 from camoufox_pm.sync.relay import create_relay_app
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -109,6 +110,41 @@ def record_relay_refusals(app, report):
         return await http_exception_handler(request, error)
 
     app.add_exception_handler(StarletteHTTPException, refusal)
+
+
+@contextlib.contextmanager
+def observe_relay_storage(report):
+    """Fixed, bounded observations of this harness's own disposable relay only."""
+    evidence = report.setdefault("relay_storage_checks", [])
+    opened_length = relay_module._opened_length
+    restart = relay_module._restart_lost_prefix
+
+    def record(code):
+        evidence.append(code)
+        del evidence[:-8]
+
+    def length(stream):
+        actual = opened_length(stream)
+        metadata = os.fstat(stream.fileno()).st_size
+        if metadata < actual:
+            record("metadata_shorter_than_eof")
+        elif metadata > actual:
+            record("metadata_longer_than_eof")
+        return actual
+
+    def recover(path, confirmed):
+        changed = restart(path, confirmed)
+        if changed:
+            record("uncommitted_prefix_restarted")
+        return changed
+
+    relay_module._opened_length = length
+    relay_module._restart_lost_prefix = recover
+    try:
+        yield
+    finally:
+        relay_module._opened_length = opened_length
+        relay_module._restart_lost_prefix = restart
 
 
 def tls_fixture(directory):
@@ -790,7 +826,10 @@ def main():
         "retention": "UI-schedule-and-cancel-no-collection",
     }
     try:
-        with tempfile.TemporaryDirectory(prefix="installed-sync-") as temporary:
+        with (
+            tempfile.TemporaryDirectory(prefix="installed-sync-") as temporary,
+            observe_relay_storage(result),
+        ):
             work = Path(temporary).resolve()
             certificate, private = tls_fixture(work)
             registration = secrets.token_urlsafe(32)

@@ -66,7 +66,21 @@ retries; launch and handoff requests are never replayed. Reports include fixed
 The synthetic CI relay retains at most eight HTTP 409 diagnostics from its
 allowlisted `sync.relay` frames in `relay_refusals`. Its actual API response is
 unchanged; request bodies, URLs, identifiers and private exception details are
-not collected. This is harness evidence, not an authenticated relay proof.
+not collected. `relay_storage_checks` records at most eight fixed codes for
+metadata/EOF discrepancies or restarted uncommitted prefixes; no file metadata,
+paths, lengths or bytes are exported. Observers wrap only this harness's synthetic
+relay and restore its helpers on exit. This is harness evidence, not an
+authenticated relay proof.
+
+Resumable upload acknowledgements follow flush/fsync, close, and private-file
+readback of the chunk. Open-handle EOF and counted, hash-verified bytes establish
+length independently of cached stat size. Only the authenticated original writer
+can restart a missing/short uncommitted prefix under the relay's writer transaction;
+ready/committed blobs, live legacy writers, expiry, quotas, ciphertext identity,
+nonce, membership and checkout checks retain their existing boundaries. Restart
+resends the original immutable ciphertext; no browser/handoff/workflow action is
+replayed. The OS-level cause of the observed Windows prefix mismatch remains
+unestablished; these checks make loss detectable and incomplete staging recoverable.
 These deliberate failures do not
 replace successful round-trip, browser-session, TLS, workflow or cleanup checks.
 
