@@ -1336,3 +1336,24 @@ def test_installed_relay_records_only_bounded_fixed_refusal_coordinates(relay):
         evidence = validated_diagnostic(item["diagnostic"], area="sync")
         assert evidence["site"] == "sync.relay" and 1 <= evidence["line"] <= 10000
     assert TOKEN not in str(report) and relay.root.owner_id not in str(report)
+
+
+@pytest.mark.parametrize("damage", ["hardlink", "short_prefix"])
+def test_resumable_rejects_damaged_pending_file_without_advancing(relay, damage):
+    revision, data = str(uuid4()), b"x" * 100
+    assert start_resumable(relay, revision, data).status_code == 200
+    assert send_chunk(relay, revision, 0, data[:40]).status_code == 200
+    pending = relay.directory / "blobs" / f".pending-{relay.root.owner_id}-{revision}"
+    extra = relay.directory / "extra-pending-link"
+    if damage == "hardlink":
+        os.link(pending, extra)
+    else:
+        with pending.open("r+b") as stream:
+            stream.truncate(20)
+    try:
+        assert send_chunk(relay, revision, 40, data[40:]).status_code == 409
+        assert start_resumable(relay, revision, data).json()["offset"] == 40
+        assert relay.rpc("blob_status", revision_id=revision).json()["state"] == "uploading"
+        assert not (relay.directory / "blobs" / f"{relay.root.owner_id}-{revision}.blob").exists()
+    finally:
+        extra.unlink(missing_ok=True)

@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from camoufox_pm.core.operation_diagnostics import retain_operation_diagnostic
 from camoufox_pm.core.update_permissions import (
     create_private_directory,
     create_private_file,
@@ -37,6 +38,11 @@ _APPLICATION_ID = 0x43504D53
 
 class ControlError(ValueError):
     """Invalid or unavailable storage; errors contain no private details."""
+
+    def __init__(self, message: str, *, source: BaseException | None = None):
+        super().__init__(message)
+        if source is not None:
+            retain_operation_diagnostic(self, source)
 
 
 class ControlConflict(ControlError):
@@ -184,8 +190,8 @@ class ControlStore:
                     os.fsync(fd)
                 finally:
                     os.close(fd)
-        except Exception:
-            raise ControlError(_ERROR) from None
+        except Exception as error:
+            raise ControlError(_ERROR, source=error) from None
 
     def _paths(self) -> None:
         verify_private_path(self.directory)
@@ -281,8 +287,8 @@ class ControlStore:
                     "SELECT key,revision,payload FROM records WHERE key=?", (key,)
                 ).fetchone()
             return self._record(row) if row else None
-        except Exception:
-            raise ControlError(_ERROR) from None
+        except Exception as error:
+            raise ControlError(_ERROR, source=error) from None
 
     def list(self, prefix: str = "") -> tuple[ControlRecord, ...]:
         try:
@@ -295,8 +301,8 @@ class ControlStore:
             if len(rows) > 10000:
                 raise ControlError(_ERROR)
             return tuple(self._record(row) for row in rows)
-        except Exception:
-            raise ControlError(_ERROR) from None
+        except Exception as error:
+            raise ControlError(_ERROR, source=error) from None
 
     def create(self, key: str, payload: dict[str, Any]) -> ControlRecord:
         return self.batch((ControlMutation(key, payload),))[0]
@@ -305,8 +311,8 @@ class ControlStore:
         # None must not accidentally switch an update into a create operation.
         try:
             _revision(expected_revision)
-        except Exception:
-            raise ControlError(_ERROR) from None
+        except Exception as error:
+            raise ControlError(_ERROR, source=error) from None
         return self.batch((ControlMutation(key, payload, expected_revision),))[0]
 
     def batch(self, mutations: Sequence[ControlMutation]) -> tuple[ControlRecord, ...]:
@@ -357,7 +363,7 @@ class ControlStore:
                     db.rollback()
                     raise
             return tuple(records)
-        except ControlConflict:
-            raise ControlConflict(_ERROR) from None
-        except Exception:
-            raise ControlError(_ERROR) from None
+        except ControlConflict as error:
+            raise ControlConflict(_ERROR, source=error) from None
+        except Exception as error:
+            raise ControlError(_ERROR, source=error) from None

@@ -1310,11 +1310,13 @@ def create_relay_app(
                 )
                 with os.fdopen(descriptor, "r+b") as output:
                     info = os.fstat(output.fileno())
-                    if (
-                        not stat.S_ISREG(info.st_mode)
-                        or info.st_nlink != 1
-                        or info.st_size < row[3]
-                    ):
+                    # Separate fixed refusal sites identify the failed invariant
+                    # without publishing file metadata or weakening any check.
+                    if not stat.S_ISREG(info.st_mode):
+                        raise HTTPException(409, _ERROR)
+                    if info.st_nlink != 1:
+                        raise HTTPException(409, _ERROR)
+                    if info.st_size < row[3]:
                         raise HTTPException(409, _ERROR)
                     # Tail bytes not acknowledged in SQLite survived an earlier
                     # crash. They are never treated as a resumable prefix.

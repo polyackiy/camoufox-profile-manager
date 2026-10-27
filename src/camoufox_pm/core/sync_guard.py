@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID
 
+from .operation_diagnostics import retain_operation_diagnostic
 from .update_permissions import (
     PermissionProtectionError,
     create_private_directory,
@@ -31,6 +32,11 @@ _held: ContextVar[frozenset[tuple[object, str]]] = ContextVar(
 
 class SyncBlocked(ValueError):
     """A synchronized profile lacks independently verified local permission."""
+
+    def __init__(self, message: str, *, source: BaseException | None = None):
+        super().__init__(message)
+        if source is not None:
+            retain_operation_diagnostic(self, source)
 
 
 def _local_id(value: str) -> str:
@@ -74,11 +80,11 @@ def _inspect(manager, profile) -> tuple[Any, str] | None:
     marker = _present(registry_marker)
     try:
         marker |= _present(_profile_path(manager, profile) / SYNC_MARKER)
-    except ValueError:
+    except ValueError as error:
         # Invalid local-only paths stay editable through existing manager behavior;
         # registry-marked profiles cannot escape this check by changing their path.
         if marker:
-            raise SyncBlocked(_MESSAGE) from None
+            raise SyncBlocked(_MESSAGE, source=error) from None
     directory = root / "sync-control"
     if not _present(directory / "control.sqlite3"):
         if marker:
@@ -97,8 +103,8 @@ def _inspect(manager, profile) -> tuple[Any, str] | None:
         from camoufox_pm.sync.service import SyncService
 
         return SyncService(directory), owner.payload["local_user_id"]
-    except Exception:
-        raise SyncBlocked(_MESSAGE) from None
+    except Exception as error:
+        raise SyncBlocked(_MESSAGE, source=error) from None
 
 
 def _validate(service, user_id: str, manager, profile) -> None:
@@ -136,8 +142,8 @@ def _validate(service, user_id: str, manager, profile) -> None:
                     raise ValueError
                 if json.loads(stream.read(4097)) != expected_marker:
                     raise ValueError
-        except Exception:
-            raise SyncBlocked(_MESSAGE) from None
+        except Exception as error:
+            raise SyncBlocked(_MESSAGE, source=error) from None
     journal = service.control.get("apply/" + profile.id)
     if journal is not None:
         value = journal.payload

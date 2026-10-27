@@ -180,9 +180,45 @@ def _category(error: BaseException) -> DiagnosticCategory:
     return "internal"
 
 
+_FORWARDERS = {
+    ("camoufox_pm.sync.control", "ControlError"),
+    ("camoufox_pm.sync.control", "ControlConflict"),
+    ("camoufox_pm.core.sync_guard", "SyncBlocked"),
+}
+
+
+def _forwarded_diagnostic(error: BaseException) -> OperationDiagnostic | None:
+    kind = type(error)
+    identity = (kind.__module__, kind.__name__)
+    if identity not in _FORWARDERS:
+        return None
+    module = sys.modules.get(kind.__module__)
+    if module is None or vars(module).get(kind.__name__) is not kind:
+        return None
+    value = vars(error).get("_cpm_operation_diagnostic")
+    if type(value) is not OperationDiagnostic:
+        return None
+    try:
+        # Revalidate even an internal model: model_construct must not bypass the
+        # closed contract. Never serialize validation errors or their inputs.
+        return OperationDiagnostic.model_validate(dict(vars(value)))
+    except (ValueError, TypeError):
+        return None
+
+
 def operation_diagnostic(
     error: BaseException, *, area: DiagnosticArea, stage: DiagnosticStage
 ) -> OperationDiagnostic:
+    forwarded = _forwarded_diagnostic(error)
+    if forwarded is not None:
+        return OperationDiagnostic(
+            version=1,
+            area=area,
+            stage=stage,
+            category=forwarded.category,
+            site=forwarded.site,
+            line=forwarded.line,
+        )
     site = line = None
     trace = error.__traceback__
     for _ in range(64):
@@ -199,6 +235,17 @@ def operation_diagnostic(
         trace = trace.tb_next
     return OperationDiagnostic(
         version=1, area=area, stage=stage, category=_category(error), site=site, line=line
+    )
+
+
+def retain_operation_diagnostic(target: BaseException, source: BaseException) -> None:
+    """Capture only closed evidence at a trusted sanitizing wrapper boundary.
+
+    No exception cause is traversed or retained here. The outer operation owns
+    the eventual area/stage; only loaded allowlisted wrapper classes may forward.
+    """
+    target.__dict__["_cpm_operation_diagnostic"] = operation_diagnostic(
+        source, area="sync", stage="execute"
     )
 
 

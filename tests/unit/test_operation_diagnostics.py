@@ -132,3 +132,38 @@ from camoufox_pm.core.operation_diagnostics import operation_diagnostic
 assert operation_diagnostic(RuntimeError('private-secret'), area='sync', stage='execute').category == 'internal'
 """
     subprocess.run([sys.executable, "-c", code], check=True, capture_output=True, timeout=30)
+
+
+@pytest.mark.parametrize("spoof", [False, True])
+def test_unknown_or_spoofed_wrapper_cannot_forward_a_site(spoof):
+    from camoufox_pm.core.operation_diagnostics import OperationDiagnostic
+
+    kind = type(
+        "ControlError" if spoof else "UnknownError",
+        (RuntimeError,),
+        {"__module__": "camoufox_pm.sync.control" if spoof else "private-module"},
+    )
+    error = kind("private-value")
+    error._cpm_operation_diagnostic = OperationDiagnostic(
+        version=1, area="sync", stage="execute", category="disk_full", site="sync.control", line=10
+    )
+    result = operation_diagnostic(error, area="sync", stage="execute")
+    assert result.site is None and result.line is None and result.category == "internal"
+
+
+def test_constructed_invalid_forwarded_model_does_not_escape_or_warn():
+    from camoufox_pm.core.operation_diagnostics import OperationDiagnostic
+    from camoufox_pm.sync.control import ControlError
+
+    error = ControlError("private-original")
+    error._cpm_operation_diagnostic = OperationDiagnostic.model_construct(
+        version=1,
+        area="sync",
+        stage="execute",
+        category="private-secret",
+        site="private-path",
+        line=1,
+    )
+    result = operation_diagnostic(error, area="sync", stage="execute")
+    assert result.site is None and result.category == "invalid_state"
+    assert "private-" not in result.model_dump_json()

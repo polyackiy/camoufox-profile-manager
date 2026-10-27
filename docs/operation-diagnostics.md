@@ -33,6 +33,11 @@ problem, copy the **diagnostic object**, not the complete response or private lo
 - A site is the deepest allowlisted frame among at most 64 inspected frames. Its
   globals must belong to the actually loaded module; a user script cannot claim
   a site merely by supplying that module's name. It is not a full stack trace.
+- Sanitizing `ControlError` / `ControlConflict` / `SyncBlocked` wrappers may carry
+  a frozen diagnostic captured before replacing an internal error. Only the actual
+  loaded wrapper classes can forward it; the closed model is revalidated, and the
+  caller retains its area/stage. No exception cause chain is traversed or retained.
+  This preserves a control-store origin through an outer profile safety fence.
 - A line is an integer from 1 through 10000 and requires an allowlisted site.
   Unknown modules have no exported path, function name or line.
 - Formatting does not read exception arguments, messages, repr, causes, traceback
