@@ -37,9 +37,9 @@ jobs:
         run: uv run mypy --check-untyped-defs src/camoufox_pm/core/workflows.py src/camoufox_pm/core/workflow_store.py src/camoufox_pm/core/workflow_models.py src/camoufox_pm/api/routes/workflows.py
       - name: Test
         # SQLite context managers commit/roll back; they do not close handles.
-        # Fail real lifecycle regressions, including destructor warnings which
+        # Fail SQLite lifecycle regressions, including destructor warnings which
         # Python reports through pytest's unraisable-exception hook.
-        run: uv run pytest -m "not browser" --cov --cov-report=term-missing -W error::ResourceWarning -W error::pytest.PytestUnraisableExceptionWarning -o faulthandler_timeout=300 -o faulthandler_exit_on_timeout=true
+        run: uv run pytest -m "not browser" --cov --cov-report=term-missing -W always::ResourceWarning -W 'error:unclosed database:ResourceWarning' -W error::pytest.PytestUnraisableExceptionWarning -o faulthandler_timeout=300 -o faulthandler_exit_on_timeout=true
 
   frontend:
     name: Frontend

@@ -30,7 +30,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 - Close SQLite handles in recovery key probes and test helpers on success and
-  failure, preserving transaction boundaries; make resource leaks fail backend
+  failure, preserving transaction boundaries; make SQLite leaks fail backend
   CI instead of filtering Python 3.13 warnings (#131).
 - Close accepted SOCKS relay sockets even if their handler is cancelled before
   its first instruction, preventing leaked connections and stalled teardown (#136).
