@@ -20,6 +20,10 @@ from it in January still looks like the same computer in June.
 > See [Getting started](docs/getting-started.md) / [Начало работы](docs/getting-started.ru.md).
 > See [installation evidence and coverage limits](docs/desktop-acceptance.md).
 > Chrome migration remains experimental.
+>
+> Current `main` includes unreleased additions for the combined 0.7.0 release.
+> See [delivery status and priorities](docs/roadmap.md#delivery-status-after-060)
+> for the scope of the published 0.6.0 installers and the next release.
 
 ![The profiles list](docs/assets/screenshot-profiles.png)
 
@@ -79,7 +83,9 @@ from it in January still looks like the same computer in June.
   [profile organization](docs/profile-organization.md).
 - **Bulk editing via Excel** — [docs/excel.md](docs/excel.md).
 - **REST API and web UI**, served on one port from one process.
-- **English and Simplified Chinese UI.** Switch languages in the sidebar or on
+- **English and Simplified Chinese UI in the 0.6.0 installers.** Russian is
+  [merged on main for the combined 0.7.0 release](docs/localization.md).
+  Switch languages in the sidebar or on
   the sign-in screen. Your choice is saved in this browser; the first visit
   follows its language preferences. Profile fingerprint languages stay separate.
 - **Optional Chrome migration** — import cookies and history from your own Chrome
@@ -269,7 +275,8 @@ another host holds it.
 | [docs/accessibility-roadmap.md](docs/accessibility-roadmap.md) | Plan for reaching non-technical users |
 | [docs/releasing.md](docs/releasing.md) | Cutting a release |
 | [docs/signing.md](docs/signing.md) | Unsigned release policy and package integrity |
-| [docs/roadmap.md](docs/roadmap.md) | What is planned |
+| [docs/roadmap.md](docs/roadmap.md) | Merged work, release status and next priorities |
+| [docs/operation-diagnostics.md](docs/operation-diagnostics.md) | Safe diagnostic evidence for issue reports |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Working on the project |
 | [SECURITY.md](SECURITY.md) | Reporting a vulnerability |
 

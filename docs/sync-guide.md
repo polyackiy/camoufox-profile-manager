@@ -153,6 +153,20 @@ changed browser data. Unfinished uploads expire after seven days. When the relay
 confirms expiry and checkout/history still match, an explicit retry creates a new
 revision with fresh encryption while retaining the original local ciphertext.
 
+### Installed Windows acceptance limitation
+
+An intermittent installed Windows transfer can still stop at the relay's prefix
+integrity guard ([#143](https://github.com/polyackiy/camoufox-profile-manager/issues/143)).
+One of three additional native-vault trials failed after safe prefix restarts;
+the other two and all three encrypted-file trials passed. A passing run does not
+establish the failure's cause. The original local encrypted file and pending
+intent are retained; do not delete transfer files or bypass verification to force
+completion. Separate diagnostics also recorded an ambiguous browser process after
+Close ([#145](https://github.com/polyackiy/camoufox-profile-manager/issues/145));
+the profile guard continues to refuse unsafe capture. These are open acceptance
+limits, not completed fixes or evidence for promoting synchronization beyond
+experimental explicit opt-in. See [the compatibility tracker](https://github.com/polyackiy/camoufox-profile-manager/issues/90).
+
 ## Synchronized Trash and restore
 
 Close the profile on its current holder, open **Device synchronization**, then

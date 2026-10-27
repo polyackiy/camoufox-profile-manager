@@ -3,47 +3,64 @@
 This is a rough, non-binding plan. Priorities may change based on feedback.
 Track progress in [GitHub Issues](https://github.com/polyackiy/camoufox-profile-manager/issues).
 
-## Priorities after 0.6.0
+## Delivery status after 0.6.0
 
-The [current commercial-workflow comparison and acceptance plan (#117)](https://github.com/polyackiy/camoufox-profile-manager/issues/117)
-was reviewed on 2026-10-25 against official AdsPower, Dolphin Anty, GoLogin and
-Multilogin documentation. The goal remains a practical free desktop alternative.
-Prioritize complete everyday workflows over adding protocol names to a dropdown:
+The published stable installer release is [0.6.0](https://github.com/polyackiy/camoufox-profile-manager/releases/tag/v0.6.0).
+The following work is merged on `main` for the combined **0.7.0** release; it is
+not an instruction to expect these additions in the existing 0.6.0 installers.
+See [Unreleased changes](../CHANGELOG.md#unreleased) and the
+[current product tracker (#117)](https://github.com/polyackiy/camoufox-profile-manager/issues/117)
+for evidence and release acceptance. No per-feature installer releases are planned.
 
-The next release block is [0.7.0 — everyday profile operations](https://github.com/polyackiy/camoufox-profile-manager/milestone/3).
-Implement and review individual changes in this order, then publish installers
-after the combined install → create → assign → run → stop/recover workflow passes:
+| Merged work | User/contributor guide | Tracking |
+| --- | --- | --- |
+| Bounded batch launch/stop with reviewed targets, progress and cancellation | [Batch operations](batch-operations.md) | [#119](https://github.com/polyackiy/camoufox-profile-manager/issues/119) |
+| Mass creation from templates with naming/proxy preview and recovery | [Template batches](template-batches.md) | [#120](https://github.com/polyackiy/camoufox-profile-manager/issues/120) |
+| Sequential saved-proxy assignment with lease/version guards | [Proxy sequence](proxy-sequence.md) | [#121](https://github.com/polyackiy/camoufox-profile-manager/issues/121) |
+| HTTP/HTTPS/SOCKS4/SOCKS5 diagnostics and installed acceptance | [Proxy support and limits](proxy-support.md) | [#116](https://github.com/polyackiy/camoufox-profile-manager/issues/116) |
+| Russian interface, verified Chinese workflows and first-run onboarding | [Localization](localization.md) | [#123](https://github.com/polyackiy/camoufox-profile-manager/issues/123) |
+| Declarative workflows with schedules, bounded execution and history | [Automation](automation.md) | [#122](https://github.com/polyackiy/camoufox-profile-manager/issues/122) |
+| Explicit SQLite/TCP resource ownership and closed operation evidence | [Safe diagnostics](operation-diagnostics.md) | [#131](https://github.com/polyackiy/camoufox-profile-manager/issues/131), [#139](https://github.com/polyackiy/camoufox-profile-manager/issues/139), [#140](https://github.com/polyackiy/camoufox-profile-manager/issues/140), [#142](https://github.com/polyackiy/camoufox-profile-manager/issues/142), [#144](https://github.com/polyackiy/camoufox-profile-manager/issues/144) |
 
-1. [Batch launch/stop (#119)](https://github.com/polyackiy/camoufox-profile-manager/issues/119):
-   exact target preview, bounded concurrency, cancellation and per-profile results.
-   See [the interactive queue contract](batch-operations.md).
-2. [Mass creation from templates (#120)](https://github.com/polyackiy/camoufox-profile-manager/issues/120)
-   with naming and proxy mapping preview.
-3. [Sequential proxy-list assignment (#121)](https://github.com/polyackiy/camoufox-profile-manager/issues/121)
-   with per-target lease/version checks and no accidental proxy sharing.
-   See [the reviewed mapping and retry contract](proxy-sequence.md).
-4. Finish [proxy acceptance and diagnostics (#116)](https://github.com/polyackiy/camoufox-profile-manager/issues/116)
-   alongside these workflows, including protocol/DNS/auth coverage.
-5. [Beginner onboarding, Russian UI and Chinese verification (#123)](https://github.com/polyackiy/camoufox-profile-manager/issues/123).
-   English and Simplified Chinese already exist. Add Russian and verify Chinese
-   coverage, placeholders, compact layouts and the complete everyday workflows;
-   changing interface language must not change a profile's fingerprint language.
+Before the combined release, review dependencies/security, run the actual
+installers through install → create a batch → assign proxies → launch/run →
+stop/recover, and retain data-preservation/recovery evidence and exact package
+checksums. Do not substitute a source test or an old installer report for release
+asset acceptance. Device synchronization remains experimental and explicitly
+opt-in; automatic application replacement remains disabled.
 
-Small fixes and reviewed features accumulate on main; do not publish a release
-for each individual feature. Refresh dependencies and run security review,
-packaging, data-preservation and recovery checks before the combined release.
+## Ordered next work
 
-The following block adds [reusable automation jobs (#122)](https://github.com/polyackiy/camoufox-profile-manager/issues/122)
-with logs, scheduling and cancellation, followed by a separately designed
-interactive multi-window action synchronizer. Explicit rotating-proxy IP-change
-operations and redacted support reports remain follow-ups in #117.
+1. Complete installed synchronization reliability in
+   [#143](https://github.com/polyackiy/camoufox-profile-manager/issues/143) and
+   [#145](https://github.com/polyackiy/camoufox-profile-manager/issues/145). Preserve
+   original ciphertext and fail-closed profile protection; use fixed diagnostics
+   and deterministic regressions before claiming an underlying cause. A passing
+   rerun alone does not close an intermittent bug. Upload readback/recovery and
+   serialized control-store initialization cover reproduced defects; they do not
+   prove the cause of every earlier platform refusal.
+2. Design and validate an **interactive multi-window action synchronizer** after
+   the completed workflow engine. The [proposed architecture](interactive-synchronizer-design.md)
+   records leader/target selection, trusted capture, tab mapping, stop/drain and
+   security gates. It introduces no runtime feature. Prove the capture/channel
+   adapter with upstream Camoufox before implementing a user-facing controller.
+3. Improve window organization and manual navigation through supported upstream
+   browser interfaces; preserve saved fingerprints and avoid an engine fork.
+   See [browser-interface.md](browser-interface.md).
+4. Keep the independent production/physical gates open: device-sync review and
+   compatibility [#82](https://github.com/polyackiy/camoufox-profile-manager/issues/82)/[#90](https://github.com/polyackiy/camoufox-profile-manager/issues/90),
+   updater trust/exact-package acceptance [#63](https://github.com/polyackiy/camoufox-profile-manager/issues/63),
+   and native Windows cold-host rendering [#73](https://github.com/polyackiy/camoufox-profile-manager/issues/73).
+   These scopes are not completed by ordinary same-runner CI or unsigned releases.
+5. Re-evaluate additional everyday workflows in #117, including explicit proxy
+   IP-change operations and bounded support reports. Define each operation's
+   permission, privacy and retry contract before implementation. Team sharing
+   and wider device combinations need separate decisions after the owner-device
+   safety contract is accepted.
 
-Retain experimental opt-in device synchronization until the remaining security
-   and installed compatibility work in #82/#90 has evidence.
-
-The linked plan records sources, current capabilities and acceptance criteria.
-Existing installers, proxy library, cookies, templates, extensions, roles and
-activity records are the baseline for these improvements.
+The commercial-workflow comparison in #117 links official vendor sources. The
+implemented installer, browser, proxy library, cookies, templates, extensions,
+roles and activity records are the baseline, not missing future features.
 
 ## Desktop adoption — current implementation
 
@@ -174,7 +191,8 @@ order of how much they would hurt if left alone:
 
 - PyPI package once the browser-binary bootstrap is smoothed out.
 - Published Docker images.
-- Additional UI languages beyond English and Simplified Chinese.
+- Community localization beyond English, Russian and Simplified Chinese (Russian
+  is merged for the upcoming combined release).
 - PostgreSQL storage for larger deployments.
 - Encrypted profile archives, so an export is not as sensitive as the account.
 
