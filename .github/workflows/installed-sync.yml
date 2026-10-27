@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - 'scripts/installed_sync_acceptance.py'
+      - 'scripts/installed_backup_preparation.py'
       - 'scripts/run_with_ci_keyring.py'
       - 'scripts/run_with_ci_keychain.py'
       - 'src/camoufox_pm/core/update_permissions.py'

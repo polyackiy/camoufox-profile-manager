@@ -353,3 +353,46 @@ def test_keychain_command_timeout_never_exposes_password(monkeypatch):
         wrapper.security("unlock-keychain", "-p", "synthetic-secret")
     assert "synthetic-secret" not in str(error.value)
     assert error.value.__suppress_context__
+
+
+@pytest.mark.parametrize("busy", [False, True])
+def test_sync_observation_finishes_backup_before_one_shot_launch(monkeypatch, busy):
+    calls = []
+
+    def call(path, body):
+        calls.append(path)
+        if path == "/system/backups":
+            return {"data": {"backups": [{"profile_id": "target"}]}}
+        if path.endswith("/launch") and busy:
+            raise harness.InstalledAPIError(409, "profile_busy")
+        return {}
+
+    monkeypatch.setattr(harness, "wait_for", lambda check, **kwargs: check())
+    monkeypatch.setattr(
+        harness.Probe, "reports", {"first": {"httpOnly": True, "authenticated": True}}
+    )
+    report = {}
+    device = SimpleNamespace(call=call)
+    if busy:
+        with pytest.raises(harness.InstalledAPIError):
+            harness.observe(device, "target", "http://local", "first", report)
+    else:
+        harness.observe(device, "target", "http://local", "first", report)
+    assert calls[:2] == ["/system/backups", "/profiles/target/launch"]
+    assert calls.count("/profiles/target/launch") == 1
+    assert report["backup_checks"]["first"]["backup_preparation"]["prepared"] is True
+    assert ("/browsers/close-all" in calls) is (not busy)
+
+
+@pytest.mark.parametrize("status,category", [(409, "profile_busy"), (404, "unclassified")])
+def test_profile_busy_classification_exports_no_profile_or_holder(status, category):
+    response = SimpleNamespace(
+        status=status,
+        json=lambda: {
+            "detail": "Profile SecretID is leased by another holder (private-host:123:slot)"
+        },
+    )
+    error = harness.installed_api_error(response)
+    assert error.category == category
+    assert "SecretID" not in repr(error.__dict__)
+    assert "private-host" not in repr(error.__dict__)

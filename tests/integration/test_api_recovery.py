@@ -131,3 +131,45 @@ async def test_archive_failure_diagnostic_preserves_profile_and_releases_lease(
     assert data.read_bytes() == b"private-session-content"
     assert await get_profile_manager().storage.get_lease(profile["id"]) == (None, None)
     assert not (await client.get("/api/v1/system/backups")).json()["data"]["backups"]
+
+
+async def test_due_backup_holds_launch_admission_then_stays_fresh(recovery_client, monkeypatch):
+    import asyncio
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from scripts.installed_sync_acceptance import installed_api_error
+
+    client = recovery_client
+    profile = await create(client)
+    manager = get_profile_manager()
+    backup = ProfileBackupManager(manager)
+    original = backup._write_locked_profile
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    async def hold(*args, **kwargs):
+        entered.set()
+        await release.wait()
+        return await original(*args, **kwargs)
+
+    monkeypatch.setattr(backup, "_write_locked_profile", hold)
+    launch = AsyncMock(return_value={"status": "launched"})
+    monkeypatch.setattr(manager, "_launch_browser", launch)
+    task = asyncio.create_task(backup.create_due_backups())
+    try:
+        await asyncio.wait_for(entered.wait(), timeout=5)
+        refused = await client.post(f"/api/v1/profiles/{profile['id']}/launch", json={})
+        assert refused.status_code == 409
+        evidence = installed_api_error(SimpleNamespace(status=409, json=refused.json))
+        assert evidence.category == "profile_busy"
+        assert profile["id"] not in repr(evidence.__dict__)
+        launch.assert_not_awaited()
+    finally:
+        release.set()
+        result = await task
+    assert len(result["backups"]) == 1 and result["skipped"] == []
+    assert await manager.storage.get_lease(profile["id"]) == (None, None)
+    assert await backup.create_due_backups() == {"backups": [], "skipped": []}
+    accepted = await client.post(f"/api/v1/profiles/{profile['id']}/launch", json={})
+    assert accepted.status_code == 200
+    launch.assert_awaited_once()

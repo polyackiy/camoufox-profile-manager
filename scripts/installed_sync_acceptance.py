@@ -33,6 +33,7 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import NameOID
 from playwright.sync_api import expect, sync_playwright
 from pydantic import SecretStr
+from scripts.installed_backup_preparation import prepare_profile_backup as _prepare_profile_backup
 
 from camoufox_pm.core.operation_diagnostics import validated_diagnostic
 from camoufox_pm.sync.relay import create_relay_app
@@ -68,6 +69,16 @@ def installed_api_error(response):
         detail = payload.get("detail")
         if isinstance(detail, str):
             category = categories.get(detail, category)
+            if (
+                category == "unclassified"
+                and response.status == 409
+                and re.fullmatch(
+                    r"Profile [A-Za-z0-9_-]{1,64} is leased by another holder"
+                    r"(?: \([A-Za-z0-9_.:-]{1,512}\))?",
+                    detail,
+                )
+            ):
+                category = "profile_busy"
         if category == "runtime_failed" and response.status == 409:
             details = payload.get("error", {}).get("details")
             if isinstance(details, list) and len(details) == 1 and isinstance(details[0], dict):
@@ -524,7 +535,20 @@ await fetch('/report?stage='+stage,{method:'POST',body:JSON.stringify({state,can
         self.end_headers()
 
 
-def observe(device, profile_id, site, stage):
+def prepare_profile_backup(device, profile_id, report=None):
+    return _prepare_profile_backup(
+        device, profile_id, report, wait=wait_for, api_error=InstalledAPIError
+    )
+
+
+def observe(device, profile_id, site, stage, report=None):
+    # Keep the ordinary automatic scheduler enabled. An accepted additive backup
+    # finishes and releases admission before a one-shot browser launch; fresh or
+    # newly imported profiles would otherwise race the next minute's due scan.
+    preparation = {}
+    if report is not None:
+        report.setdefault("backup_checks", {})[stage] = preparation
+    prepare_profile_backup(device, profile_id, preparation)
     device.call(
         f"/profiles/{profile_id}/launch",
         {
@@ -571,7 +595,7 @@ def exercise(owner, recipient, relay_url, registration, site, report):
     )
     local_id = original["id"]
     print("Installed acceptance: first native Camoufox launch", flush=True)
-    before = observe(owner, local_id, site, "first")
+    before = observe(owner, local_id, site, "first", report)
     pinned = owner.call(f"/profiles/{local_id}")
     assert pinned["fingerprint"] and pinned["browser_settings"]["stable_canvas"]
     print("Installed acceptance: UI profile opt-in", flush=True)
@@ -625,13 +649,13 @@ def exercise(owner, recipient, relay_url, registration, site, report):
     assert transferred["browser_settings"] == pinned["browser_settings"]
     assert transferred["storage_path"] != pinned["storage_path"]
     print("Installed acceptance: recipient native Camoufox reopen", flush=True)
-    after = observe(recipient, imported, site, "second")
+    after = observe(recipient, imported, site, "second", report)
     assert before == after, "Installed profile session or identity changed during transfer"
     print("Installed acceptance: recipient UI handoff", flush=True)
     recipient.complete_close_upload(imported)
     owner.action("Get latest profile", "Ready on this device")
     print("Installed acceptance: owner native Camoufox return", flush=True)
-    final = observe(owner, local_id, site, "return")
+    final = observe(owner, local_id, site, "return", report)
     assert final.pop("state") == "second"
     before.pop("state")
     assert final == before, "Installed profile identity changed on return"
@@ -689,7 +713,7 @@ def exercise(owner, recipient, relay_url, registration, site, report):
     expect(dialog.get_by_text("Cleanup cancelled", exact=True)).to_be_visible()
     owner.assert_password_cleared(dialog)
     print("Installed acceptance: restored native Camoufox fourth launch", flush=True)
-    recovered = observe(owner, local_id, site, "restored")
+    recovered = observe(owner, local_id, site, "restored", report)
     assert recovered.pop("state") == "second"
     assert recovered == before, "Installed profile session or identity changed after Trash restore"
     restored = owner.call(f"/profiles/{local_id}")

@@ -52,7 +52,13 @@ problem, copy the **diagnostic object**, not the complete response or private lo
 The synchronization harness exercises a missing-profile operation using the real
 installed manager and verifies that existing profiles are unchanged. The proxy
 harness verifies a missing-profile backup skip, then still requires normal
-backups before every accepted browser scenario. These deliberate failures do not
+backups before every accepted browser scenario. Synchronization observations also
+finish an additive public backup before their one-shot browser launch, keeping
+the normal due-backup scheduler enabled without racing fresh/imported profiles.
+The same shared preparation code permits only explicit additive-backup busy
+retries; launch and handoff requests are never replayed. Reports include fixed
+`backup_checks` stages and a `profile_busy` classification without holder identities.
+These deliberate failures do not
 replace successful round-trip, browser-session, TLS, workflow or cleanup checks.
 
 CI consumers accept only plain JSON objects matching the closed schema and the
