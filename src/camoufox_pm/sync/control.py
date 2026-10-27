@@ -7,20 +7,23 @@ not freshness after disk rollback or protection against the local OS account.
 
 from __future__ import annotations
 
+import errno
 import json
 import math
 import os
 import re
 import sqlite3
 import stat
-from collections.abc import Sequence
-from contextlib import closing
+import time
+from collections.abc import Iterator, Sequence
+from contextlib import closing, contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, BinaryIO
 
 from camoufox_pm.core.operation_diagnostics import retain_operation_diagnostic
 from camoufox_pm.core.update_permissions import (
+    PermissionProtectionError,
     create_private_directory,
     create_private_file,
     reject_reparse_paths,
@@ -39,7 +42,7 @@ _APPLICATION_ID = 0x43504D53
 class ControlError(ValueError):
     """Invalid or unavailable storage; errors contain no private details."""
 
-    def __init__(self, message: str, *, source: BaseException | None = None):
+    def __init__(self, message: str = _ERROR, *, source: BaseException | None = None):
         super().__init__(message)
         if source is not None:
             retain_operation_diagnostic(self, source)
@@ -47,6 +50,74 @@ class ControlError(ValueError):
 
 class ControlConflict(ControlError):
     """A record already exists or its expected revision no longer matches."""
+
+
+_INITIALIZATION_WAIT_SECONDS = 10.0
+
+
+def _try_initialization_lock(handle: BinaryIO) -> None:
+    if os.name == "nt":
+        import msvcrt
+
+        handle.seek(0)
+        msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)  # type: ignore[attr-defined]
+    else:
+        import fcntl
+
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+
+@contextmanager
+def _initialization_lock(directory: Path) -> Iterator[None]:
+    """Serialize first publication/schema inspection across processes/threads.
+
+    This inode stays in place; removing it could let another opener lock a
+    different file. OS locks release on process exit; acquisition is bounded.
+    """
+    path = directory / "control.init.lock"
+    try:
+        if path.exists():
+            raise FileExistsError
+        descriptor = create_private_file(path)
+    except (FileExistsError, PermissionProtectionError):
+        verify_private_path(path)
+        descriptor = os.open(
+            path, os.O_RDWR | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+        )
+    try:
+        handle = os.fdopen(descriptor, "r+b", buffering=0)
+    except BaseException:
+        os.close(descriptor)
+        raise
+    with handle:
+        info = os.fstat(handle.fileno())
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+            raise ControlError(_ERROR)
+        deadline = time.monotonic() + _INITIALIZATION_WAIT_SECONDS
+        while True:
+            try:
+                # A one-byte Windows lock may extend beyond EOF. No mutable
+                # marker/owner data or repeated write is needed in this file.
+                _try_initialization_lock(handle)
+                break
+            except OSError as error:
+                if error.errno not in {errno.EACCES, errno.EAGAIN, errno.EWOULDBLOCK}:
+                    raise
+                if time.monotonic() >= deadline:
+                    raise ControlError(_ERROR, source=error) from None
+                time.sleep(0.01)
+        try:
+            yield
+        finally:
+            if os.name == "nt":
+                import msvcrt
+
+                handle.seek(0)
+                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)  # type: ignore[attr-defined]
+            else:
+                import fcntl
+
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
 def _key(value: str, *, prefix: bool = False) -> str:
@@ -143,55 +214,61 @@ class ControlStore:
             if not self.directory.exists():
                 try:
                     create_private_directory(self.directory)
-                except FileExistsError:
-                    pass
+                except (FileExistsError, PermissionProtectionError):
+                    # Native Windows helpers also wrap an already-created path
+                    # as a protection error. Accept only a verified private dir.
+                    verify_private_path(self.directory)
             verify_private_path(self.directory)
             if not self.directory.is_dir():
                 raise ControlError(_ERROR)
             self.path = self.directory / "control.sqlite3"
-            created = False
-            # Avoid CREATE_NEW against an existing Windows credential file:
-            # native wrappers may surface that as a generic protection failure.
-            # Existing files still undergo all ownership/ACL/schema checks.
-            if not self.path.exists():
-                try:
-                    fd = create_private_file(self.path)
-                except FileExistsError:
-                    pass
-                else:
-                    os.close(fd)
-                    created = True
-            if created:
-                # BEGIN IMMEDIATE initializes a zero-byte SQLite database and
-                # can open its journal before the first explicit data write.
-                self._prepare_journal()
-            self._paths()
-            with closing(self._connect(validate=False)) as db:
-                db.execute("BEGIN IMMEDIATE")
-                try:
-                    self._prepare_journal()
-                    if created:
-                        if db.execute("PRAGMA user_version").fetchone()[0] != 0:
-                            raise ControlError(_ERROR)
-                        db.execute(_SCHEMA)
-                        db.execute(f"PRAGMA application_id={_APPLICATION_ID}")
-                        db.execute("PRAGMA user_version=1")
-                    self._schema(db)
-                    if db.execute("PRAGMA quick_check").fetchall() != [("ok",)]:
-                        raise ControlError(_ERROR)
-                    db.commit()
-                except BaseException:
-                    db.rollback()
-                    raise
-            self._paths()
-            if created and os.name != "nt":
-                fd = os.open(self.directory, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
-                try:
-                    os.fsync(fd)
-                finally:
-                    os.close(fd)
+            with _initialization_lock(self.directory):
+                self._initialize()
         except Exception as error:
             raise ControlError(_ERROR, source=error) from None
+
+    def _initialize(self) -> None:
+        created = False
+        # Avoid CREATE_NEW against an existing Windows credential file:
+        # native wrappers may surface that as a generic protection failure.
+        # Existing files still undergo all ownership/ACL/schema checks.
+        if not self.path.exists():
+            try:
+                fd = create_private_file(self.path)
+            except FileExistsError:
+                pass
+            else:
+                os.close(fd)
+                created = True
+        if created:
+            # BEGIN IMMEDIATE initializes a zero-byte SQLite database and
+            # can open its journal before the first explicit data write.
+            self._prepare_journal()
+        self._paths()
+        with closing(self._connect(validate=False)) as db:
+            db.execute("BEGIN IMMEDIATE")
+            try:
+                self._prepare_journal()
+                if created:
+                    if db.execute("PRAGMA user_version").fetchone()[0] != 0:
+                        raise ControlError(_ERROR)
+                    db.execute(_SCHEMA)
+                    db.execute(f"PRAGMA application_id={_APPLICATION_ID}")
+                    db.execute("PRAGMA user_version=1")
+                self._schema(db)
+                if db.execute("PRAGMA quick_check").fetchall() != [("ok",)]:
+                    raise ControlError(_ERROR)
+                db.commit()
+            except BaseException:
+                db.rollback()
+                raise
+        self._paths()
+        if created and os.name != "nt":
+            fd = os.open(self.directory, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+            try:
+                os.fsync(fd)
+            finally:
+                os.close(fd)
 
     def _paths(self) -> None:
         verify_private_path(self.directory)

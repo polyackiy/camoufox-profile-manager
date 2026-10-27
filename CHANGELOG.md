@@ -32,6 +32,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   incomplete operations (#119). Interactive queues do not replay after reload.
 
 ### Fixed
+- Serialize first creation and schema inspection of synchronization control state
+  with a private bounded OS lock; preserve invalid-store rejection and release
+  ownership after timeout/error or process exit (#144).
 - Handle an optional SQLite rollback journal disappearing during relay path
   inspection; retain mandatory database, permission/link and WAL/SHM rejection
   checks (#142).

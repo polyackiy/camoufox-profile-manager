@@ -33,7 +33,7 @@ _held: ContextVar[frozenset[tuple[object, str]]] = ContextVar(
 class SyncBlocked(ValueError):
     """A synchronized profile lacks independently verified local permission."""
 
-    def __init__(self, message: str, *, source: BaseException | None = None):
+    def __init__(self, message: str = _MESSAGE, *, source: BaseException | None = None):
         super().__init__(message)
         if source is not None:
             retain_operation_diagnostic(self, source)

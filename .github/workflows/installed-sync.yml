@@ -54,8 +54,10 @@ jobs:
           python-version: '3.12'
       - name: Install locked build and acceptance dependencies
         run: uv sync --locked --extra build --extra dev --extra sync
-      - name: Native control-store concurrency regression
-        run: uv run --no-sync pytest tests/unit/test_sync_control.py tests/unit/test_sync_runtime.py -k "concurrent_store_inspection_and_commits or local_handoff_lease or expired_local_lease" -x
+      - name: Native control-store initialization, path, CAS and process-kill regressions
+        run: uv run --no-sync pytest tests/unit/test_sync_control.py -x
+      - name: Native local handoff lease regressions
+        run: uv run --no-sync pytest tests/unit/test_sync_runtime.py -k "local_handoff_lease or expired_local_lease" -x
       - name: Install Linux desktop runtime
         if: runner.os == 'Linux'
         run: |

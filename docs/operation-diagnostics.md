@@ -36,7 +36,7 @@ problem, copy the **diagnostic object**, not the complete response or private lo
 - Sanitizing `ControlError` / `ControlConflict` / `SyncBlocked` wrappers may carry
   a frozen diagnostic captured before replacing an internal error. Only the actual
   loaded wrapper classes can forward it; the closed model is revalidated, and the
-  caller retains its area/stage. No exception cause chain is traversed or retained.
+  caller retains its area/stage. No exception cause chain is traversed or copied into the diagnostic.
   This preserves a control-store origin through an outer profile safety fence.
 - A line is an integer from 1 through 10000 and requires an allowlisted site.
   Unknown modules have no exported path, function name or line.
@@ -81,3 +81,21 @@ the exact Actions revision. Reports may include `diagnostic_check`, `operation_d
 installed-process logs are not exported. Same-host/same-account CI remains
 distinct from physical/enterprise acceptance and external protocol review.
 Experimental synchronization stays explicitly opt-in.
+
+
+## Control-store initialization
+
+First database creation and constructor schema inspection share a private
+`control.init.lock` file. Each opener owns a distinct handle; a bounded ten-second
+OS-lock acquisition precedes SQLite initialization. The lock inode stays in place
+and contains no owner identity, key, lease timestamp or captured event. The OS
+releases ownership after process exit; explicit teardown closes/unlocks handles.
+This prevents a second constructor from inspecting another creator's unfinished
+zero-byte database. Existing empty/corrupt stores are still rejected, and unsafe
+lock paths/permissions/links never grant admission. Application database/profile
+leases, synchronization records and SQLite journal validation are unchanged.
+
+The native lock behavior follows the [Python CRT locking contract](https://docs.python.org/3.13/library/msvcrt.html)
+and [Windows byte-range locking rules](https://learn.microsoft.com/en-us/windows/win32/fileio/locking-and-unlocking-byte-ranges-in-files).
+Native tests exercise separate handles, timeout cleanup and process interruption;
+these tests do not replace physical/enterprise compatibility acceptance.
