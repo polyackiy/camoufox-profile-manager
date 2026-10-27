@@ -54,6 +54,8 @@ jobs:
           python-version: '3.12'
       - name: Install locked build and acceptance dependencies
         run: uv sync --locked --extra build --extra dev --extra sync
+      - name: Native read-only transport reset and mutation no-replay regressions
+        run: uv run --no-sync pytest tests/unit/test_installed_sync_acceptance.py -k "real_request_context or transport_evidence" -x
       - name: Native control-store initialization, path, CAS and process-kill regressions
         run: uv run --no-sync pytest tests/unit/test_sync_control.py -x
       - name: Native local handoff lease regressions

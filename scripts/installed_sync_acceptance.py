@@ -32,6 +32,7 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import NameOID
 from fastapi.exception_handlers import http_exception_handler
+from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import expect, sync_playwright
 from pydantic import SecretStr
 from scripts.installed_backup_preparation import prepare_profile_backup as _prepare_profile_backup
@@ -54,6 +55,42 @@ class InstalledAPIError(RuntimeError):
         self.category = category
         self.diagnostic = validated_diagnostic(diagnostic, area="sync")
         super().__init__("Installed API rejected the operation")
+
+
+class InstalledTransportError(RuntimeError):
+    def __init__(self, error, *, read_only, process):
+        # Match only the library-generated first line, never retained call logs,
+        # request headers/URLs, arbitrary response bodies or the original error.
+        first = error.message.split("\n", 1)[0]
+        self.category = (
+            "connection_reset"
+            if first
+            in {
+                "APIRequestContext.fetch: socket hang up",
+                "APIRequestContext.fetch: read ECONNRESET",
+                "APIRequestContext.fetch: write ECONNRESET",
+            }
+            else "request_failed"
+        )
+        self.read_only = read_only
+        self.manager_running = process.poll() is None
+        super().__init__("Installed API transport failed")
+
+
+def transport_diagnostic(error):
+    if (
+        type(error) is not InstalledTransportError
+        or type(error.category) is not str
+        or error.category not in {"connection_reset", "request_failed"}
+        or type(error.read_only) is not bool
+        or type(error.manager_running) is not bool
+    ):
+        return None
+    return {
+        "category": error.category,
+        "read_only": error.read_only,
+        "manager_running": error.manager_running,
+    }
 
 
 def installed_api_error(response):
@@ -478,13 +515,21 @@ class Device:
     def call(self, path, body=None):
         deadline = time.monotonic() + 10
         while True:
-            response = self.context.request.fetch(
-                self.origin + "/api/v1" + path,
-                method="GET" if body is None else "POST",
-                data=body,
-                headers={"Origin": self.origin},
-                timeout=180000,
-            )
+            try:
+                response = self.context.request.fetch(
+                    self.origin + "/api/v1" + path,
+                    method="GET" if body is None else "POST",
+                    data=body,
+                    headers={"Origin": self.origin},
+                    timeout=180000,
+                    # Public Playwright transport retry: only ECONNRESET, only
+                    # read-only GET, at most two retries. Mutations remain one-shot.
+                    max_retries=2 if body is None else 0,
+                )
+            except PlaywrightError as error:
+                raise InstalledTransportError(
+                    error, read_only=body is None, process=self.process
+                ) from None
             # A bundled-UI status refresh may briefly hold ceremony admission.
             # Retry only this explicit busy response for read-only requests.
             # Never replay mutations or hide a credential/verification failure.

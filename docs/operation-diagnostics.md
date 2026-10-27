@@ -113,3 +113,22 @@ The native lock behavior follows the [Python CRT locking contract](https://docs.
 and [Windows byte-range locking rules](https://learn.microsoft.com/en-us/windows/win32/fileio/locking-and-unlocking-byte-ranges-in-files).
 Native tests exercise separate handles, timeout cleanup and process interruption;
 these tests do not replace physical/enterprise compatibility acceptance.
+
+## Acceptance HTTP transport
+
+The shared installed harness allows at most two Playwright transport retries for
+read-only GET requests, using its public `max_retries` option (ECONNRESET only).
+Mutation requests explicitly use zero retries. HTTP status failures, other network
+failures and exhausted reset retries still fail acceptance; no launch, handoff,
+workflow start or state-changing request is replayed. The existing read-only
+explicit-admission-busy handling is separate. The request timeout is unchanged.
+See the [Playwright contract](https://playwright.dev/python/docs/api/class-apirequestcontext#api-request-context-fetch-option-max-retries).
+
+Exhausted/other transport failures export only `transport_diagnostic` with a fixed
+`connection_reset` or `request_failed` category, `read_only` and `manager_running`
+booleans. The matcher inspects only known library first-line strings; it exports
+no error message, URL, call log, request/response body, headers or process code.
+The older Windows workflow-status polling failure did not record this evidence,
+so its actual transport/desktop cause is not retroactively established. Real
+loopback reset tests demonstrate GET recovery and one-shot POST failure without
+a browser executable; installed CI runs these on all four desktop platforms.

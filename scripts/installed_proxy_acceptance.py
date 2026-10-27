@@ -44,6 +44,7 @@ from scripts.installed_sync_acceptance import (
     Device,
     InstalledAPIError,
     terminate_tree,
+    transport_diagnostic,
     wait_for,
 )
 from tests.support.proxy_protocols import ProxyFixture, certificates
@@ -726,6 +727,8 @@ def main():
         result.update(
             passed=False, phase=phase, error_type=type(error).__name__, frames=frames[-8:]
         )
+        if (transport := transport_diagnostic(error)) is not None:
+            result["transport_diagnostic"] = transport
         if isinstance(error, InstalledAPIError):
             result["http_status"] = error.status
             if error.diagnostic is not None:

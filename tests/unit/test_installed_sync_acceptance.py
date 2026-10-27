@@ -460,3 +460,111 @@ def test_relay_storage_observer_is_bounded_private_and_restored(monkeypatch, tmp
     assert relay._opened_length is original_length
     assert relay._restart_lost_prefix is original_restart
     assert report == {"relay_storage_checks": ["metadata_shorter_than_eof"] * 8}
+
+
+@pytest.mark.parametrize("body", [None, {}])
+def test_real_request_context_retries_resets_only_for_reads(body):
+    """Real bundled Node transport, loopback RSTs; no browser executable needed."""
+    import http.server
+    import socket
+    import struct
+    import sys
+    import threading
+
+    from playwright.sync_api import Error, sync_playwright
+
+    attempts = []
+
+    class ResetServer(http.server.BaseHTTPRequestHandler):
+        def log_message(self, *args):
+            pass
+
+        def do_GET(self):
+            length = int(self.headers.get("Content-Length", "0"))
+            if length:
+                self.rfile.read(length)
+            attempts.append(self.command)
+            if len(attempts) <= 2:
+                linger = struct.pack("hh" if sys.platform == "win32" else "ii", 1, 0)
+                self.connection.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, linger)
+                self.close_connection = True
+                return
+            self.send_response(200)
+            self.send_header("Content-Length", "2")
+            self.end_headers()
+            self.wfile.write(b"{}")
+
+        do_POST = do_GET
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), ResetServer)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        with sync_playwright() as playwright:
+            request = playwright.request.new_context()
+            try:
+                device = object.__new__(harness.Device)
+                device.origin = f"http://127.0.0.1:{server.server_port}"
+                device.context = SimpleNamespace(request=request)
+                device.process = SimpleNamespace(poll=lambda: None)
+                # Before enabling bounded GET retries, the same actual reset fails.
+                with pytest.raises(Error) as baseline:
+                    request.fetch(device.origin + "/probe", max_retries=0, timeout=10000)
+                assert attempts == ["GET"]
+                assert (
+                    harness.InstalledTransportError(
+                        baseline.value, read_only=True, process=device.process
+                    ).category
+                    == "connection_reset"
+                )
+                attempts.clear()
+                if body is None:
+                    assert device.call("/poll") == {}
+                    assert attempts == ["GET"] * 3
+                else:
+                    with pytest.raises(harness.InstalledTransportError) as captured:
+                        device.call("/mutate", body)
+                    assert attempts == ["POST"]
+                    assert harness.transport_diagnostic(captured.value) == {
+                        "category": "connection_reset",
+                        "read_only": False,
+                        "manager_running": True,
+                    }
+            finally:
+                request.dispose()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+    assert not thread.is_alive()
+
+
+@pytest.mark.parametrize("running", [False, True])
+def test_transport_evidence_discards_message_logs_and_private_values(running):
+    from playwright.sync_api import Error
+
+    error = harness.InstalledTransportError(
+        Error("private URL, credential and API response\nCall log: private profile"),
+        read_only=True,
+        process=SimpleNamespace(poll=lambda: None if running else 1),
+    )
+    assert harness.transport_diagnostic(error) == {
+        "category": "request_failed",
+        "read_only": True,
+        "manager_running": running,
+    }
+    assert "private" not in str(error.__dict__) + str(error)
+    assert harness.transport_diagnostic(RuntimeError("private")) is None
+
+
+def test_transport_evidence_rejects_mutated_private_fields():
+    from playwright.sync_api import Error
+
+    error = harness.InstalledTransportError(
+        Error("private message"), read_only=True, process=SimpleNamespace(poll=lambda: None)
+    )
+    error.category = "private arbitrary field"
+    assert harness.transport_diagnostic(error) is None
+    error.category = "request_failed"
+    error.read_only = 1
+    assert harness.transport_diagnostic(error) is None
