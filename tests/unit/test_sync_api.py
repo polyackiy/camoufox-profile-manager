@@ -223,6 +223,48 @@ async def test_runtime_actions_require_live_cookie(runtime_api, action):
 
 
 @pytest.mark.asyncio
+async def test_installed_diagnostic_probe_reaches_real_profile_lookup(
+    runtime_api, monkeypatch, tmp_path
+):
+    from scripts.installed_sync_acceptance import DIAGNOSTIC_PROFILE_ID
+
+    from camoufox_pm.core.profile_operations import profile_operation
+
+    client, _ = runtime_api
+    lookups = []
+
+    async def missing_profile(profile_id, *, include_deleted=False):
+        lookups.append(profile_id)
+        return None
+
+    manager = SimpleNamespace(
+        storage=SimpleNamespace(get_profile=missing_profile), data_dir=tmp_path
+    )
+
+    class Runtime:
+        async def acquire(self, user_id, local_id, *, authorize, password=None):
+            await authorize()
+            async with profile_operation(manager, local_id, sync_operation=True):
+                pytest.fail("A missing profile must not start a transfer")
+
+    monkeypatch.setattr(sync, "_runtime_factory", Runtime)
+    response = await client.post(
+        f"/sync/profiles/{DIAGNOSTIC_PROFILE_ID}/acquire",
+        json={},
+        headers={"cookie": "test=owner"},
+    )
+    assert response.status_code == 409
+    assert response.headers["cache-control"] == "no-store"
+    evidence = response.json()["error"]["details"][0]["diagnostic"]
+    assert evidence["stage"] == "execute"
+    assert evidence["category"] == "invalid_state"
+    assert evidence["site"] == "core.profile_operations"
+    assert lookups == [DIAGNOSTIC_PROFILE_ID]
+    assert DIAGNOSTIC_PROFILE_ID not in response.text
+    assert not sync._operation_in_progress
+
+
+@pytest.mark.asyncio
 async def test_runtime_import_listing_and_invalid_operations(runtime_api):
     client, calls = runtime_api
     headers = {"cookie": "test=owner"}

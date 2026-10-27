@@ -39,6 +39,8 @@ from camoufox_pm.sync.relay import create_relay_app
 
 ROOT = Path(__file__).resolve().parents[1]
 NAME = "Installed sync acceptance"
+# Valid route identifier, deliberately absent in the disposable acceptance data.
+DIAGNOSTIC_PROFILE_ID = "diag0000"
 _PROCESSES: list[subprocess.Popen] = []
 
 
@@ -354,7 +356,7 @@ class Device:
         self.call("/sync/devices")
         before = self.call("/sync/profiles")
         response = self.context.request.post(
-            self.origin + "/api/v1/sync/profiles/diagnostic-missing-profile/acquire",
+            self.origin + f"/api/v1/sync/profiles/{DIAGNOSTIC_PROFILE_ID}/acquire",
             data=self.unlock_body,
             headers={"Origin": self.origin},
             timeout=180000,

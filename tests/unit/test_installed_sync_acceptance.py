@@ -47,6 +47,7 @@ def test_installed_missing_profile_probe_does_not_replay_or_change_profiles():
 
     def post(url, **kwargs):
         calls.append(("POST", url))
+        assert url == f"http://local/api/v1/sync/profiles/{harness.DIAGNOSTIC_PROFILE_ID}/acquire"
         assert kwargs["data"] == {} and kwargs["headers"] == {"Origin": "http://local"}
         return SimpleNamespace(
             status=409,
