@@ -134,6 +134,8 @@ def install_error_handlers(app: FastAPI) -> None:
                 "/api/v1/templates",
                 "/api/extensions",
                 "/api/v1/extensions",
+                "/api/workflows",
+                "/api/v1/workflows",
             )
         ):
             # Proxy lists and cookie files can contain account credentials.

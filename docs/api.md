@@ -1,5 +1,8 @@
 # REST API reference
 
+Unreleased [automation workflow endpoints](automation.md#api-and-playwright-integration)
+provide declarative steps, versioned target review, durable run receipts and cancellation.
+
 The API is the same one the web UI uses. A running instance serves interactive
 documentation at **`/docs`** (Swagger) and **`/redoc`**, generated from the code —
 that is the authoritative schema. This page is the guided tour, and the

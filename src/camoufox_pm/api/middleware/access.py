@@ -88,6 +88,7 @@ class AccessMiddleware:
                             for key in (
                                 "profile_id",
                                 "schedule_id",
+                                "workflow_id",
                                 "group_id",
                                 "template_id",
                                 "proxy_id",

@@ -48,7 +48,7 @@ class BrowserLaunchError(RuntimeError):
 
 
 def _browser_launch_options(launch_options: dict[str, Any]) -> dict[str, Any]:
-    """Keep Linux desktop input methods usable without changing the manager.
+    """Preserve declared screens and keep Linux desktop input methods usable.
 
     Playwright's focus test mode prevents native IME composition from committing
     in headed Firefox. PyInstaller also prepends its bundled libraries to
@@ -57,6 +57,24 @@ def _browser_launch_options(launch_options: dict[str, Any]) -> dict[str, Any]:
     Explicit preferences and environments remain under the caller's control.
     """
     options = launch_options.copy()
+    config = options.get("config")
+    if (
+        not options.get("headless", False)
+        and "screen" not in options
+        and isinstance(config, dict)
+        and all(
+            type(config.get(key)) is int and config[key] > 0
+            for key in ("screen.width", "screen.height")
+        )
+    ):
+        from camoufox.fingerprints import Screen
+
+        # This profile already declares its screen. Do not add unrelated host
+        # monitor bounds to fpgen's intermediate sample: some display/model
+        # combinations raise RestrictiveConstraints before the saved config is
+        # applied. The public empty Screen disables only that implicit bound;
+        # it preserves the pin and any explicitly supplied Screen constraint.
+        options["screen"] = Screen()
     if sys.platform != "linux":
         return options
 
@@ -192,6 +210,7 @@ class BrowserSession:
         self._terminated = False
         self.socks_relay = socks_relay
         self._termination_task: asyncio.Task[None] | None = None
+        self.context: Any = None
 
     async def terminate(self) -> None:
         """Drain one strongly owned teardown, including after caller cancellation."""
@@ -404,6 +423,9 @@ class BrowserSessionManager:
 
             process_id = _resolve_process_id(browser) or _resolve_process_id(camoufox)
             session = BrowserSession(profile_id, camoufox, process_id, socks_relay=relay)
+            # Expose the ready Playwright context; automation never reaches into
+            # AsyncCamoufox internals or passes destination URLs at startup.
+            session.context = browser
             session.on_exit = on_exit
             session.on_stopped = self.on_stopped
             self.active_sessions[profile_id] = session

@@ -7,6 +7,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- Add private declarative automation workflows with named launch/navigation/wait/
+  close steps, explicit profile/version review, bounded global concurrency,
+  optional schedules, durable sanitized history, cancellation and confirmed
+  replay of incomplete profiles (#122). Includes English, Russian and Chinese UI.
 - Add Russian interface translations with grammatical count forms alongside
   English and Simplified Chinese. First-run setup explains the install → create
   → run/stop path and keeps interface language separate from profile fingerprints
@@ -25,6 +29,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   incomplete operations (#119). Interactive queues do not replay after reload.
 
 ### Fixed
+- Close accepted SOCKS relay sockets even if their handler is cancelled before
+  its first instruction, preventing leaked connections and stalled teardown (#136).
+- Keep declared profile screens independent of physical-monitor inference on
+  headed launches, preventing fpgen constraint failures without changing saved
+  hardware or forking Camoufox (#135).
 - Keep informational proxy findings visible, explain missing location resources
   through Settings, and translate known browser-installation failures with
   actionable retry guidance (#123).
@@ -32,6 +41,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   timeout diagnostics, without automatic protocol downgrade (#116).
 
 ### Security
+- Recheck workflow authority and sync admission at execution; hold profile
+  admission across sequences and drain accepted work before update maintenance.
+  Preserve request-ID tombstones after history pruning, redact validation inputs
+  and allowlist run responses. Bind creators to immutable current session IDs,
+  enforce resource limits atomically, and keep active/recently completed runs
+  visible for cancellation and review. Schema 5 fences older managers.
 - Exercise disposable installed packages on four desktop targets against local
   proxy/TLS fixtures, including certificate refusal, relay teardown and restart;
   export only sanitized acceptance reports with package checksums (#116).

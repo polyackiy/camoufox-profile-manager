@@ -1,11 +1,61 @@
 """Deterministic wire tests against an authenticated SOCKS5 fixture."""
 
 import asyncio
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 
 import pytest
 
 from camoufox_pm.core.socks_relay import SocksRelay
+
+
+@pytest.mark.asyncio
+async def test_close_owns_accepted_socket_before_its_handler_first_runs(monkeypatch):
+    relay = SocksRelay("socks5://127.0.0.1:9", "alice", "secret")
+    accepted = []
+    close_tasks = []
+    accepted_event = asyncio.Event()
+    accept = relay._accept
+
+    def record(reader, writer):
+        accepted.append(writer)
+        accept(reader, writer)
+        accepted_event.set()
+
+    monkeypatch.setattr(relay, "_accept", record)
+    await relay.start()
+    loop = asyncio.get_running_loop()
+    previous_factory = loop.get_task_factory()
+
+    def close_before_handler(loop, coroutine, **options):
+        if getattr(coroutine, "cr_code", None) is SocksRelay._serve.__code__:
+            # Schedule shutdown before this accepted handler's first instruction.
+            # Its coroutine finally block cannot run if cancellation wins here.
+            close_tasks.append(asyncio.Task(relay.close(), loop=loop))
+        return asyncio.Task(coroutine, loop=loop, **options)
+
+    writer = None
+    loop.set_task_factory(close_before_handler)
+    try:
+        reader, writer = await asyncio.open_connection("127.0.0.1", relay.port)
+        await asyncio.wait_for(accepted_event.wait(), 2)
+        loop.set_task_factory(previous_factory)
+        await asyncio.wait_for(close_tasks[0], 2)
+        assert accepted[0].is_closing()
+        assert await asyncio.wait_for(reader.read(1), 2) == b""
+        assert not relay._tasks
+        assert relay._username == relay._password == b""
+    finally:
+        loop.set_task_factory(previous_factory)
+        for stream in accepted:
+            stream.close()
+        if writer is not None:
+            writer.close()
+            with suppress(ConnectionError, OSError):
+                await writer.wait_closed()
+        for task in close_tasks:
+            task.cancel()
+        await asyncio.gather(*close_tasks, return_exceptions=True)
+        await relay.close()
 
 
 @asynccontextmanager

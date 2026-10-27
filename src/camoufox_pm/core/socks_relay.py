@@ -74,6 +74,7 @@ class SocksRelay:
         self._max_connections = max_connections
         self._server: asyncio.Server | None = None
         self._tasks: set[asyncio.Task[None]] = set()
+        self._writers: set[asyncio.StreamWriter] = set()
         self._closed = False
         self.port: int | None = None
 
@@ -95,6 +96,9 @@ class SocksRelay:
         if self._closed or len(self._tasks) >= self._max_connections:
             writer.close()
             return
+        # Own the transport before scheduling its coroutine. Cancellation can
+        # win before the coroutine's first instruction/finally block executes.
+        self._writers.add(writer)
         task = asyncio.create_task(self._serve(reader, writer))
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
@@ -222,6 +226,8 @@ class SocksRelay:
                 writer.transport.abort()
                 if upstream_writer is not None:
                     upstream_writer.transport.abort()
+            finally:
+                self._writers.discard(writer)
 
     @staticmethod
     async def _pump(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
@@ -238,11 +244,25 @@ class SocksRelay:
         server, self._server = self._server, None
         if server is not None:
             server.close()
+        writers = list(self._writers)
+        for writer in writers:
+            writer.close()
         tasks = list(self._tasks)
         for task in tasks:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
+        try:
+            await asyncio.wait_for(
+                asyncio.gather(
+                    *(writer.wait_closed() for writer in writers), return_exceptions=True
+                ),
+                1.0,
+            )
+        except asyncio.TimeoutError:
+            for writer in writers:
+                writer.transport.abort()
         if server is not None:
             await server.wait_closed()
         self._tasks.clear()
+        self._writers.clear()
         self._username = self._password = b""

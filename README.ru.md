@@ -193,6 +193,7 @@ uv run python -c "from cryptography.fernet import Fernet; print(Fernet.generate_
 | Документ | О чём |
 | -------- | ----- |
 | [docs/getting-started.ru.md](docs/getting-started.ru.md) | Установка готового приложения и первые шаги |
+| [docs/automation.md](docs/automation.md) | Сценарии автоматизации, расписания и отмена (в разработке) |
 | [docs/cli.md](docs/cli.md) | Все команды и флаги |
 | [docs/api.md](docs/api.md) | REST API, эндпоинт за эндпоинтом |
 | [docs/profile-settings.md](docs/profile-settings.md) | Что делает каждая настройка, как устроено закрепление машины и чего Camoufox не умеет |

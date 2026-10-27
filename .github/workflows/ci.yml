@@ -33,8 +33,10 @@ jobs:
         run: uv run ruff format --check src tests
       - name: Type-check
         run: uv run mypy src/camoufox_pm
+      - name: Type-check workflow execution bodies
+        run: uv run mypy --check-untyped-defs src/camoufox_pm/core/workflows.py src/camoufox_pm/core/workflow_store.py src/camoufox_pm/core/workflow_models.py src/camoufox_pm/api/routes/workflows.py
       - name: Test
-        run: uv run pytest -m "not browser" --cov --cov-report=term-missing
+        run: uv run pytest -m "not browser" --cov --cov-report=term-missing -o faulthandler_timeout=300 -o faulthandler_exit_on_timeout=true
 
   frontend:
     name: Frontend
@@ -83,6 +85,10 @@ jobs:
       - name: Russian and Chinese onboarding and workflow contracts
         working-directory: .
         run: uv run python web/tests/localization_ui.py
+
+      - name: Declarative automation workflow UI contracts
+        working-directory: .
+        run: uv run python web/tests/workflows_ui.py
 
       - name: Test stage two workflows
         working-directory: .

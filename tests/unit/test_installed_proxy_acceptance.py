@@ -96,16 +96,160 @@ def test_observer_gate_requires_explicit_launch_acknowledgment_and_a_new_nonce(t
             assert client.get(base + "/gate/" + "b" * 24).text == "wait"
 
 
-def test_restart_waits_for_public_backup_receipt_without_mutating_or_replaying_launches():
-    replies = iter([[], [{"profile_id": "other"}], [{"profile_id": "target"}]])
+def test_new_protocol_profiles_finish_public_backup_before_any_launch(tmp_path, monkeypatch):
     calls = []
 
-    def read(path, body=None):
-        calls.append((path, body))
-        return {"data": {"backups": next(replies)}}
+    def call(path, body):
+        calls.append(path)
+        if path == "/profiles":
+            return {"id": "target", "storage_path": str(tmp_path / "data" / "target")}
+        assert path == "/system/backups" and body == {"profile_ids": ["target"]}
+        return {"data": {"backups": [{"profile_id": "target"}]}}
 
-    harness.wait_for_initial_backup(SimpleNamespace(call=read), "target")
-    assert calls == [("/system/backups", None)] * 3
+    monkeypatch.setattr(harness, "trust_profile", lambda *_args: calls.append("trust"))
+    fixture = SimpleNamespace(protocol="http", proxy_port=8080, auth=False)
+    device = SimpleNamespace(call=call, work=tmp_path)
+    assert harness.profile_for(device, fixture, Path("unused")) == "target"
+    assert calls == ["/profiles", "trust", "/system/backups"]
+
+
+def test_workflow_preparation_retries_only_additive_busy_backup(monkeypatch):
+    calls = []
+    wait = harness.wait_for
+
+    def bounded_wait(check, seconds):
+        assert seconds == 360  # Crash lease TTL (300) plus scheduler interval.
+        return wait(check, seconds=3)
+
+    monkeypatch.setattr(harness, "wait_for", bounded_wait)
+
+    def call(path, body):
+        calls.append((path, body))
+        if len(calls) == 1:
+            raise harness.InstalledAPIError(409)
+        return {"data": {"backups": [{"profile_id": "target"}]}}
+
+    report = {}
+    harness.prepare_profile_backup(SimpleNamespace(call=call), "target", report)
+    assert calls == [("/system/backups", {"profile_ids": ["target"]})] * 2
+    assert report == {"backup_preparation": {"attempts": 2, "busy_responses": 1, "prepared": True}}
+
+    def forbidden(path, body):
+        raise harness.InstalledAPIError(403)
+
+    with pytest.raises(harness.InstalledAPIError):
+        harness.prepare_profile_backup(SimpleNamespace(call=forbidden), "target")
+
+    def skipped(path, body):
+        return {"data": {"backups": [], "skipped": [{"reason": "private secret file"}]}}
+
+    report = {}
+    with pytest.raises(RuntimeError):
+        harness.prepare_profile_backup(SimpleNamespace(call=skipped), "target", report)
+    assert "private secret file" not in json.dumps(report)
+    assert report["backup_preparation"]["skipped"] is True
+
+
+@pytest.mark.parametrize("holder", [None, "ci-host:123:9d0f5ae4-12ba-4fc4-b6cf-bf5aae58bd84"])
+def test_backup_preparation_recognizes_partial_busy_response_without_exporting_holder(
+    monkeypatch, holder
+):
+    from camoufox_pm.core.leases import ProfileLocked
+
+    calls = []
+
+    def call(path, body):
+        assert path == "/system/backups" and body == {"profile_ids": ["target"]}
+        calls.append(path)
+        if len(calls) == 1:
+            return {
+                "data": {
+                    "backups": [],
+                    "skipped": [
+                        {"profile_id": "target", "reason": str(ProfileLocked("target", holder))}
+                    ],
+                }
+            }
+        return {"data": {"backups": [{"profile_id": "target"}]}}
+
+    def bounded_wait(check, seconds):
+        assert seconds == 360
+        assert check() is False
+        assert check() is True
+
+    monkeypatch.setattr(harness, "wait_for", bounded_wait)
+    report = {}
+    harness.prepare_profile_backup(SimpleNamespace(call=call), "target", report)
+    assert len(calls) == 2
+    assert report["backup_preparation"] == {
+        "attempts": 2,
+        "busy_responses": 1,
+        "prepared": True,
+        "last_skip_code": "busy",
+    }
+    assert "ci-host" not in json.dumps(report)
+
+
+def test_backup_skip_diagnostics_do_not_retry_or_export_unknown_private_reason(monkeypatch):
+    calls = []
+    secret = "Profile target is leased by another holder (private-user:password@host/path)"
+
+    def call(*_args):
+        calls.append(True)
+        return {"data": {"backups": [], "skipped": [{"profile_id": "target", "reason": secret}]}}
+
+    report = {}
+    with pytest.raises(RuntimeError):
+        harness.prepare_profile_backup(SimpleNamespace(call=call), "target", report)
+    assert len(calls) == 1
+    assert report["backup_preparation"]["last_skip_code"] == "other"
+    assert "private-" not in json.dumps(report)
+
+
+def test_backup_filesystem_failure_retains_only_fixed_code_and_errno():
+    def call(*_args):
+        return {
+            "data": {
+                "backups": [],
+                "skipped": [{"profile_id": "target", "reason": "[Errno 13] private-path-token"}],
+            }
+        }
+
+    report = {}
+    with pytest.raises(RuntimeError):
+        harness.prepare_profile_backup(SimpleNamespace(call=call), "target", report)
+    assert report["backup_preparation"]["last_skip_code"] == "filesystem"
+    assert report["backup_preparation"]["errno"] == 13
+    assert "private-" not in json.dumps(report)
+
+
+def test_workflow_diagnostics_allowlist_states_without_identity_or_error_text():
+    private = "private-password-and-destination"
+    result = harness.workflow_diagnostics(
+        {
+            "id": private,
+            "state": "failed",
+            "request": private,
+            "targets": [
+                {
+                    "profile_id": private,
+                    "state": "failed",
+                    "message": private,
+                    "error_code": private,
+                    "steps": [{"state": private, "name": private, "url": private}],
+                },
+                {
+                    "state": "skipped",
+                    "message": "Profile is already open or busy. Close it before retrying.",
+                    "steps": [],
+                },
+            ],
+        }
+    )
+    assert private not in json.dumps(result)
+    assert result["targets"][0]["steps"] == ["unknown"]
+    assert result["targets"][0]["error_code"] is None
+    assert result["targets"][1]["category"] == "busy"
 
 
 @pytest.mark.parametrize("relative", ["..", "../user-browser", "."])

@@ -29,6 +29,7 @@ from contextlib import contextmanager
 from importlib.metadata import version
 from pathlib import Path
 from urllib.parse import urlsplit
+from uuid import uuid4
 
 import psutil
 from playwright.sync_api import sync_playwright
@@ -285,7 +286,7 @@ def launched(device, profile_id, arguments, *, fixed_geoip=False, monitor_proxy=
         wait_for(lambda: listener_ports(device.process.pid) == before)
 
 
-def profile_for(device, fixture, ca):
+def profile_for(device, fixture, ca, report=None):
     profile = device.call(
         "/profiles",
         {
@@ -299,6 +300,10 @@ def profile_for(device, fixture, ca):
         },
     )
     trust_profile(profile["storage_path"], ca, device.work / "data")
+    # Every synthetic profile is backed up before any browser mutation. This
+    # keeps the normal automatic scheduler enabled without a timing race at
+    # an arbitrary minute boundary during protocol/refusal acceptance.
+    prepare_profile_backup(device, profile["id"], report)
     return profile["id"]
 
 
@@ -334,24 +339,10 @@ def package_identity():
     return {"format": packages[0].suffix, "sha256": digest.hexdigest()}
 
 
-def wait_for_initial_backup(device, profile_id):
-    # Startup/periodic backups legitimately reserve closed profiles. Let the
-    # normal service finish this disposable profile before restarting, so the
-    # next startup does not immediately reserve it again. Observe public state;
-    # never disable backups, clear leases or replay a failed launch mutation.
-    wait_for(
-        lambda: any(
-            backup["profile_id"] == profile_id
-            for backup in device.call("/system/backups")["data"]["backups"]
-        ),
-        seconds=180,
-    )
-
-
-def positive_case(device, protocol, auth, certs, *, restart=False):
+def positive_case(device, protocol, auth, certs, *, restart=False, report=None):
     with FixtureService(protocol, certs, auth=auth) as service:
         fixture = service.fixture
-        profile_id = profile_for(device, fixture, certs[0])
+        profile_id = profile_for(device, fixture, certs[0], report)
         health = device.call(f"/profiles/{profile_id}/check-proxy", {})
         assert health["reachable"] and health["location"]["ip"] == EXIT_IP, (
             "Installed health check failed"
@@ -379,10 +370,10 @@ def positive_case(device, protocol, auth, certs, *, restart=False):
         pinned = device.call(f"/profiles/{profile_id}")
         if restart:
             print(
-                "Installed proxy acceptance: waiting for scheduled backup before restart",
+                "Installed proxy acceptance: completing backup before restart",
                 flush=True,
             )
-            wait_for_initial_backup(device, profile_id)
+            prepare_profile_backup(device, profile_id, report)
             device.close()
             device.start()
             device.login()
@@ -452,10 +443,204 @@ def positive_case(device, protocol, auth, certs, *, restart=False):
         }
 
 
-def browser_tls_probe(device, protocol, certs, trusted_ca, *, accepted):
+def backup_skip_code(skipped, profile_id):
+    """Fixed report codes from public backup failures, never their private text."""
+    if not isinstance(skipped, list) or len(skipped) != 1:
+        return "other"
+    item = skipped[0]
+    if not isinstance(item, dict) or item.get("profile_id") != profile_id:
+        return "other"
+    reason = item.get("reason")
+    if not isinstance(reason, str):
+        return "other"
+    if re.fullmatch(
+        rf"Profile {re.escape(profile_id)} is leased by another holder"
+        r"(?: \([A-Za-z0-9_.:-]{1,512}\))?",
+        reason,
+    ):
+        return "busy"
+    if reason == "Profile data directory is missing; backup was not created":
+        return "missing_data"
+    if reason.startswith("Stored proxy credentials could not be decrypted. "):
+        return "credentials"
+    if reason.startswith("Cannot archive symbolic link: "):
+        return "symbolic_link"
+    if re.match(r"^\[Errno [0-9]{1,3}\] ", reason):
+        return "filesystem"
+    return "other"
+
+
+def prepare_profile_backup(device, profile_id, report=None):
+    # Use the public manual operation instead of waiting for the next automatic
+    # scheduler tick. A successful response also means its profile lease has
+    # been released. Only this additive preparation may retry a busy response;
+    # accepted workflow/launch mutations are never replayed.
+    diagnostics = {"attempts": 0, "busy_responses": 0, "prepared": False}
+    if report is not None:
+        report["backup_preparation"] = diagnostics
+
+    def create():
+        diagnostics["attempts"] += 1
+        try:
+            result = device.call("/system/backups", {"profile_ids": [profile_id]})["data"]
+        except InstalledAPIError as error:
+            if error.status == 409:
+                diagnostics["busy_responses"] += 1
+                return False
+            raise
+        diagnostics["prepared"] = any(
+            item["profile_id"] == profile_id for item in result["backups"]
+        )
+        if not diagnostics["prepared"]:
+            code = backup_skip_code(result.get("skipped"), profile_id)
+            diagnostics["last_skip_code"] = code
+            if code == "filesystem":
+                match = re.match(r"^\[Errno ([0-9]{1,3})\] ", result["skipped"][0]["reason"])
+                diagnostics["errno"] = int(match[1]) if match else None
+            if code == "busy":
+                # Per-profile admission can be returned as a partial 200 batch,
+                # while whole-backup admission is a 409. Both are additive-only
+                # preparation retries; never repeat a browser/workflow launch.
+                diagnostics["busy_responses"] += 1
+                return False
+            # Export no arbitrary skip/error text, which may contain file paths
+            # or secrets. A non-busy backup failure requires investigation.
+            diagnostics["skipped"] = bool(result.get("skipped"))
+            raise RuntimeError("Installed workflow backup preparation was skipped")
+        return True
+
+    # The preceding restart deliberately terminates the installed process. If
+    # its automatic backup batch still owns the recovery lease, its normal
+    # five-minute crash expiry must elapse. Observe public admission for up to
+    # that TTL plus one scheduler interval; never clear/shorten a live lease.
+    wait_for(create, seconds=360)
+
+
+def workflow_diagnostics(run):
+    states = {
+        "queued",
+        "running",
+        "completed",
+        "cancelled",
+        "failed",
+        "skipped",
+        "denied",
+        "interrupted",
+        "missed",
+    }
+    categories = {
+        "Profile is already open or busy. Close it before retrying.": "busy",
+        "A selected profile changed. Reload and review the targets.": "changed",
+        "Workflow access was revoked. Remaining steps were stopped.": "access",
+        "Step failed. Check the profile, proxy and destination before retrying.": "execution",
+        "Browser cleanup failed. Stop this profile before retrying.": "cleanup",
+    }
+    failure_codes = {
+        "timeout",
+        "browser_startup",
+        "proxy_connection",
+        "configuration",
+        "filesystem",
+        "session_unavailable",
+        "operation_conflict",
+        "unexpected",
+    }
+
+    def state(value):
+        return value if isinstance(value, str) and value in states else "unknown"
+
+    return {
+        "state": state(run.get("state")),
+        "targets": [
+            {
+                "state": state(row.get("state")),
+                "category": categories.get(row.get("message"), "unknown"),
+                "error_code": (
+                    row.get("error_code") if row.get("error_code") in failure_codes else None
+                ),
+                "steps": [state(step.get("state")) for step in row.get("steps", [])[:12]],
+            }
+            for row in run.get("targets", [])[:100]
+        ],
+    }
+
+
+def workflow_case(device, certs, report):
+    """The installed workflow navigates only after authenticated launch readiness."""
+    with FixtureService("https", certs, auth=True) as service:
+        fixture = service.fixture
+        profile_id = profile_for(device, fixture, certs[0], report)
+        baseline = listener_ports(device.process.pid)
+        nonce = secrets.token_hex(12)
+        paths = [f"/proof/{nonce}-{scheme}" for scheme in ("http", "https")]
+        steps = [{"name": "Start", "action": "launch"}]
+        for scheme, port, path in zip(
+            ("http", "https"), (fixture.http_port, fixture.https_port), paths, strict=True
+        ):
+            steps.extend(
+                [
+                    {
+                        "name": "Controlled navigation",
+                        "action": "navigate",
+                        "url": f"{scheme}://cpm-origin.invalid:{port}{path}",
+                    },
+                    {"name": "Receipt window", "action": "wait", "seconds": 60},
+                ]
+            )
+        steps.append({"name": "Finish", "action": "close"})
+        workflow = device.call(
+            "/workflows",
+            {"name": "Disposable installed workflow", "steps": steps, "concurrency": 1},
+        )
+        profile = device.call(f"/profiles/{profile_id}")
+        run = device.call(
+            f"/workflows/{workflow['id']}/runs",
+            {
+                "request_id": str(uuid4()),
+                "revision": workflow["revision"],
+                "targets": [{"profile_id": profile_id, "row_version": profile["row_version"]}],
+            },
+        )
+        route = f"/workflows/{workflow['id']}/runs/{run['id']}"
+        try:
+
+            def finished():
+                current = device.call(route)
+                report["workflow"] = workflow_diagnostics(current)
+                return current["state"] not in {"queued", "running"}
+
+            wait_for(finished, seconds=400)
+            result = device.call(route)
+            assert result["state"] == "completed", "Installed workflow did not complete"
+            assert all(step["state"] == "completed" for step in result["targets"][0]["steps"])
+            wait_for(
+                lambda: all(
+                    has_path(service.snapshot()[0], path.replace("/proof/", "/receipt/"))
+                    for path in paths
+                )
+            )
+            assert not device.call("/browsers/active")["active_browsers"]
+            wait_for(lambda: listener_ports(device.process.pid) == baseline)
+            history = json.dumps(device.call(f"/workflows/{workflow['id']}/runs"))
+            assert fixture.password not in history and "cpm-origin.invalid" not in history
+            return {
+                "protocol": "https",
+                "authentication": True,
+                "completed_steps": len(steps),
+                "http_receipt": True,
+                "https_receipt": True,
+                "sanitized_history": True,
+                "relay_cleanup": True,
+            }
+        finally:
+            device.call(f"/workflows/{workflow['id']}/runs/{run['id']}/cancel", {})
+            device.call("/browsers/close-all", {})
+
+
+def browser_tls_probe(device, protocol, certs, trusted_ca, *, accepted, report=None):
     with FixtureService(protocol, certs) as service:
         fixture = service.fixture
-        profile_id = profile_for(device, fixture, trusted_ca)
+        profile_id = profile_for(device, fixture, trusted_ca, report)
         nonce = secrets.token_hex(12)
         path = f"/tls-probe/{nonce}"
         service.monitor([f"https://cpm-origin.invalid:{fixture.https_port}{path}"], nonce)
@@ -481,15 +666,17 @@ def browser_tls_probe(device, protocol, certs, trusted_ca, *, accepted):
         )
 
 
-def untrusted_case(device, protocol, certs, trusted_certs):
+def untrusted_case(device, protocol, certs, trusted_certs, *, report=None):
     with FixtureService(protocol, certs) as service:
         fixture = service.fixture
-        profile_id = profile_for(device, fixture, trusted_certs[0])
+        profile_id = profile_for(device, fixture, trusted_certs[0], report)
         health = device.call(f"/profiles/{profile_id}/check-proxy", {})
         assert not health["reachable"], "Untrusted health TLS was accepted"
 
-    browser_tls_probe(device, protocol, trusted_certs, trusted_certs[0], accepted=True)
-    browser_tls_probe(device, protocol, certs, trusted_certs[0], accepted=False)
+    browser_tls_probe(
+        device, protocol, trusted_certs, trusted_certs[0], accepted=True, report=report
+    )
+    browser_tls_probe(device, protocol, certs, trusted_certs[0], accepted=False, report=report)
     return {
         "protocol": protocol,
         "untrusted_peer": "proxy" if protocol == "https" else "destination",
@@ -546,12 +733,22 @@ def main():
                         print(f"Installed proxy acceptance: {phase}", flush=True)
                         result["cases"].append(
                             positive_case(
-                                device, protocol, auth, certs, restart=protocol == "socks5" and auth
+                                device,
+                                protocol,
+                                auth,
+                                certs,
+                                restart=protocol == "socks5" and auth,
+                                report=result,
                             )
                         )
                     for protocol in ("http", "https"):
                         phase = protocol + "-untrusted"
-                        result["cases"].append(untrusted_case(device, protocol, other_certs, certs))
+                        result["cases"].append(
+                            untrusted_case(device, protocol, other_certs, certs, report=result)
+                        )
+                    phase = "workflow-https-password"
+                    print("Installed workflow acceptance: authenticated HTTPS proxy", flush=True)
+                    result["workflow"] = workflow_case(device, certs, result)
                     result["passed"] = True
                 finally:
                     with contextlib.ExitStack() as cleanup:

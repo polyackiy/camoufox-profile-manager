@@ -29,7 +29,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   // trailingSlash is on for the static export, so normalise before comparing.
   const current = pathname.replace(/\/+$/, '') || '/'
   const [address, setAddress] = useState<string | null>(null)
-  const { username, logout, canManageAccess } = useAuth()
+  const { username, logout, canManageAccess, role } = useAuth()
 
   useEffect(() => {
     // Report where the server actually is rather than assuming loopback.
@@ -48,7 +48,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </div>
 
         <nav className="flex flex-col gap-px p-2">
-          {NAV.filter(item => canManageAccess || item.href === '/').map(({ href, label, icon: Icon }) => {
+          {NAV.filter(item => canManageAccess || item.href === '/' || (role === 'operator' && item.href === '/schedules/')).map(({ href, label, icon: Icon }) => {
             const target = href.replace(/\/+$/, '') || '/'
             const active = current === target
             return (
@@ -91,7 +91,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </div>
       </aside>
 
-      <main className="min-w-0 flex-1 overflow-y-auto">{canManageAccess || current === '/' ? children : <div className="p-6" role="alert">{t('Access denied')}</div>}</main>
+      <main className="min-w-0 flex-1 overflow-y-auto">{canManageAccess || current === '/' || (role === 'operator' && current === '/schedules') ? children : <div className="p-6" role="alert">{t('Access denied')}</div>}</main>
     </div>
   )
 }

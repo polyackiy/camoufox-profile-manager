@@ -134,11 +134,15 @@ def test_retention_retry_has_full_reception_grace_and_cancellation_is_durable(
     retained, monkeypatch
 ):
     relay, (old, _) = retained
-    decision = decision_for(relay, old, issued=int(time.time()) - 10000)
+    # Measure the grace from reception, not the later wall clock after HTTP/DB
+    # work. Freezing makes a slow Windows worker verify the exact seven days.
+    received = int(time.time())
+    monkeypatch.setattr(time, "time", lambda: received)
+    decision = decision_for(relay, old, issued=received - 10000)
     assert schedule(relay, decision).status_code == 200
     with sqlite3.connect(relay.directory / "relay.sqlite3") as db:
         eligible = db.execute("SELECT eligible_at FROM retention_decisions").fetchone()[0]
-        assert eligible >= int(time.time()) + GRACE_SECONDS
+        assert eligible == received + GRACE_SECONDS
     cancellation = cancellation_for(relay, decision)
     for _ in range(2):
         assert (

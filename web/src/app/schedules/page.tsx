@@ -14,6 +14,7 @@ import {
 } from 'lucide-react'
 
 import { useI18n } from '@/components/i18n-provider'
+import { AutomationWorkflows } from '@/components/automation-workflows'
 import type { Locale, Translator } from '@/lib/i18n'
 import { EmptyState } from '@/components/empty-state'
 import { ConfirmDialog, Modal } from '@/components/modal'
@@ -230,6 +231,7 @@ export default function SchedulesPage() {
           {t('New schedule')}
         </button>
       </header>
+      <AutomationWorkflows />
 
       {error ? (
         <EmptyState
