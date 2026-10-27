@@ -31,11 +31,13 @@ from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import NameOID
+from fastapi.exception_handlers import http_exception_handler
 from playwright.sync_api import expect, sync_playwright
 from pydantic import SecretStr
 from scripts.installed_backup_preparation import prepare_profile_backup as _prepare_profile_backup
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from camoufox_pm.core.operation_diagnostics import validated_diagnostic
+from camoufox_pm.core.operation_diagnostics import operation_diagnostic, validated_diagnostic
 from camoufox_pm.sync.relay import create_relay_app
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -86,6 +88,27 @@ def installed_api_error(response):
     except (ValueError, AttributeError, TypeError):
         pass
     return InstalledAPIError(response.status, category, diagnostic)
+
+
+def record_relay_refusals(app, report):
+    """Observe only fixed HTTP409 coordinates in the synthetic CI relay."""
+    evidence = report.setdefault("relay_refusals", [])
+
+    async def refusal(request, error):
+        if error.status_code == 409:
+            diagnostic = operation_diagnostic(error, area="sync", stage="execute")
+            if diagnostic.site == "sync.relay":
+                evidence.append(
+                    {
+                        "status": 409,
+                        "diagnostic": diagnostic.model_dump(mode="json", exclude_none=True),
+                    }
+                )
+                del evidence[:-8]
+        # Preserve the original public status/body/headers; no new relay API.
+        return await http_exception_handler(request, error)
+
+    app.add_exception_handler(StarletteHTTPException, refusal)
 
 
 def tls_fixture(directory):
@@ -774,13 +797,15 @@ def main():
             listener = socket.socket()
             listener.bind(("127.0.0.1", 0))
             relay_url = f"https://127.0.0.1:{listener.getsockname()[1]}"
+            app = create_relay_app(
+                work / "relay",
+                relay_url=relay_url,
+                registration_token=SecretStr(registration),
+            )
+            record_relay_refusals(app, result)
             relay = uvicorn.Server(
                 uvicorn.Config(
-                    create_relay_app(
-                        work / "relay",
-                        relay_url=relay_url,
-                        registration_token=SecretStr(registration),
-                    ),
+                    app,
                     ssl_certfile=str(certificate),
                     ssl_keyfile=str(private),
                     log_level="error",

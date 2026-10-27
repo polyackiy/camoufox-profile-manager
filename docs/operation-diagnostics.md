@@ -58,6 +58,10 @@ the normal due-backup scheduler enabled without racing fresh/imported profiles.
 The same shared preparation code permits only explicit additive-backup busy
 retries; launch and handoff requests are never replayed. Reports include fixed
 `backup_checks` stages and a `profile_busy` classification without holder identities.
+The synthetic CI relay retains at most eight HTTP 409 diagnostics from its
+allowlisted `sync.relay` frames in `relay_refusals`. Its actual API response is
+unchanged; request bodies, URLs, identifiers and private exception details are
+not collected. This is harness evidence, not an authenticated relay proof.
 These deliberate failures do not
 replace successful round-trip, browser-session, TLS, workflow or cleanup checks.
 

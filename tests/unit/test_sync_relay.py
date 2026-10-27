@@ -1308,3 +1308,31 @@ def test_optional_journal_disappearance_boundary_preserves_security_checks(relay
     finally:
         journal.unlink()
         target.unlink()
+
+
+def test_installed_relay_records_only_bounded_fixed_refusal_coordinates(relay):
+    from scripts.installed_sync_acceptance import record_relay_refusals
+
+    from camoufox_pm.core.operation_diagnostics import validated_diagnostic
+
+    app = create_relay_app(
+        relay.directory,
+        relay_url=ORIGIN,
+        registration_token=SecretStr(TOKEN),
+        development_loopback=True,
+    )
+    report = {}
+    record_relay_refusals(app, report)
+    with TestClient(app, base_url=ORIGIN, client=("127.0.0.1", 50000)) as client:
+        for _ in range(12):
+            response = client.post(
+                "/v1/register", json=relay.register_body, headers={"X-Registration-Token": TOKEN}
+            )
+            assert response.status_code == 409
+            assert response.json() == {"detail": "Sync relay request rejected"}
+    assert len(report["relay_refusals"]) == 8
+    for item in report["relay_refusals"]:
+        assert set(item) == {"status", "diagnostic"} and item["status"] == 409
+        evidence = validated_diagnostic(item["diagnostic"], area="sync")
+        assert evidence["site"] == "sync.relay" and 1 <= evidence["line"] <= 10000
+    assert TOKEN not in str(report) and relay.root.owner_id not in str(report)

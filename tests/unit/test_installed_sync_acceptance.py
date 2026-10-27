@@ -412,3 +412,22 @@ def test_acceptance_module_entrypoint_starts_without_pythonpath():
     )
     assert result.returncode == 0
     assert b"--vault" in result.stdout and b"--output" in result.stdout
+
+
+def test_relay_diagnostic_drops_unknown_frames_and_private_http_detail():
+    from fastapi import FastAPI, HTTPException
+    from fastapi.testclient import TestClient
+
+    app = FastAPI()
+    report = {}
+    harness.record_relay_refusals(app, report)
+
+    @app.get("/private-test-route")
+    async def private_handler():
+        raise HTTPException(409, "private-credential-url", headers={"Cache-Control": "no-store"})
+
+    with TestClient(app) as client:
+        response = client.get("/private-test-route")
+    assert response.status_code == 409
+    assert response.headers["cache-control"] == "no-store"
+    assert report == {"relay_refusals": []}
