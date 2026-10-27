@@ -206,6 +206,45 @@ def test_backup_skip_diagnostics_do_not_retry_or_export_unknown_private_reason(m
     assert "private-" not in json.dumps(report)
 
 
+@pytest.mark.parametrize(
+    ("reason", "code"),
+    [
+        ("Profile not found", "missing_profile"),
+        ("Profile with ID target not found", "missing_profile"),
+        ("Invalid profile identity", "invalid_identity"),
+        ("Profile directory must be inside the managed profiles directory", "storage_path"),
+        ("Private update path permits other users", "private_permissions"),
+        ("Private paths cannot contain symlinks/reparse points", "private_link"),
+        (
+            "Synchronized profile is blocked; reconcile checkout and recovery before continuing",
+            "sync_fence",
+        ),
+        ("Invalid backup ID", "backup_identity"),
+        ("Invalid backup path", "backup_path"),
+        ("Profile archive is larger than the import limit", "archive_limit"),
+    ],
+)
+def test_backup_fixed_failure_diagnostics_never_retry_or_export_text(reason, code):
+    calls = []
+
+    def call(*_args):
+        calls.append(True)
+        return {"data": {"backups": [], "skipped": [{"profile_id": "target", "reason": reason}]}}
+
+    report = {}
+    with pytest.raises(RuntimeError):
+        harness.prepare_profile_backup(SimpleNamespace(call=call), "target", report)
+    assert len(calls) == 1
+    assert report["backup_preparation"]["last_skip_code"] == code
+    assert reason not in json.dumps(report)
+    assert (
+        harness.backup_skip_code(
+            [{"profile_id": "target", "reason": reason + " private-token"}], "target"
+        )
+        == "other"
+    )
+
+
 def test_backup_filesystem_failure_retains_only_fixed_code_and_errno():
     def call(*_args):
         return {
