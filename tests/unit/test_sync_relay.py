@@ -5,6 +5,7 @@ import json
 import sqlite3
 import time
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import closing
 from uuid import uuid4
 
 import pytest
@@ -335,7 +336,7 @@ def test_strict_json_duplicate_keys_and_unknown_operations(relay):
 
 
 def test_restart_rejects_unknown_database_schema(relay):
-    with sqlite3.connect(relay.directory / "relay.sqlite3") as db:
+    with closing(sqlite3.connect(relay.directory / "relay.sqlite3")) as db, db:
         db.execute("PRAGMA user_version=999")
     with pytest.raises(ValueError):
         create_relay_app(
@@ -574,7 +575,7 @@ def test_crashed_pending_upload_discard_removes_bytes_before_quota_release(relay
     partial = relay.directory / "blobs" / (".pending-" + relay.root.owner_id + "-" + revision)
     with os.fdopen(create_private_file(partial), "wb") as stream:
         stream.write(b"partial crashed ciphertext")
-    with sqlite3.connect(relay.directory / "relay.sqlite3") as db:
+    with closing(sqlite3.connect(relay.directory / "relay.sqlite3")) as db, db:
         db.execute(
             "INSERT INTO revisions VALUES(?,?,?,?,?,'uploading',NULL,NULL)",
             (relay.root.owner_id, revision, relay.device_id, 100, "0" * 64),
@@ -590,7 +591,7 @@ def test_pending_delete_failure_retains_quota_reservation(relay, monkeypatch):
     from pathlib import Path
 
     revision = str(uuid4())
-    with sqlite3.connect(relay.directory / "relay.sqlite3") as db:
+    with closing(sqlite3.connect(relay.directory / "relay.sqlite3")) as db, db:
         db.execute(
             "INSERT INTO revisions VALUES(?,?,?,?,?,'uploading',NULL,NULL)",
             (relay.root.owner_id, revision, relay.device_id, 100, "0" * 64),
@@ -658,7 +659,7 @@ def test_active_upload_cannot_release_quota_before_worker_exits(relay):
 
     revision = str(uuid4())
     process = psutil.Process()
-    with sqlite3.connect(relay.directory / "relay.sqlite3") as db:
+    with closing(sqlite3.connect(relay.directory / "relay.sqlite3")) as db, db:
         db.execute(
             "INSERT INTO revisions VALUES(?,?,?,?,?,'uploading',NULL,NULL)",
             (relay.root.owner_id, revision, relay.device_id, 100, "0" * 64),
@@ -767,7 +768,7 @@ async def test_old_certificate_request_cannot_cross_remove_and_readd_rotation(tm
 
 
 def overdue(relay, revision):
-    with sqlite3.connect(relay.directory / "relay.sqlite3") as db:
+    with closing(sqlite3.connect(relay.directory / "relay.sqlite3")) as db, db:
         db.execute(
             "UPDATE upload_expiry SET expires=? WHERE revision=?", (int(time.time()) - 10, revision)
         )
@@ -807,7 +808,7 @@ def test_expiry_worker_liveness_and_crashed_partial(relay, live):
     partial = relay.directory / "blobs" / f".pending-{relay.root.owner_id}-{revision}"
     with os.fdopen(create_private_file(partial), "wb") as stream:
         stream.write(b"partial")
-    with sqlite3.connect(relay.directory / "relay.sqlite3") as db:
+    with closing(sqlite3.connect(relay.directory / "relay.sqlite3")) as db, db:
         db.execute("UPDATE revisions SET state='uploading' WHERE id=?", (revision,))
         db.execute(
             "INSERT INTO active_uploads VALUES(?,?,?,?)",
@@ -884,11 +885,11 @@ def test_expiry_clock_rollback_fails_closed(relay):
     revision = str(uuid4())
     assert relay.upload(revision, b"x" * 100).status_code == 200
     overdue(relay, revision)
-    with sqlite3.connect(relay.directory / "relay.sqlite3") as db:
+    with closing(sqlite3.connect(relay.directory / "relay.sqlite3")) as db, db:
         db.execute("UPDATE clock SET highwater=?", (int(time.time()) + 100,))
     with pytest.raises(ValueError, match="maintenance failed"):
         expire_uncommitted_uploads(relay.directory)
-    with sqlite3.connect(relay.directory / "relay.sqlite3") as db:
+    with closing(sqlite3.connect(relay.directory / "relay.sqlite3")) as db, db:
         assert db.execute(
             "SELECT state,size FROM revisions WHERE id=?", (revision,)
         ).fetchone() == ("ready", 100)
@@ -899,7 +900,7 @@ def test_expiry_v1_migration_grants_full_grace(relay):
 
     revision = str(uuid4())
     assert relay.upload(revision, b"x" * 100).status_code == 200
-    with sqlite3.connect(relay.directory / "relay.sqlite3") as db:
+    with closing(sqlite3.connect(relay.directory / "relay.sqlite3")) as db, db:
         db.execute("DROP TABLE active_downloads")
         db.execute("DROP TABLE retention_items")
         db.execute("DROP TABLE retention_decisions")
@@ -908,7 +909,7 @@ def test_expiry_v1_migration_grants_full_grace(relay):
         db.execute("PRAGMA user_version=1")
     before = int(time.time())
     _Store(relay.directory)
-    with sqlite3.connect(relay.directory / "relay.sqlite3") as db:
+    with closing(sqlite3.connect(relay.directory / "relay.sqlite3")) as db, db:
         assert (
             db.execute(
                 "SELECT expires FROM upload_expiry WHERE revision=?", (revision,)
@@ -945,10 +946,10 @@ def test_expiry_crash_fence_prevents_commit_after_removed_file(relay, monkeypatc
     monkeypatch.undo()
     # Reopen after crash with a backwards clock: finish the already-durable
     # deletion decision without authorizing expiry of any additional upload.
-    with sqlite3.connect(relay.directory / "relay.sqlite3") as db:
+    with closing(sqlite3.connect(relay.directory / "relay.sqlite3")) as db, db:
         db.execute("UPDATE clock SET highwater=?", (int(time.time()) + 100,))
     assert expire_uncommitted_uploads(relay.directory)["expired"] == 1
-    with sqlite3.connect(relay.directory / "relay.sqlite3") as db:
+    with closing(sqlite3.connect(relay.directory / "relay.sqlite3")) as db, db:
         assert db.execute(
             "SELECT state,size FROM revisions WHERE id=?", (manifest.revision_id,)
         ).fetchone() == ("expired", 0)
@@ -992,10 +993,10 @@ def test_discard_crash_fence_blocks_commit_and_operator_finishes(relay, monkeypa
         relay.directory / "blobs" / f"{relay.root.owner_id}-{manifest.revision_id}.blob"
     ).exists()
     monkeypatch.undo()
-    with sqlite3.connect(relay.directory / "relay.sqlite3") as db:
+    with closing(sqlite3.connect(relay.directory / "relay.sqlite3")) as db, db:
         db.execute("UPDATE clock SET highwater=?", (int(time.time()) + 100,))
     assert expire_uncommitted_uploads(relay.directory)["expired"] == 1
-    with sqlite3.connect(relay.directory / "relay.sqlite3") as db:
+    with closing(sqlite3.connect(relay.directory / "relay.sqlite3")) as db, db:
         assert db.execute(
             "SELECT state,size FROM revisions WHERE id=?", (manifest.revision_id,)
         ).fetchone() == ("aborted", 0)
@@ -1200,7 +1201,7 @@ def test_resumable_adopts_only_dead_legacy_writer(relay, live):
     pending = relay.directory / "blobs" / f".pending-{relay.root.owner_id}-{revision}"
     with os.fdopen(create_private_file(pending), "wb") as output:
         output.write(data[:20])
-    with sqlite3.connect(relay.directory / "relay.sqlite3") as db:
+    with closing(sqlite3.connect(relay.directory / "relay.sqlite3")) as db, db:
         db.execute(
             "INSERT INTO revisions VALUES(?,?,?,?,?,'uploading',NULL,NULL)",
             (relay.root.owner_id, revision, relay.device_id, 100, hashlib.sha256(data).hexdigest()),

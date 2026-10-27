@@ -2,6 +2,7 @@
 
 import json
 import sqlite3
+from contextlib import closing
 
 import pytest
 
@@ -26,11 +27,11 @@ async def cookie_client(client, monkeypatch):
     async def stage(profile, directory, source, batch, mode):
         previous = []
         if source.exists():
-            with sqlite3.connect(source) as connection:
+            with closing(sqlite3.connect(source)) as connection, connection:
                 previous = json.loads(connection.execute("SELECT data FROM proof").fetchone()[0])
         cookies = previous if batch is None else batch.cookies
         candidate = directory / "cookies.sqlite"
-        with sqlite3.connect(candidate) as connection:
+        with closing(sqlite3.connect(candidate)) as connection, connection:
             connection.execute("CREATE TABLE proof (data TEXT)")
             connection.execute("INSERT INTO proof VALUES (?)", (json.dumps(cookies),))
         return cookies, candidate

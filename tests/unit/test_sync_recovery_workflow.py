@@ -1,6 +1,7 @@
 """Sealed offline recovery creates only a fresh local profile."""
 # ruff: noqa: F811
 
+from contextlib import closing
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -277,7 +278,7 @@ def test_existing_encrypted_database_without_key_is_not_rekeyed(tmp_path, monkey
 
     monkeypatch.delenv("CPM_SECRET_KEY", raising=False)
     path = tmp_path / "profiles.db"
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         db.execute("CREATE TABLE profiles (proxy_config TEXT)")
         db.execute("INSERT INTO profiles VALUES (?)", ('{"password":"enc:existing"}',))
     with pytest.raises(RecoveryWorkflowError):
