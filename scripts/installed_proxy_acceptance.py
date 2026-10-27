@@ -453,6 +453,20 @@ def backup_skip_code(skipped, profile_id):
     reason = item.get("reason")
     if not isinstance(reason, str):
         return "other"
+    fixed_reasons = {
+        "Profile not found": "missing_profile",
+        f"Profile with ID {profile_id} not found": "missing_profile",
+        "Invalid profile identity": "invalid_identity",
+        "Profile directory must be inside the managed profiles directory": "storage_path",
+        "Private update path permits other users": "private_permissions",
+        "Private paths cannot contain symlinks/reparse points": "private_link",
+        "Synchronized profile is blocked; reconcile checkout and recovery before continuing": "sync_fence",
+        "Invalid backup ID": "backup_identity",
+        "Invalid backup path": "backup_path",
+        "Profile archive is larger than the import limit": "archive_limit",
+    }
+    if reason in fixed_reasons:
+        return fixed_reasons[reason]
     if re.fullmatch(
         rf"Profile {re.escape(profile_id)} is leased by another holder"
         r"(?: \([A-Za-z0-9_.:-]{1,512}\))?",
