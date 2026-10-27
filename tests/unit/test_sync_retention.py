@@ -4,6 +4,7 @@ import json
 import os
 import sqlite3
 import time
+from contextlib import closing
 from uuid import uuid4
 
 import httpx
@@ -140,7 +141,7 @@ def test_retention_retry_has_full_reception_grace_and_cancellation_is_durable(
     monkeypatch.setattr(time, "time", lambda: received)
     decision = decision_for(relay, old, issued=received - 10000)
     assert schedule(relay, decision).status_code == 200
-    with sqlite3.connect(relay.directory / "relay.sqlite3") as db:
+    with closing(sqlite3.connect(relay.directory / "relay.sqlite3")) as db, db:
         eligible = db.execute("SELECT eligible_at FROM retention_decisions").fetchone()[0]
         assert eligible == received + GRACE_SECONDS
     cancellation = cancellation_for(relay, decision)
@@ -160,7 +161,7 @@ def test_retention_retry_has_full_reception_grace_and_cancellation_is_durable(
 def test_live_download_leases_block_collection_until_worker_exits(retained, monkeypatch):
     relay, (old, _) = retained
     schedule(relay, decision_for(relay, old))
-    with sqlite3.connect(relay.directory / "relay.sqlite3") as db:
+    with closing(sqlite3.connect(relay.directory / "relay.sqlite3")) as db, db:
         db.execute(
             "INSERT INTO active_downloads VALUES(?,?,?,?,?)",
             (
@@ -173,7 +174,7 @@ def test_live_download_leases_block_collection_until_worker_exits(retained, monk
         )
     advance(monkeypatch)
     assert collect_retained_ciphertext(relay.directory)["skipped"] == 1
-    with sqlite3.connect(relay.directory / "relay.sqlite3") as db:
+    with closing(sqlite3.connect(relay.directory / "relay.sqlite3")) as db, db:
         db.execute("UPDATE active_downloads SET created=0")
     assert collect_retained_ciphertext(relay.directory)["collected"] == 1
 
@@ -197,7 +198,7 @@ def test_collecting_fence_survives_crash_and_clock_rollback(retained, monkeypatc
         relay.rpc("retention_cancel", cancellation=cancellation.model_dump(mode="json")).status_code
         == 409
     )
-    with sqlite3.connect(relay.directory / "relay.sqlite3") as db:
+    with closing(sqlite3.connect(relay.directory / "relay.sqlite3")) as db, db:
         assert db.execute(
             "SELECT state,size FROM revisions WHERE id=?", (old.revision_id,)
         ).fetchone() == ("collecting", 100)
@@ -205,7 +206,7 @@ def test_collecting_fence_survives_crash_and_clock_rollback(retained, monkeypatc
     earlier = int(time.time()) - 100
     monkeypatch.setattr(time, "time", lambda: earlier)
     assert collect_retained_ciphertext(relay.directory)["collected"] == 1
-    with sqlite3.connect(relay.directory / "relay.sqlite3") as db:
+    with closing(sqlite3.connect(relay.directory / "relay.sqlite3")) as db, db:
         assert db.execute(
             "SELECT state,size FROM revisions WHERE id=?", (old.revision_id,)
         ).fetchone() == ("collected", 0)
@@ -271,14 +272,14 @@ def test_download_lease_removed_after_response(retained):
     relay, (_, head) = retained
     path = f"/v1/owners/{relay.root.owner_id}/blobs/{head.revision_id}"
     assert relay.client.get(path, headers=relay.headers("GET", path)).status_code == 200
-    with sqlite3.connect(relay.directory / "relay.sqlite3") as db:
+    with closing(sqlite3.connect(relay.directory / "relay.sqlite3")) as db, db:
         assert db.execute("SELECT count(*) FROM active_downloads").fetchone()[0] == 0
 
 
 def test_recheck_current_head_after_scheduling_blocks_gc(retained, monkeypatch):
     relay, (old, _) = retained
     schedule(relay, decision_for(relay, old))
-    with sqlite3.connect(relay.directory / "relay.sqlite3") as db:
+    with closing(sqlite3.connect(relay.directory / "relay.sqlite3")) as db, db:
         db.execute("UPDATE profiles SET head=? WHERE id=?", (old.revision_id, relay.profile))
     advance(monkeypatch)
     assert collect_retained_ciphertext(relay.directory)["skipped"] == 1
@@ -288,7 +289,7 @@ def test_recheck_current_head_after_scheduling_blocks_gc(retained, monkeypatch):
 @pytest.mark.parametrize("live", [False, True])
 def test_reader_quota_reaps_dead_current_head_leases_independent_of_gc(retained, live):
     relay, (_, head) = retained
-    with sqlite3.connect(relay.directory / "relay.sqlite3") as db:
+    with closing(sqlite3.connect(relay.directory / "relay.sqlite3")) as db, db:
         db.executemany(
             "INSERT INTO active_downloads VALUES(?,?,?,?,?)",
             [
@@ -305,7 +306,7 @@ def test_reader_quota_reaps_dead_current_head_leases_independent_of_gc(retained,
     path = f"/v1/owners/{relay.root.owner_id}/blobs/{head.revision_id}"
     result = relay.client.get(path, headers=relay.headers("GET", path))
     assert result.status_code == (429 if live else 200)
-    with sqlite3.connect(relay.directory / "relay.sqlite3") as db:
+    with closing(sqlite3.connect(relay.directory / "relay.sqlite3")) as db, db:
         assert db.execute("SELECT count(*) FROM active_downloads").fetchone()[0] == (
             4096 if live else 0
         )

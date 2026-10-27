@@ -5,6 +5,7 @@ import sqlite3
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import closing
 from dataclasses import FrozenInstanceError
 
 import pytest
@@ -179,7 +180,7 @@ def test_invalid_revision_cannot_create(store, revision):
     ],
 )
 def test_schema_tampering_fails_closed(store, tamper):
-    with sqlite3.connect(store.path) as db:
+    with closing(sqlite3.connect(store.path)) as db, db:
         db.execute(tamper)
     with pytest.raises(ControlError):
         ControlStore(store.directory)
@@ -190,7 +191,7 @@ def test_schema_tampering_fails_closed(store, tamper):
 @pytest.mark.parametrize("payload", ['{"x":1,"x":2}', '{"x":NaN}', "[" * 2000, "[]"])
 def test_corrupt_json_record_rejected(store, payload):
     store.create("record", {})
-    with sqlite3.connect(store.path) as db:
+    with closing(sqlite3.connect(store.path)) as db, db:
         db.execute("UPDATE records SET payload=?", (payload,))
     with pytest.raises(ControlError):
         store.get("record")

@@ -2,6 +2,7 @@
 
 import json
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 from unittest.mock import AsyncMock
 
@@ -179,14 +180,14 @@ async def transfer(profile_manager, monkeypatch):
     async def stage(profile, directory, source, batch, mode):
         existing = []
         if source.exists():
-            with sqlite3.connect(source) as connection:
+            with closing(sqlite3.connect(source)) as connection, connection:
                 existing = json.loads(connection.execute("SELECT value FROM proof").fetchone()[0])
         rows = {} if mode == "replace" else {ct._key(cookie): cookie for cookie in existing}
         if batch is not None:
             rows.update({ct._key(cookie): cookie for cookie in batch.cookies})
         cookies = list(rows.values())
         candidate = directory / "cookies.sqlite"
-        with sqlite3.connect(candidate) as connection:
+        with closing(sqlite3.connect(candidate)) as connection, connection:
             connection.execute("CREATE TABLE proof (value TEXT)")
             connection.execute("INSERT INTO proof VALUES (?)", (json.dumps(cookies),))
         return cookies, candidate
@@ -210,7 +211,10 @@ async def test_merge_replace_snapshot_backup_and_portable_export(transfer):
     assert await transfer.export_cookies(profile.id, "json", 3) == "[]"
     assert transfer.backups.list_backups()[0]["reason"] == "before_cookie_replace"
     restored = await transfer.backups.restore_backup(replaced["backup_id"])
-    with sqlite3.connect(Path(restored.storage_path) / "cookies.sqlite") as connection:
+    with (
+        closing(sqlite3.connect(Path(restored.storage_path) / "cookies.sqlite")) as connection,
+        connection,
+    ):
         assert {
             cookie["name"]
             for cookie in json.loads(connection.execute("SELECT value FROM proof").fetchone()[0])
@@ -277,9 +281,8 @@ def test_pending_handoff_survives_interruption_until_durable_ack(tmp_path):
     # Importing the same values receives a new identity, never a stale ack.
     ct._set_pending(database, payload)
     assert ct._read_pending(database)["nonce"] != persisted["nonce"]
-    with sqlite3.connect(database) as connection:
+    with closing(sqlite3.connect(database)) as connection, connection:
         connection.execute("UPDATE cpm_cookie_transfer SET payload = ?", ('{"cookies":"secret"}',))
-    connection.close()
     with pytest.raises(ct.CookieTransferError) as failure:
         ct.take_pending_cookies(tmp_path)
     assert "secret" not in str(failure.value)
@@ -307,9 +310,8 @@ def test_offline_sqlite_handles_close_before_publication_and_after_validation_er
     ct._set_pending(target, None)
     ct._publish_store(candidate, target)
     assert ct._read_pending(target) == pending
-    with connect(target) as invalid:
+    with closing(connect(target)) as invalid, invalid:
         invalid.execute("UPDATE cpm_cookie_transfer SET payload='invalid'")
-    invalid.close()
     with pytest.raises(ct.CookieTransferError):
         ct._read_pending(target)
     for connection in opened:

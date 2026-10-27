@@ -8,7 +8,7 @@ import getpass
 import os
 import shutil
 import warnings
-from contextlib import ExitStack
+from contextlib import ExitStack, closing
 from pathlib import Path
 from uuid import uuid4
 
@@ -237,7 +237,7 @@ def _target_key(database: Path, *, create: bool = True):
         if database.exists():
             import sqlite3
 
-            with sqlite3.connect(str(database)) as db:
+            with closing(sqlite3.connect(str(database))) as db, db:
                 table = db.execute("SELECT 1 FROM sqlite_master WHERE name='profiles'").fetchone()
                 if (
                     table
