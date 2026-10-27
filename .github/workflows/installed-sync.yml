@@ -84,21 +84,21 @@ jobs:
         if: runner.os == 'Linux'
         env:
           LIBGL_ALWAYS_SOFTWARE: '1'
-        run: xvfb-run -a uv run --no-sync python scripts/installed_sync_acceptance.py --output installed-sync-file.json
+        run: xvfb-run -a uv run --no-sync python -m scripts.installed_sync_acceptance --output installed-sync-file.json
       - name: Exercise two installed managers and their bundled UI
         if: runner.os != 'Linux'
-        run: uv run --no-sync python scripts/installed_sync_acceptance.py --output installed-sync-file.json
+        run: uv run --no-sync python -m scripts.installed_sync_acceptance --output installed-sync-file.json
       - name: Installed native-vault synchronization (Linux Secret Service)
         if: runner.os == 'Linux'
         env:
           LIBGL_ALWAYS_SOFTWARE: '1'
-        run: xvfb-run -a uv run --no-sync python scripts/run_with_ci_keyring.py -- .venv/bin/python scripts/installed_sync_acceptance.py --vault native --output installed-sync-native.json
+        run: xvfb-run -a uv run --no-sync python scripts/run_with_ci_keyring.py -- .venv/bin/python -m scripts.installed_sync_acceptance --vault native --output installed-sync-native.json
       - name: Installed native-vault synchronization (Keychain)
         if: runner.os == 'macOS'
-        run: uv run --no-sync python scripts/run_with_ci_keychain.py -- .venv/bin/python scripts/installed_sync_acceptance.py --vault native --output installed-sync-native.json
+        run: uv run --no-sync python scripts/run_with_ci_keychain.py -- .venv/bin/python -m scripts.installed_sync_acceptance --vault native --output installed-sync-native.json
       - name: Installed native-vault synchronization (Credential Manager)
         if: runner.os == 'Windows'
-        run: uv run --no-sync python scripts/installed_sync_acceptance.py --vault native --output installed-sync-native.json
+        run: uv run --no-sync python -m scripts.installed_sync_acceptance --vault native --output installed-sync-native.json
       - name: Upload secret-free acceptance result only
         if: always()
         uses: actions/upload-artifact@v7

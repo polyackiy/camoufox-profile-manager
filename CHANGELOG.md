@@ -32,6 +32,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   incomplete operations (#119). Interactive queues do not replay after reload.
 
 ### Fixed
+- Handle an optional SQLite rollback journal disappearing during relay path
+  inspection; retain mandatory database, permission/link and WAL/SHM rejection
+  checks (#142).
 - Close failed/cancelled SOCKS probe TCP connections before returning, including
   streams not adopted by the HTTP pool; bound complete endpoint exchanges and
   reject all resource/unraisable warnings in backend CI (#139).

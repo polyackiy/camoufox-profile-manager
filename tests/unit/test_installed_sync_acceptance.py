@@ -396,3 +396,19 @@ def test_profile_busy_classification_exports_no_profile_or_holder(status, catego
     assert error.category == category
     assert "SecretID" not in repr(error.__dict__)
     assert "private-host" not in repr(error.__dict__)
+
+
+def test_acceptance_module_entrypoint_starts_without_pythonpath():
+    import subprocess
+    import sys
+
+    environment = {key: value for key, value in os.environ.items() if key != "PYTHONPATH"}
+    result = subprocess.run(
+        [sys.executable, "-m", "scripts.installed_sync_acceptance", "--help"],
+        cwd=harness.ROOT,
+        env=environment,
+        capture_output=True,
+        timeout=20,
+    )
+    assert result.returncode == 0
+    assert b"--vault" in result.stdout and b"--output" in result.stdout

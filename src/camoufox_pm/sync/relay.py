@@ -262,8 +262,11 @@ COMMIT;""")
         verify_private_path(self.blobs)
         for suffix in ("", "-journal", "-wal", "-shm"):
             path = Path(str(self.path) + suffix)
-            reject_reparse_paths(path)
             try:
+                # DELETE-mode SQLite may remove an optional rollback journal
+                # between the helper's exists/lstat probes during a commit.
+                # Absence is permitted only for these optional sidecar paths.
+                reject_reparse_paths(path)
                 info = path.lstat()
             except FileNotFoundError:
                 if not suffix:

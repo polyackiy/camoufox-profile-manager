@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import os
 import sqlite3
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -1226,3 +1227,84 @@ def test_resumable_adopts_only_dead_legacy_writer(relay, live):
         assert result.json()["offset"] == 0 and not pending.exists()
         assert send_chunk(relay, revision, 0, data).status_code == 200
         assert relay.rpc("upload_finish", revision_id=revision).status_code == 200
+
+
+def test_transient_journal_can_disappear_during_reparse_inspection(relay, monkeypatch):
+    from pathlib import Path
+
+    from camoufox_pm.core.update_permissions import create_private_file
+    from camoufox_pm.sync.relay import _Store
+
+    store = _Store(relay.directory)
+    journal = Path(str(store.path) + "-journal")
+    import os
+
+    os.close(create_private_file(journal))
+    original = Path.exists
+    removed = []
+
+    def concurrent_commit(path, *args, **kwargs):
+        found = original(path, *args, **kwargs)
+        if path == journal and found and not removed:
+            journal.unlink()
+            removed.append(True)
+        return found
+
+    monkeypatch.setattr(Path, "exists", concurrent_commit)
+    store._paths()
+    assert removed == [True] and not journal.exists()
+    assert store.path.is_file()
+
+
+@pytest.mark.parametrize("suffix", ["-wal", "-shm"])
+def test_optional_file_race_does_not_allow_forbidden_journals(relay, suffix):
+    import os
+    from pathlib import Path
+
+    from camoufox_pm.core.update_permissions import create_private_file
+    from camoufox_pm.sync.relay import _Store
+
+    store = _Store(relay.directory)
+    path = Path(str(store.path) + suffix)
+    os.close(create_private_file(path))
+    try:
+        with pytest.raises(ValueError):
+            store._paths()
+    finally:
+        path.unlink()
+
+
+def test_missing_relay_database_still_fails_path_validation(relay):
+    from camoufox_pm.sync.relay import _Store
+
+    store = _Store(relay.directory)
+    store.path.unlink()
+    with pytest.raises(FileNotFoundError):
+        store._paths()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX sidecar permission/link controls")
+@pytest.mark.parametrize("kind", ["symlink", "hardlink", "public_permissions"])
+def test_optional_journal_disappearance_boundary_preserves_security_checks(relay, kind):
+    from pathlib import Path
+
+    from camoufox_pm.core.update_permissions import PermissionProtectionError, create_private_file
+    from camoufox_pm.sync.relay import _Store
+
+    store = _Store(relay.directory)
+    journal = Path(str(store.path) + "-journal")
+    target = relay.directory / "private-sidecar-control"
+    os.close(create_private_file(target))
+    if kind == "symlink":
+        journal.symlink_to(target)
+    elif kind == "hardlink":
+        os.link(target, journal)
+    else:
+        os.close(create_private_file(journal))
+        journal.chmod(0o644)
+    try:
+        with pytest.raises((PermissionProtectionError, ValueError)):
+            store._paths()
+    finally:
+        journal.unlink()
+        target.unlink()
