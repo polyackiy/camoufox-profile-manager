@@ -29,6 +29,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   incomplete operations (#119). Interactive queues do not replay after reload.
 
 ### Fixed
+- Normalize Ubuntu CI mirror-list indirection as well as direct APT sources,
+  retaining repository trust and bounding package download retries/timeouts (#134).
 - Close SQLite handles in recovery key probes and test helpers on success and
   failure, preserving transaction boundaries; make SQLite leaks fail backend
   CI instead of filtering Python 3.13 warnings (#131).

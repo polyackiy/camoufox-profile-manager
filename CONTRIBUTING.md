@@ -51,6 +51,12 @@ unraisable exceptions are errors in backend CI; other resource warnings remain
 visible. Fix resource owners rather than filtering warnings or using garbage
 collection as cleanup.
 
+Ubuntu CI normalizes direct and deb822 sources plus the hosted runner's
+`/etc/apt/apt-mirrors.txt` with `scripts/configure_ci_apt.py`. Unit tests use
+fixture roots; only disposable Ubuntu provisioning steps pass `--root /`.
+The helper preserves suites, components, mirror metadata and signing keys, and
+sets bounded HTTP(S) timeouts/retries without relaxing TLS or APT verification.
+
 To work on the single-process mode (`camoufox-pm`), build the UI into the package
 first — otherwise the server has nothing to serve:
 
