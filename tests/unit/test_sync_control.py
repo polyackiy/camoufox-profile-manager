@@ -353,3 +353,176 @@ def test_control_journal_retains_private_identity_across_commits(store):
         assert journal.stat().st_size == 0
         verify_private_path(journal)
     assert ControlStore(store.directory).get("record") == record
+
+
+def test_concurrent_first_creation_waits_for_initializer(tmp_path, monkeypatch):
+    import threading
+
+    from camoufox_pm.sync import control
+
+    directory = tmp_path.resolve() / "fresh-control"
+    created, release = threading.Event(), threading.Event()
+    original_create = control.create_private_file
+    original_schema = ControlStore._schema
+    original_try_lock = getattr(control, "_try_initialization_lock", None)
+    premature_reads = []
+
+    def create(path):
+        fd = original_create(path)
+        if path.name == "control.sqlite3":
+            created.set()
+            if not release.wait(timeout=10):
+                os.close(fd)
+                raise AssertionError("Initializer test watchdog expired")
+        return fd
+
+    def schema(db):
+        if db.execute("PRAGMA user_version").fetchone()[0] == 0:
+            premature_reads.append(True)
+            release.set()
+        return original_schema(db)
+
+    def try_lock(handle):
+        try:
+            original_try_lock(handle)
+        except OSError:
+            # The second opener reached real lock contention, not a sleep-based
+            # scheduling guess. Let the first opener finish its private schema.
+            release.set()
+            raise
+
+    monkeypatch.setattr(control, "create_private_file", create)
+    monkeypatch.setattr(ControlStore, "_schema", staticmethod(schema))
+    monkeypatch.setattr(control, "_try_initialization_lock", try_lock, raising=False)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(ControlStore, directory)
+        try:
+            assert created.wait(timeout=5)
+            second = pool.submit(ControlStore, directory)
+            right = second.result(timeout=15)
+        finally:
+            release.set()
+        left = first.result(timeout=15)
+    assert premature_reads == []
+    assert left.path == right.path and left.list() == right.list() == ()
+    left.create("initialized", {"value": 1})
+    assert right.get("initialized").payload == {"value": 1}
+
+
+def test_existing_empty_control_database_is_not_adopted(tmp_path):
+    from camoufox_pm.core.update_permissions import create_private_directory, create_private_file
+
+    directory = tmp_path.resolve() / "preexisting-empty"
+    create_private_directory(directory)
+    database = directory / "control.sqlite3"
+    os.close(create_private_file(database))
+    with pytest.raises(ControlError):
+        ControlStore(directory)
+    with closing(sqlite3.connect(database)) as db:
+        assert db.execute("PRAGMA user_version").fetchone()[0] == 0
+        assert db.execute("SELECT name FROM sqlite_master").fetchall() == []
+
+
+def test_initialization_lock_timeout_closes_waiter_descriptor(store, monkeypatch):
+    from camoufox_pm.sync import control
+
+    descriptors = []
+    original_open = control.os.open
+
+    def opened(path, *args, **kwargs):
+        descriptor = original_open(path, *args, **kwargs)
+        if str(path).endswith("control.init.lock"):
+            descriptors.append(descriptor)
+        return descriptor
+
+    monkeypatch.setattr(control.os, "open", opened)
+    with control._initialization_lock(store.directory):
+        monkeypatch.setattr(control, "_INITIALIZATION_WAIT_SECONDS", 0)
+        with pytest.raises(ControlError):
+            ControlStore(store.directory)
+        assert len(descriptors) == 2
+        with pytest.raises(OSError):
+            os.fstat(descriptors[-1])
+        assert os.fstat(descriptors[0]).st_nlink == 1
+    assert ControlStore(store.directory).list() == ()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX private init-lock path controls")
+@pytest.mark.parametrize("kind", ["symlink", "hardlink", "public_permissions"])
+def test_unsafe_initialization_lock_is_rejected(store, kind):
+    from camoufox_pm.core.update_permissions import create_private_file
+
+    lock = store.directory / "control.init.lock"
+    lock.unlink()
+    target = store.directory / "private-init-control"
+    os.close(create_private_file(target))
+    if kind == "symlink":
+        lock.symlink_to(target)
+    elif kind == "hardlink":
+        os.link(target, lock)
+    else:
+        os.close(create_private_file(lock))
+        lock.chmod(0o644)
+    with pytest.raises(ControlError):
+        ControlStore(store.directory)
+    assert store.path.is_file()
+
+
+def test_initialization_lock_releases_after_process_kill(store):
+    import time
+
+    signal = store.directory / "child-lock-ready"
+    script = """
+import sys
+from pathlib import Path
+from camoufox_pm.sync.control import _initialization_lock
+with _initialization_lock(Path(sys.argv[1])):
+    Path(sys.argv[2]).write_text("ready")
+    sys.stdin.read()
+"""
+    process = subprocess.Popen(
+        [sys.executable, "-c", script, str(store.directory), str(signal)],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    try:
+        deadline = time.monotonic() + 10
+        while not signal.exists():
+            assert process.poll() is None and time.monotonic() < deadline
+            time.sleep(0.01)
+        process.kill()
+        process.wait(timeout=10)
+        assert ControlStore(store.directory).list() == ()
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.wait(timeout=10)
+        process.stdin.close()
+
+
+@pytest.mark.parametrize("unsafe", [False, True])
+def test_native_existing_directory_race_requires_verified_private_owner(
+    tmp_path, monkeypatch, unsafe
+):
+    from camoufox_pm.core.update_permissions import PermissionProtectionError
+    from camoufox_pm.sync import control
+
+    directory = tmp_path.resolve() / "native-directory-race"
+    original = control.create_private_directory
+
+    def raced(path):
+        if unsafe:
+            # The candidate cannot be accepted as a directory at all.
+            path.write_bytes(b"untrusted existing file")
+        else:
+            original(path)
+        raise PermissionProtectionError("Synthetic native already-exists result")
+
+    monkeypatch.setattr(control, "create_private_directory", raced)
+    if unsafe:
+        with pytest.raises(ControlError):
+            ControlStore(directory)
+        assert directory.read_bytes() == b"untrusted existing file"
+    else:
+        assert ControlStore(directory).list() == ()

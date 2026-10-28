@@ -3,10 +3,70 @@
 import os
 import ssl
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from cryptography import x509
 from scripts import installed_sync_acceptance as harness
+
+
+def diagnostic():
+    return {
+        "version": 1,
+        "area": "sync",
+        "stage": "execute",
+        "category": "invalid_state",
+        "site": "core.profile_operations",
+        "line": 64,
+    }
+
+
+@pytest.mark.parametrize("invalid", [False, True])
+def test_installed_error_retains_only_validated_operation_evidence(invalid):
+    evidence = diagnostic()
+    if invalid:
+        evidence["password"] = "private-credential"
+    payload = {
+        "detail": "Synchronization operation failed; inspect its state and retry",
+        "error": {"details": [{"diagnostic": evidence}]},
+        "request": "private-profile-path-and-url",
+    }
+    error = harness.installed_api_error(SimpleNamespace(status=409, json=lambda: payload))
+    assert error.category == "runtime_failed"
+    assert error.diagnostic == (None if invalid else diagnostic())
+    assert "private-" not in str(error.__dict__)
+
+
+def test_installed_missing_profile_probe_does_not_replay_or_change_profiles():
+    calls = []
+    pages = []
+
+    def call(path):
+        calls.append(("GET", path))
+        return {"profiles": []}
+
+    def post(url, **kwargs):
+        calls.append(("POST", url))
+        assert url == f"http://local/api/v1/sync/profiles/{harness.DIAGNOSTIC_PROFILE_ID}/acquire"
+        assert kwargs["data"] == {} and kwargs["headers"] == {"Origin": "http://local"}
+        return SimpleNamespace(
+            status=409,
+            headers={"cache-control": "no-store"},
+            json=lambda: {
+                "detail": "Synchronization operation failed; inspect its state and retry",
+                "error": {"details": [{"diagnostic": diagnostic()}]},
+            },
+        )
+
+    device = object.__new__(harness.Device)
+    device.vault_kind = "native"
+    device.origin = "http://local"
+    device.call = call
+    device.page = SimpleNamespace(goto=pages.append)
+    device.context = SimpleNamespace(request=SimpleNamespace(post=post))
+    assert device.check_runtime_diagnostic() == diagnostic()
+    assert [verb for verb, _path in calls] == ["GET", "GET", "POST", "GET"]
+    assert pages == ["about:blank", "http://local/"]
 
 
 @pytest.mark.parametrize(
@@ -293,3 +353,218 @@ def test_keychain_command_timeout_never_exposes_password(monkeypatch):
         wrapper.security("unlock-keychain", "-p", "synthetic-secret")
     assert "synthetic-secret" not in str(error.value)
     assert error.value.__suppress_context__
+
+
+@pytest.mark.parametrize("busy", [False, True])
+def test_sync_observation_finishes_backup_before_one_shot_launch(monkeypatch, busy):
+    calls = []
+
+    def call(path, body):
+        calls.append(path)
+        if path == "/system/backups":
+            return {"data": {"backups": [{"profile_id": "target"}]}}
+        if path.endswith("/launch") and busy:
+            raise harness.InstalledAPIError(409, "profile_busy")
+        return {}
+
+    monkeypatch.setattr(harness, "wait_for", lambda check, **kwargs: check())
+    monkeypatch.setattr(
+        harness.Probe, "reports", {"first": {"httpOnly": True, "authenticated": True}}
+    )
+    report = {}
+    device = SimpleNamespace(call=call)
+    if busy:
+        with pytest.raises(harness.InstalledAPIError):
+            harness.observe(device, "target", "http://local", "first", report)
+    else:
+        harness.observe(device, "target", "http://local", "first", report)
+    assert calls[:2] == ["/system/backups", "/profiles/target/launch"]
+    assert calls.count("/profiles/target/launch") == 1
+    assert report["backup_checks"]["first"]["backup_preparation"]["prepared"] is True
+    assert ("/browsers/close-all" in calls) is (not busy)
+
+
+@pytest.mark.parametrize("status,category", [(409, "profile_busy"), (404, "unclassified")])
+def test_profile_busy_classification_exports_no_profile_or_holder(status, category):
+    response = SimpleNamespace(
+        status=status,
+        json=lambda: {
+            "detail": "Profile SecretID is leased by another holder (private-host:123:slot)"
+        },
+    )
+    error = harness.installed_api_error(response)
+    assert error.category == category
+    assert "SecretID" not in repr(error.__dict__)
+    assert "private-host" not in repr(error.__dict__)
+
+
+def test_acceptance_module_entrypoint_starts_without_pythonpath():
+    import subprocess
+    import sys
+
+    environment = {key: value for key, value in os.environ.items() if key != "PYTHONPATH"}
+    result = subprocess.run(
+        [sys.executable, "-m", "scripts.installed_sync_acceptance", "--help"],
+        cwd=harness.ROOT,
+        env=environment,
+        capture_output=True,
+        timeout=20,
+    )
+    assert result.returncode == 0
+    assert b"--vault" in result.stdout and b"--output" in result.stdout
+
+
+def test_relay_diagnostic_drops_unknown_frames_and_private_http_detail():
+    from fastapi import FastAPI, HTTPException
+    from fastapi.testclient import TestClient
+
+    app = FastAPI()
+    report = {}
+    harness.record_relay_refusals(app, report)
+
+    @app.get("/private-test-route")
+    async def private_handler():
+        raise HTTPException(409, "private-credential-url", headers={"Cache-Control": "no-store"})
+
+    with TestClient(app) as client:
+        response = client.get("/private-test-route")
+    assert response.status_code == 409
+    assert response.headers["cache-control"] == "no-store"
+    assert report == {"relay_refusals": []}
+
+
+def test_relay_storage_observer_is_bounded_private_and_restored(monkeypatch, tmp_path):
+    import os
+
+    from scripts.installed_sync_acceptance import observe_relay_storage
+
+    from camoufox_pm.sync import relay
+
+    path = tmp_path / "private-unexported-name"
+    path.write_bytes(b"private bytes")
+    original_length = relay._opened_length
+    original_restart = relay._restart_lost_prefix
+    original_stat = os.fstat
+
+    def stale(descriptor):
+        values = list(original_stat(descriptor))
+        values[6] = 0
+        return os.stat_result(values)
+
+    monkeypatch.setattr(os, "fstat", stale)
+    report = {}
+    with pytest.raises(RuntimeError), observe_relay_storage(report), path.open("rb") as stream:
+        for _ in range(12):
+            assert relay._opened_length(stream) == len(b"private bytes")
+        raise RuntimeError("private error")
+    assert relay._opened_length is original_length
+    assert relay._restart_lost_prefix is original_restart
+    assert report == {"relay_storage_checks": ["metadata_shorter_than_eof"] * 8}
+
+
+@pytest.mark.parametrize("body", [None, {}])
+def test_real_request_context_retries_resets_only_for_reads(body):
+    """Real bundled Node transport, loopback RSTs; no browser executable needed."""
+    import http.server
+    import socket
+    import struct
+    import sys
+    import threading
+
+    from playwright.sync_api import Error, sync_playwright
+
+    attempts = []
+
+    class ResetServer(http.server.BaseHTTPRequestHandler):
+        def log_message(self, *args):
+            pass
+
+        def do_GET(self):
+            length = int(self.headers.get("Content-Length", "0"))
+            if length:
+                self.rfile.read(length)
+            attempts.append(self.command)
+            if len(attempts) <= 2:
+                linger = struct.pack("hh" if sys.platform == "win32" else "ii", 1, 0)
+                self.connection.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, linger)
+                self.close_connection = True
+                return
+            self.send_response(200)
+            self.send_header("Content-Length", "2")
+            self.end_headers()
+            self.wfile.write(b"{}")
+
+        do_POST = do_GET
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), ResetServer)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        with sync_playwright() as playwright:
+            request = playwright.request.new_context()
+            try:
+                device = object.__new__(harness.Device)
+                device.origin = f"http://127.0.0.1:{server.server_port}"
+                device.context = SimpleNamespace(request=request)
+                device.process = SimpleNamespace(poll=lambda: None)
+                # Before enabling bounded GET retries, the same actual reset fails.
+                with pytest.raises(Error) as baseline:
+                    request.fetch(device.origin + "/probe", max_retries=0, timeout=10000)
+                assert attempts == ["GET"]
+                assert (
+                    harness.InstalledTransportError(
+                        baseline.value, read_only=True, process=device.process
+                    ).category
+                    == "connection_reset"
+                )
+                attempts.clear()
+                if body is None:
+                    assert device.call("/poll") == {}
+                    assert attempts == ["GET"] * 3
+                else:
+                    with pytest.raises(harness.InstalledTransportError) as captured:
+                        device.call("/mutate", body)
+                    assert attempts == ["POST"]
+                    assert harness.transport_diagnostic(captured.value) == {
+                        "category": "connection_reset",
+                        "read_only": False,
+                        "manager_running": True,
+                    }
+            finally:
+                request.dispose()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+    assert not thread.is_alive()
+
+
+@pytest.mark.parametrize("running", [False, True])
+def test_transport_evidence_discards_message_logs_and_private_values(running):
+    from playwright.sync_api import Error
+
+    error = harness.InstalledTransportError(
+        Error("private URL, credential and API response\nCall log: private profile"),
+        read_only=True,
+        process=SimpleNamespace(poll=lambda: None if running else 1),
+    )
+    assert harness.transport_diagnostic(error) == {
+        "category": "request_failed",
+        "read_only": True,
+        "manager_running": running,
+    }
+    assert "private" not in str(error.__dict__) + str(error)
+    assert harness.transport_diagnostic(RuntimeError("private")) is None
+
+
+def test_transport_evidence_rejects_mutated_private_fields():
+    from playwright.sync_api import Error
+
+    error = harness.InstalledTransportError(
+        Error("private message"), read_only=True, process=SimpleNamespace(poll=lambda: None)
+    )
+    error.category = "private arbitrary field"
+    assert harness.transport_diagnostic(error) is None
+    error.category = "request_failed"
+    error.read_only = 1
+    assert harness.transport_diagnostic(error) is None

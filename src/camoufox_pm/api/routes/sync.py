@@ -20,8 +20,10 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 
 from camoufox_pm.api.access import request_principal, request_session_hash
 from camoufox_pm.api.dependencies import get_storage_manager
+from camoufox_pm.api.errors import ApiError
 from camoufox_pm.api.principal import Principal
 from camoufox_pm.core import auth
+from camoufox_pm.core.operation_diagnostics import DiagnosticStage, operation_diagnostic
 from camoufox_pm.core.profile_operations import run_file_operation
 
 router = APIRouter()
@@ -611,17 +613,23 @@ async def _runtime_call(request: Request, user_id: str, method: str, *args, **kw
         raise _error(409, "Another synchronization ceremony is in progress")
     if exclusive:
         _operation_in_progress = True
+    stage: DiagnosticStage = "authorization"
 
     async def authorize():
         await _live_owner(request, user_id)
 
     async def invoke():
+        nonlocal stage
         await authorize()
         # Construction may open protected SQLite state, so keep it off the loop.
+        stage = "runtime_setup"
         runtime = await run_file_operation(_runtime_factory)
+        stage = "service_setup"
         runtime.service = await run_file_operation(_resolve_service)
         runtime.cache = runtime.service.control.directory / "transfers"
+        stage = "execute"
         result = await getattr(runtime, method)(user_id, *args, authorize=authorize, **kwargs)
+        stage = "final_authorization"
         await authorize()
         return result
 
@@ -643,8 +651,31 @@ async def _runtime_call(request: Request, user_id: str, method: str, *args, **kw
         return result
     except HTTPException:
         raise
-    except Exception:
-        raise _error(409, "Synchronization operation failed; inspect its state and retry") from None
+    except Exception as error:
+        # A failed operation must not publish metadata to a session revoked
+        # while its worker was running. Inability to recheck authority retains
+        # the old generic response, without structured internal evidence.
+        try:
+            await authorize()
+        except HTTPException:
+            raise
+        except Exception:
+            raise _error(
+                409, "Synchronization operation failed; inspect its state and retry"
+            ) from None
+        failure = ApiError(
+            409,
+            "Synchronization operation failed; inspect its state and retry",
+            details=[
+                {
+                    "diagnostic": operation_diagnostic(error, area="sync", stage=stage).model_dump(
+                        mode="json", exclude_none=True
+                    )
+                }
+            ],
+        )
+        failure.headers = _NO_STORE
+        raise failure from None
     finally:
         if exclusive:
             _operation_in_progress = False

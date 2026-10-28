@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import os
 import sqlite3
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -1100,6 +1101,7 @@ def test_resumable_finalize_rename_crash_reopens_safely(relay, monkeypatch):
     monkeypatch.undo()
     _Store(relay.directory)
     assert relay.rpc("blob_status", revision_id=revision).json()["state"] == "uploading"
+    assert start_resumable(relay, revision, data).json()["offset"] == len(data)
     assert relay.rpc("upload_finish", revision_id=revision).status_code == 200
 
 
@@ -1115,7 +1117,8 @@ def test_resumable_expiry_rejects_late_chunk(relay):
     assert start_resumable(relay, revision, data).status_code == 409
 
 
-def test_real_client_resumes_existing_ciphertext_prefix(relay, tmp_path):
+@pytest.mark.parametrize("lost_prefix", [False, True])
+def test_real_client_resumes_existing_ciphertext_prefix(relay, tmp_path, lost_prefix):
     import httpx
 
     from camoufox_pm.sync.client import RelayClient
@@ -1125,6 +1128,8 @@ def test_real_client_resumes_existing_ciphertext_prefix(relay, tmp_path):
     source.write_bytes(data)
     start_resumable(relay, revision, data)
     send_chunk(relay, revision, 0, data[:40])
+    if lost_prefix:
+        (relay.directory / "blobs" / f".pending-{relay.root.owner_id}-{revision}").unlink()
     sent = []
 
     def transport(request):
@@ -1144,7 +1149,10 @@ def test_real_client_resumes_existing_ciphertext_prefix(relay, tmp_path):
     ) as client:
         result = client.upload(revision, source, hashlib.sha256(data).hexdigest(), len(data))
     assert result["ciphertext_length"] == 100
-    assert len(sent) == 1 and sent[0][0].endswith("/chunks/40") and sent[0][1] == 60
+    offset = 0 if lost_prefix else 40
+    assert len(sent) == 1 and sent[0][0].endswith(f"/chunks/{offset}")
+    assert sent[0][1] == len(data) - offset
+    assert source.read_bytes() == data
 
 
 def test_real_client_lost_chunk_ack_resumes_without_resending(relay, tmp_path):
@@ -1226,3 +1234,341 @@ def test_resumable_adopts_only_dead_legacy_writer(relay, live):
         assert result.json()["offset"] == 0 and not pending.exists()
         assert send_chunk(relay, revision, 0, data).status_code == 200
         assert relay.rpc("upload_finish", revision_id=revision).status_code == 200
+
+
+def test_transient_journal_can_disappear_during_reparse_inspection(relay, monkeypatch):
+    from pathlib import Path
+
+    from camoufox_pm.core.update_permissions import create_private_file
+    from camoufox_pm.sync.relay import _Store
+
+    store = _Store(relay.directory)
+    journal = Path(str(store.path) + "-journal")
+    import os
+
+    os.close(create_private_file(journal))
+    original = Path.exists
+    removed = []
+
+    def concurrent_commit(path, *args, **kwargs):
+        found = original(path, *args, **kwargs)
+        if path == journal and found and not removed:
+            journal.unlink()
+            removed.append(True)
+        return found
+
+    monkeypatch.setattr(Path, "exists", concurrent_commit)
+    store._paths()
+    assert removed == [True] and not journal.exists()
+    assert store.path.is_file()
+
+
+@pytest.mark.parametrize("suffix", ["-wal", "-shm"])
+def test_optional_file_race_does_not_allow_forbidden_journals(relay, suffix):
+    import os
+    from pathlib import Path
+
+    from camoufox_pm.core.update_permissions import create_private_file
+    from camoufox_pm.sync.relay import _Store
+
+    store = _Store(relay.directory)
+    path = Path(str(store.path) + suffix)
+    os.close(create_private_file(path))
+    try:
+        with pytest.raises(ValueError):
+            store._paths()
+    finally:
+        path.unlink()
+
+
+def test_missing_relay_database_still_fails_path_validation(relay):
+    from camoufox_pm.sync.relay import _Store
+
+    store = _Store(relay.directory)
+    store.path.unlink()
+    with pytest.raises(FileNotFoundError):
+        store._paths()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX sidecar permission/link controls")
+@pytest.mark.parametrize("kind", ["symlink", "hardlink", "public_permissions"])
+def test_optional_journal_disappearance_boundary_preserves_security_checks(relay, kind):
+    from pathlib import Path
+
+    from camoufox_pm.core.update_permissions import PermissionProtectionError, create_private_file
+    from camoufox_pm.sync.relay import _Store
+
+    store = _Store(relay.directory)
+    journal = Path(str(store.path) + "-journal")
+    target = relay.directory / "private-sidecar-control"
+    os.close(create_private_file(target))
+    if kind == "symlink":
+        journal.symlink_to(target)
+    elif kind == "hardlink":
+        os.link(target, journal)
+    else:
+        os.close(create_private_file(journal))
+        journal.chmod(0o644)
+    try:
+        with pytest.raises((PermissionProtectionError, ValueError)):
+            store._paths()
+    finally:
+        journal.unlink()
+        target.unlink()
+
+
+def test_installed_relay_records_only_bounded_fixed_refusal_coordinates(relay):
+    from scripts.installed_sync_acceptance import record_relay_refusals
+
+    from camoufox_pm.core.operation_diagnostics import validated_diagnostic
+
+    app = create_relay_app(
+        relay.directory,
+        relay_url=ORIGIN,
+        registration_token=SecretStr(TOKEN),
+        development_loopback=True,
+    )
+    report = {}
+    record_relay_refusals(app, report)
+    with TestClient(app, base_url=ORIGIN, client=("127.0.0.1", 50000)) as client:
+        for _ in range(12):
+            response = client.post(
+                "/v1/register", json=relay.register_body, headers={"X-Registration-Token": TOKEN}
+            )
+            assert response.status_code == 409
+            assert response.json() == {"detail": "Sync relay request rejected"}
+    assert len(report["relay_refusals"]) == 8
+    for item in report["relay_refusals"]:
+        assert set(item) == {"status", "diagnostic"} and item["status"] == 409
+        evidence = validated_diagnostic(item["diagnostic"], area="sync")
+        assert evidence["site"] == "sync.relay" and 1 <= evidence["line"] <= 10000
+    assert TOKEN not in str(report) and relay.root.owner_id not in str(report)
+
+
+@pytest.mark.parametrize("damage", ["hardlink", "short_prefix"])
+def test_resumable_rejects_damaged_pending_file_without_advancing(relay, damage):
+    revision, data = str(uuid4()), b"x" * 100
+    assert start_resumable(relay, revision, data).status_code == 200
+    assert send_chunk(relay, revision, 0, data[:40]).status_code == 200
+    pending = relay.directory / "blobs" / f".pending-{relay.root.owner_id}-{revision}"
+    extra = relay.directory / "extra-pending-link"
+    if damage == "hardlink":
+        os.link(pending, extra)
+    else:
+        with pending.open("r+b") as stream:
+            stream.truncate(20)
+    try:
+        assert send_chunk(relay, revision, 40, data[40:]).status_code == 409
+        with closing(sqlite3.connect(relay.directory / "relay.sqlite3")) as db:
+            assert db.execute(
+                "SELECT offset FROM upload_offsets WHERE revision=?", (revision,)
+            ).fetchone() == (40,)
+        resumed = start_resumable(relay, revision, data)
+        if damage == "hardlink":
+            assert resumed.status_code == 409
+        else:
+            assert resumed.json()["offset"] == 0
+        assert relay.rpc("blob_status", revision_id=revision).json()["state"] == "uploading"
+        assert not (relay.directory / "blobs" / f"{relay.root.owner_id}-{revision}.blob").exists()
+    finally:
+        extra.unlink(missing_ok=True)
+
+
+@pytest.mark.parametrize("missing", [False, True])
+def test_owned_upload_begin_restarts_a_lost_uncommitted_prefix(relay, missing):
+    revision, data = str(uuid4()), b"x" * 100
+    assert start_resumable(relay, revision, data).status_code == 200
+    assert send_chunk(relay, revision, 0, data[:40]).status_code == 200
+    pending = relay.directory / "blobs" / f".pending-{relay.root.owner_id}-{revision}"
+    if missing:
+        pending.unlink()
+    else:
+        with pending.open("r+b") as stream:
+            stream.truncate(20)
+    resumed = start_resumable(relay, revision, data)
+    assert resumed.status_code == 200 and resumed.json()["offset"] == 0
+    assert send_chunk(relay, revision, 0, data).status_code == 200
+    assert relay.rpc("upload_finish", revision_id=revision).status_code == 200
+    assert (
+        relay.directory / "blobs" / f"{relay.root.owner_id}-{revision}.blob"
+    ).read_bytes() == data
+
+
+def test_resumable_lengths_use_actual_bytes_when_metadata_is_stale(relay, monkeypatch):
+    revision, data = str(uuid4()), b"x" * 100
+    assert start_resumable(relay, revision, data).status_code == 200
+    assert send_chunk(relay, revision, 0, data[:40]).status_code == 200
+    pending = relay.directory / "blobs" / f".pending-{relay.root.owner_id}-{revision}"
+    original = os.fstat
+    with pending.open("rb") as stream:
+        identity = original(stream.fileno())
+    hits = []
+
+    def stale(descriptor):
+        info = original(descriptor)
+        if (info.st_ino, info.st_dev) == (identity.st_ino, identity.st_dev):
+            values = list(info)
+            values[6] = 0
+            hits.append(True)
+            return os.stat_result(values)
+        return info
+
+    monkeypatch.setattr(os, "fstat", stale)
+    assert send_chunk(relay, revision, 40, data[40:]).status_code == 200
+    assert relay.rpc("upload_finish", revision_id=revision).status_code == 200
+    assert hits
+    assert (
+        relay.directory / "blobs" / f"{relay.root.owner_id}-{revision}.blob"
+    ).read_bytes() == data
+
+
+def test_chunk_is_not_acknowledged_if_bytes_disappear_on_close(relay, monkeypatch):
+    revision, data = str(uuid4()), b"x" * 100
+    assert start_resumable(relay, revision, data).status_code == 200
+    pending = relay.directory / "blobs" / f".pending-{relay.root.owner_id}-{revision}"
+    original = os.fdopen
+    shrunk = []
+
+    class DisappearingBytes:
+        def __init__(self, wrapped):
+            self.wrapped = wrapped
+
+        def __enter__(self):
+            return self.wrapped.__enter__()
+
+        def __exit__(self, kind, value, trace):
+            result = self.wrapped.__exit__(kind, value, trace)
+            if kind is None and not shrunk:
+                with pending.open("r+b") as stream:
+                    stream.truncate(20)
+                shrunk.append(True)
+            return result
+
+    def fdopen(descriptor, mode="r", *args, **kwargs):
+        stream = original(descriptor, mode, *args, **kwargs)
+        return DisappearingBytes(stream) if mode == "r+b" else stream
+
+    monkeypatch.setattr(os, "fdopen", fdopen)
+    assert send_chunk(relay, revision, 0, data).status_code == 409
+    with closing(sqlite3.connect(relay.directory / "relay.sqlite3")) as db:
+        assert db.execute(
+            "SELECT offset FROM upload_offsets WHERE revision=?", (revision,)
+        ).fetchone() == (0,)
+    monkeypatch.undo()
+    assert start_resumable(relay, revision, data).json()["offset"] == 0
+    assert send_chunk(relay, revision, 0, data).status_code == 200
+    assert relay.rpc("upload_finish", revision_id=revision).status_code == 200
+
+
+@pytest.mark.parametrize("damage", ["hardlink", "public_permissions"])
+def test_prefix_restart_rejects_unsafe_private_file(relay, damage):
+    if damage == "public_permissions" and os.name == "nt":
+        pytest.skip("POSIX permission bits")
+    revision, data = str(uuid4()), b"x" * 100
+    start_resumable(relay, revision, data)
+    send_chunk(relay, revision, 0, data[:40])
+    pending = relay.directory / "blobs" / f".pending-{relay.root.owner_id}-{revision}"
+    with pending.open("r+b") as stream:
+        stream.truncate(20)
+    if damage == "hardlink":
+        os.link(pending, relay.directory / "unsafe-extra-link")
+    else:
+        pending.chmod(0o644)
+    result = start_resumable(relay, revision, data)
+    assert result.status_code in {400, 409}
+    assert pending.read_bytes() == data[:20]
+    with closing(sqlite3.connect(relay.directory / "relay.sqlite3")) as db:
+        assert db.execute(
+            "SELECT offset FROM upload_offsets WHERE revision=?", (revision,)
+        ).fetchone() == (40,)
+
+
+def test_prefix_restart_keeps_original_deadline_and_rejects_active_writer(relay):
+    revision, data = str(uuid4()), b"x" * 100
+    start_resumable(relay, revision, data)
+    send_chunk(relay, revision, 0, data[:40])
+    pending = relay.directory / "blobs" / f".pending-{relay.root.owner_id}-{revision}"
+    pending.unlink()
+    with closing(sqlite3.connect(relay.directory / "relay.sqlite3")) as db, db:
+        deadline = db.execute(
+            "SELECT expires FROM upload_expiry WHERE revision=?", (revision,)
+        ).fetchone()
+        db.execute(
+            "INSERT INTO active_uploads VALUES(?,?,?,?)",
+            (relay.root.owner_id, revision, os.getpid(), 0),
+        )
+    assert start_resumable(relay, revision, data).status_code == 409
+    assert not pending.exists()
+    with closing(sqlite3.connect(relay.directory / "relay.sqlite3")) as db, db:
+        db.execute("DELETE FROM active_uploads WHERE revision=?", (revision,))
+    assert start_resumable(relay, revision, data).json()["offset"] == 0
+    with closing(sqlite3.connect(relay.directory / "relay.sqlite3")) as db:
+        assert (
+            db.execute("SELECT expires FROM upload_expiry WHERE revision=?", (revision,)).fetchone()
+            == deadline
+        )
+
+
+def test_prefix_restart_fsync_failure_never_acknowledges_loss(relay, monkeypatch):
+    revision, data = str(uuid4()), b"x" * 100
+    start_resumable(relay, revision, data)
+    send_chunk(relay, revision, 0, data[:40])
+    pending = relay.directory / "blobs" / f".pending-{relay.root.owner_id}-{revision}"
+    with pending.open("r+b") as stream:
+        stream.truncate(20)
+
+    def failed(descriptor):
+        raise OSError("private fsync failure")
+
+    monkeypatch.setattr(os, "fsync", failed)
+    assert start_resumable(relay, revision, data).status_code == 400
+    with closing(sqlite3.connect(relay.directory / "relay.sqlite3")) as db:
+        assert db.execute(
+            "SELECT offset FROM upload_offsets WHERE revision=?", (revision,)
+        ).fetchone() == (40,)
+    monkeypatch.undo()
+    assert start_resumable(relay, revision, data).json()["offset"] == 0
+    assert send_chunk(relay, revision, 0, data).status_code == 200
+    assert relay.rpc("upload_finish", revision_id=revision).status_code == 200
+
+
+@pytest.mark.parametrize("revoked", [False, True])
+def test_prefix_restart_requires_original_current_writer(relay, revoked):
+    revision, data = str(uuid4()), b"x" * 100
+    start_resumable(relay, revision, data)
+    send_chunk(relay, revision, 0, data[:40])
+    pending = relay.directory / "blobs" / f".pending-{relay.root.owner_id}-{revision}"
+    pending.unlink()
+    peer, peer_id = generate_device(), str(uuid4())
+    devices = (peer.certificate(relay.root.owner_id, peer_id),)
+    if not revoked:
+        devices += relay.membership.membership.devices
+    successor = approve_membership(
+        relay.root, relay.secrets.authority_key, devices, previous=relay.membership
+    )
+    assert (
+        relay.rpc("update_membership", membership=successor.model_dump(mode="json")).status_code
+        == 200
+    )
+    if not revoked:
+        relay.device_id, relay.key = peer_id, peer.signing_key
+    assert start_resumable(relay, revision, data).status_code == (403 if revoked else 409)
+    assert not pending.exists()
+    with closing(sqlite3.connect(relay.directory / "relay.sqlite3")) as db:
+        assert db.execute(
+            "SELECT offset FROM upload_offsets WHERE revision=?", (revision,)
+        ).fetchone() == (40,)
+
+
+def test_prefix_restart_never_resets_ready_or_committed_objects(relay):
+    revision, data = str(uuid4()), b"x" * 100
+    start_resumable(relay, revision, data)
+    send_chunk(relay, revision, 0, data)
+    assert relay.rpc("upload_finish", revision_id=revision).status_code == 200
+    final = relay.directory / "blobs" / f"{relay.root.owner_id}-{revision}.blob"
+    assert start_resumable(relay, revision, data).json()["offset"] == len(data)
+    assert final.read_bytes() == data
+    with closing(sqlite3.connect(relay.directory / "relay.sqlite3")) as db, db:
+        db.execute("UPDATE revisions SET state='committed' WHERE id=?", (revision,))
+    assert start_resumable(relay, revision, data).status_code == 409
+    assert final.read_bytes() == data

@@ -16,10 +16,11 @@ import re
 import sqlite3
 import stat
 import time
+from collections.abc import Iterator
 from contextlib import closing, contextmanager, suppress
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, BinaryIO, Literal
 from uuid import UUID, uuid4
 
 import psutil
@@ -60,6 +61,47 @@ _MAX_JSON = 512 * 1024
 _MAX_COUNTER = 2**53 - 1
 UPLOAD_CHUNK_BYTES = 8 * 1024 * 1024
 _ERROR = "Sync relay request rejected"
+
+
+def _opened_length(stream: BinaryIO) -> int:
+    """Use the open handle's logical EOF, not a cached stat size snapshot."""
+    return stream.seek(0, os.SEEK_END)
+
+
+@contextmanager
+def _private_stream(path: Path, mode: Literal["rb", "r+b"]) -> Iterator[BinaryIO]:
+    verify_private_path(path)
+    descriptor = os.open(
+        path,
+        (os.O_RDWR if mode == "r+b" else os.O_RDONLY)
+        | getattr(os, "O_NOFOLLOW", 0)
+        | getattr(os, "O_NONBLOCK", 0),
+    )
+    try:
+        opened = os.fdopen(descriptor, "r+b") if mode == "r+b" else os.fdopen(descriptor, "rb")
+    except BaseException:
+        os.close(descriptor)
+        raise
+    with opened as stream:
+        info = os.fstat(stream.fileno())
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+            raise HTTPException(409, _ERROR)
+        yield stream
+
+
+def _restart_lost_prefix(path: Path, confirmed: int) -> bool:
+    """Discard only missing/short private uncommitted bytes; caller holds the writer lock."""
+    try:
+        with _private_stream(path, "r+b") as stream:
+            if _opened_length(stream) >= confirmed:
+                return False
+            stream.truncate(0)
+            stream.flush()
+            os.fsync(stream.fileno())
+    except FileNotFoundError:
+        # Reparse and owner checks still run for the parent before exclusive creation.
+        os.close(create_private_file(path))
+    return True
 
 
 def _json(obj: Any) -> bytes:
@@ -262,8 +304,11 @@ COMMIT;""")
         verify_private_path(self.blobs)
         for suffix in ("", "-journal", "-wal", "-shm"):
             path = Path(str(self.path) + suffix)
-            reject_reparse_paths(path)
             try:
+                # DELETE-mode SQLite may remove an optional rollback journal
+                # between the helper's exists/lstat probes during a commit.
+                # Absence is permitted only for these optional sidecar paths.
+                reject_reparse_paths(path)
                 info = path.lstat()
             except FileNotFoundError:
                 if not suffix:
@@ -1000,7 +1045,29 @@ def create_relay_app(
                             )
                             offset = 0
                     else:
-                        offset = confirmed[0]
+                        offset = _counter(confirmed[0])
+                        if offset > length:
+                            raise HTTPException(409, _ERROR)
+                        if row[3] == "uploading":
+                            if (
+                                db.execute(
+                                    "SELECT 1 FROM active_uploads WHERE owner=? AND revision=?",
+                                    (owner_id, revision),
+                                ).fetchone()
+                                is not None
+                            ):
+                                raise HTTPException(409, _ERROR)
+                            if not store.blob_path(
+                                owner_id, revision
+                            ).exists() and _restart_lost_prefix(
+                                store.pending_path(owner_id, revision), offset
+                            ):
+                                store.sync_directory(store.blobs)
+                                db.execute(
+                                    "UPDATE upload_offsets SET offset=0 WHERE owner=? AND revision=?",
+                                    (owner_id, revision),
+                                )
+                                offset = 0
                 return {
                     "revision_id": revision,
                     "offset": offset,
@@ -1028,26 +1095,16 @@ def create_relay_app(
                     # A crash after rename but before metadata commit is resumed
                     # from the final inode; its full authenticated hash is checked.
                     source = pending if pending.exists() else final
-                    verify_private_path(source)
-                    descriptor = os.open(
-                        source,
-                        os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0),
-                    )
-                    with os.fdopen(descriptor, "rb") as stream:
-                        info = os.fstat(stream.fileno())
-                        if (
-                            not stat.S_ISREG(info.st_mode)
-                            or info.st_nlink != 1
-                            or info.st_size != row[1]
-                        ):
-                            raise HTTPException(409, _ERROR)
+                    with _private_stream(source, "rb") as stream:
                         checksum = hashlib.sha256()
+                        received = 0
                         deadline = time.monotonic() + 30
                         while part := stream.read(1024 * 1024):
-                            if time.monotonic() >= deadline:
+                            received += len(part)
+                            if time.monotonic() >= deadline or received > row[1]:
                                 raise HTTPException(409, _ERROR)
                             checksum.update(part)
-                        if checksum.hexdigest() != row[2]:
+                        if received != row[1] or checksum.hexdigest() != row[2]:
                             raise HTTPException(409, _ERROR)
                     if source == pending:
                         if final.exists():
@@ -1301,17 +1358,8 @@ def create_relay_app(
                     if row[3] != 0:
                         raise HTTPException(409, _ERROR)
                     os.close(create_private_file(pending))
-                verify_private_path(pending)
-                descriptor = os.open(
-                    pending, os.O_RDWR | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
-                )
-                with os.fdopen(descriptor, "r+b") as output:
-                    info = os.fstat(output.fileno())
-                    if (
-                        not stat.S_ISREG(info.st_mode)
-                        or info.st_nlink != 1
-                        or info.st_size < row[3]
-                    ):
+                with _private_stream(pending, "r+b") as output:
+                    if _opened_length(output) < row[3]:
                         raise HTTPException(409, _ERROR)
                     # Tail bytes not acknowledged in SQLite survived an earlier
                     # crash. They are never treated as a resumable prefix.
@@ -1321,14 +1369,28 @@ def create_relay_app(
                         if position + length > row[3] or output.read(length) != raw:
                             raise HTTPException(409, _ERROR)
                     else:
-                        output.write(raw)
+                        if output.write(raw) != length:
+                            raise HTTPException(409, _ERROR)
                         output.flush()
                         os.fsync(output.fileno())
-                        db.execute(
-                            "UPDATE upload_offsets SET offset=? WHERE owner=? AND revision=?",
-                            (position + length, owner_id, revision_id),
-                        )
-                    store.sync_directory(store.blobs)
+                # Reopen after close and prove the appended bytes exist before
+                # recording their durable acknowledgement. No action is replayed.
+                with _private_stream(pending, "rb") as verified:
+                    if _opened_length(verified) != max(row[3], position + length):
+                        raise HTTPException(409, _ERROR)
+                    verified.seek(position)
+                    checked = 0
+                    while checked < length:
+                        part = verified.read(min(1024 * 1024, length - checked))
+                        if not part or part != raw[checked : checked + len(part)]:
+                            raise HTTPException(409, _ERROR)
+                        checked += len(part)
+                store.sync_directory(store.blobs)
+                if position == row[3]:
+                    db.execute(
+                        "UPDATE upload_offsets SET offset=? WHERE owner=? AND revision=?",
+                        (position + length, owner_id, revision_id),
+                    )
                 return {"revision_id": revision_id, "offset": max(row[3], position + length)}
         finally:
             streams.release()

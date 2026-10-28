@@ -33,14 +33,23 @@ from uuid import uuid4
 
 import psutil
 from playwright.sync_api import sync_playwright
+from scripts.installed_backup_preparation import (
+    backup_skip_code as backup_skip_code,
+)
+from scripts.installed_backup_preparation import (
+    prepare_profile_backup as _prepare_profile_backup,
+)
 from scripts.installed_sync_acceptance import (
     _PROCESSES,
     Device,
     InstalledAPIError,
     terminate_tree,
+    transport_diagnostic,
     wait_for,
 )
 from tests.support.proxy_protocols import ProxyFixture, certificates
+
+from camoufox_pm.core.operation_diagnostics import validated_diagnostic
 
 HEALTH_NAMES = ("api.ipify.org", "checkip.amazonaws.com", "icanhazip.com")
 DNS_NAMES = ("cpm-origin.invalid", *HEALTH_NAMES)
@@ -443,91 +452,10 @@ def positive_case(device, protocol, auth, certs, *, restart=False, report=None):
         }
 
 
-def backup_skip_code(skipped, profile_id):
-    """Fixed report codes from public backup failures, never their private text."""
-    if not isinstance(skipped, list) or len(skipped) != 1:
-        return "other"
-    item = skipped[0]
-    if not isinstance(item, dict) or item.get("profile_id") != profile_id:
-        return "other"
-    reason = item.get("reason")
-    if not isinstance(reason, str):
-        return "other"
-    fixed_reasons = {
-        "Profile not found": "missing_profile",
-        f"Profile with ID {profile_id} not found": "missing_profile",
-        "Invalid profile identity": "invalid_identity",
-        "Profile directory must be inside the managed profiles directory": "storage_path",
-        "Private update path permits other users": "private_permissions",
-        "Private paths cannot contain symlinks/reparse points": "private_link",
-        "Synchronized profile is blocked; reconcile checkout and recovery before continuing": "sync_fence",
-        "Invalid backup ID": "backup_identity",
-        "Invalid backup path": "backup_path",
-        "Profile archive is larger than the import limit": "archive_limit",
-    }
-    if reason in fixed_reasons:
-        return fixed_reasons[reason]
-    if re.fullmatch(
-        rf"Profile {re.escape(profile_id)} is leased by another holder"
-        r"(?: \([A-Za-z0-9_.:-]{1,512}\))?",
-        reason,
-    ):
-        return "busy"
-    if reason == "Profile data directory is missing; backup was not created":
-        return "missing_data"
-    if reason.startswith("Stored proxy credentials could not be decrypted. "):
-        return "credentials"
-    if reason.startswith("Cannot archive symbolic link: "):
-        return "symbolic_link"
-    if re.match(r"^\[Errno [0-9]{1,3}\] ", reason):
-        return "filesystem"
-    return "other"
-
-
 def prepare_profile_backup(device, profile_id, report=None):
-    # Use the public manual operation instead of waiting for the next automatic
-    # scheduler tick. A successful response also means its profile lease has
-    # been released. Only this additive preparation may retry a busy response;
-    # accepted workflow/launch mutations are never replayed.
-    diagnostics = {"attempts": 0, "busy_responses": 0, "prepared": False}
-    if report is not None:
-        report["backup_preparation"] = diagnostics
-
-    def create():
-        diagnostics["attempts"] += 1
-        try:
-            result = device.call("/system/backups", {"profile_ids": [profile_id]})["data"]
-        except InstalledAPIError as error:
-            if error.status == 409:
-                diagnostics["busy_responses"] += 1
-                return False
-            raise
-        diagnostics["prepared"] = any(
-            item["profile_id"] == profile_id for item in result["backups"]
-        )
-        if not diagnostics["prepared"]:
-            code = backup_skip_code(result.get("skipped"), profile_id)
-            diagnostics["last_skip_code"] = code
-            if code == "filesystem":
-                match = re.match(r"^\[Errno ([0-9]{1,3})\] ", result["skipped"][0]["reason"])
-                diagnostics["errno"] = int(match[1]) if match else None
-            if code == "busy":
-                # Per-profile admission can be returned as a partial 200 batch,
-                # while whole-backup admission is a 409. Both are additive-only
-                # preparation retries; never repeat a browser/workflow launch.
-                diagnostics["busy_responses"] += 1
-                return False
-            # Export no arbitrary skip/error text, which may contain file paths
-            # or secrets. A non-busy backup failure requires investigation.
-            diagnostics["skipped"] = bool(result.get("skipped"))
-            raise RuntimeError("Installed workflow backup preparation was skipped")
-        return True
-
-    # The preceding restart deliberately terminates the installed process. If
-    # its automatic backup batch still owns the recovery lease, its normal
-    # five-minute crash expiry must elapse. Observe public admission for up to
-    # that TTL plus one scheduler interval; never clear/shorten a live lease.
-    wait_for(create, seconds=360)
+    return _prepare_profile_backup(
+        device, profile_id, report, wait=wait_for, api_error=InstalledAPIError
+    )
 
 
 def workflow_diagnostics(run):
@@ -742,6 +670,18 @@ def main():
                     result["browser_version"] = public_version(browser_status["version"])
                     # Assert this is the packaged UI, not a dev server.
                     device.page.get_by_role("button", name="New profile", exact=True).wait_for()
+                    phase = "backup-diagnostic"
+                    skipped = device.call(
+                        "/system/backups", {"profile_ids": ["diagnostic-missing-profile"]}
+                    )["data"]
+                    assert not skipped["backups"] and len(skipped["skipped"]) == 1
+                    diagnostic = validated_diagnostic(
+                        skipped["skipped"][0].get("diagnostic"), area="backup"
+                    )
+                    assert diagnostic is not None
+                    assert diagnostic["stage"] == "profile_lookup"
+                    assert diagnostic["category"] == "missing_profile"
+                    result["diagnostic_check"] = diagnostic
                     for protocol, auth in CASES:
                         phase = protocol + ("-password" if auth else "-none")
                         print(f"Installed proxy acceptance: {phase}", flush=True)
@@ -787,8 +727,12 @@ def main():
         result.update(
             passed=False, phase=phase, error_type=type(error).__name__, frames=frames[-8:]
         )
+        if (transport := transport_diagnostic(error)) is not None:
+            result["transport_diagnostic"] = transport
         if isinstance(error, InstalledAPIError):
             result["http_status"] = error.status
+            if error.diagnostic is not None:
+                result["operation_diagnostic"] = error.diagnostic
         raise RuntimeError(
             f"Installed proxy acceptance failed at {phase} ({type(error).__name__})"
         ) from None

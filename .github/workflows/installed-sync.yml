@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - 'scripts/installed_sync_acceptance.py'
+      - 'scripts/installed_backup_preparation.py'
       - 'scripts/run_with_ci_keyring.py'
       - 'scripts/run_with_ci_keychain.py'
       - 'src/camoufox_pm/core/update_permissions.py'
@@ -53,8 +54,12 @@ jobs:
           python-version: '3.12'
       - name: Install locked build and acceptance dependencies
         run: uv sync --locked --extra build --extra dev --extra sync
-      - name: Native control-store concurrency regression
-        run: uv run --no-sync pytest tests/unit/test_sync_control.py tests/unit/test_sync_runtime.py -k "concurrent_store_inspection_and_commits or local_handoff_lease or expired_local_lease" -x
+      - name: Native read-only transport reset and mutation no-replay regressions
+        run: uv run --no-sync pytest tests/unit/test_installed_sync_acceptance.py -k "real_request_context or transport_evidence" -x
+      - name: Native control-store initialization, path, CAS and process-kill regressions
+        run: uv run --no-sync pytest tests/unit/test_sync_control.py -x
+      - name: Native local handoff lease regressions
+        run: uv run --no-sync pytest tests/unit/test_sync_runtime.py -k "local_handoff_lease or expired_local_lease" -x
       - name: Install Linux desktop runtime
         if: runner.os == 'Linux'
         run: |
@@ -83,21 +88,21 @@ jobs:
         if: runner.os == 'Linux'
         env:
           LIBGL_ALWAYS_SOFTWARE: '1'
-        run: xvfb-run -a uv run --no-sync python scripts/installed_sync_acceptance.py --output installed-sync-file.json
+        run: xvfb-run -a uv run --no-sync python -m scripts.installed_sync_acceptance --output installed-sync-file.json
       - name: Exercise two installed managers and their bundled UI
         if: runner.os != 'Linux'
-        run: uv run --no-sync python scripts/installed_sync_acceptance.py --output installed-sync-file.json
+        run: uv run --no-sync python -m scripts.installed_sync_acceptance --output installed-sync-file.json
       - name: Installed native-vault synchronization (Linux Secret Service)
         if: runner.os == 'Linux'
         env:
           LIBGL_ALWAYS_SOFTWARE: '1'
-        run: xvfb-run -a uv run --no-sync python scripts/run_with_ci_keyring.py -- .venv/bin/python scripts/installed_sync_acceptance.py --vault native --output installed-sync-native.json
+        run: xvfb-run -a uv run --no-sync python scripts/run_with_ci_keyring.py -- .venv/bin/python -m scripts.installed_sync_acceptance --vault native --output installed-sync-native.json
       - name: Installed native-vault synchronization (Keychain)
         if: runner.os == 'macOS'
-        run: uv run --no-sync python scripts/run_with_ci_keychain.py -- .venv/bin/python scripts/installed_sync_acceptance.py --vault native --output installed-sync-native.json
+        run: uv run --no-sync python scripts/run_with_ci_keychain.py -- .venv/bin/python -m scripts.installed_sync_acceptance --vault native --output installed-sync-native.json
       - name: Installed native-vault synchronization (Credential Manager)
         if: runner.os == 'Windows'
-        run: uv run --no-sync python scripts/installed_sync_acceptance.py --vault native --output installed-sync-native.json
+        run: uv run --no-sync python -m scripts.installed_sync_acceptance --vault native --output installed-sync-native.json
       - name: Upload secret-free acceptance result only
         if: always()
         uses: actions/upload-artifact@v7

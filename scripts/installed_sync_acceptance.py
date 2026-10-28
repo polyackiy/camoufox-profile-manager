@@ -31,21 +31,66 @@ from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import NameOID
+from fastapi.exception_handlers import http_exception_handler
+from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import expect, sync_playwright
 from pydantic import SecretStr
+from scripts.installed_backup_preparation import prepare_profile_backup as _prepare_profile_backup
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from camoufox_pm.core.operation_diagnostics import operation_diagnostic, validated_diagnostic
+from camoufox_pm.sync import relay as relay_module
 from camoufox_pm.sync.relay import create_relay_app
 
 ROOT = Path(__file__).resolve().parents[1]
 NAME = "Installed sync acceptance"
+# Valid route identifier, deliberately absent in the disposable acceptance data.
+DIAGNOSTIC_PROFILE_ID = "diag0000"
 _PROCESSES: list[subprocess.Popen] = []
 
 
 class InstalledAPIError(RuntimeError):
-    def __init__(self, status, category="unclassified"):
+    def __init__(self, status, category="unclassified", diagnostic=None):
         self.status = status
         self.category = category
+        self.diagnostic = validated_diagnostic(diagnostic, area="sync")
         super().__init__("Installed API rejected the operation")
+
+
+class InstalledTransportError(RuntimeError):
+    def __init__(self, error, *, read_only, process):
+        # Match only the library-generated first line, never retained call logs,
+        # request headers/URLs, arbitrary response bodies or the original error.
+        first = error.message.split("\n", 1)[0]
+        self.category = (
+            "connection_reset"
+            if first
+            in {
+                "APIRequestContext.fetch: socket hang up",
+                "APIRequestContext.fetch: read ECONNRESET",
+                "APIRequestContext.fetch: write ECONNRESET",
+            }
+            else "request_failed"
+        )
+        self.read_only = read_only
+        self.manager_running = process.poll() is None
+        super().__init__("Installed API transport failed")
+
+
+def transport_diagnostic(error):
+    if (
+        type(error) is not InstalledTransportError
+        or type(error.category) is not str
+        or error.category not in {"connection_reset", "request_failed"}
+        or type(error.read_only) is not bool
+        or type(error.manager_running) is not bool
+    ):
+        return None
+    return {
+        "category": error.category,
+        "read_only": error.read_only,
+        "manager_running": error.manager_running,
+    }
 
 
 def installed_api_error(response):
@@ -58,13 +103,85 @@ def installed_api_error(response):
         "Synchronization runtime is unavailable": "runtime_unavailable",
     }
     category = "unclassified"
+    diagnostic = None
     try:
-        detail = response.json().get("detail")
+        payload = response.json()
+        detail = payload.get("detail")
         if isinstance(detail, str):
             category = categories.get(detail, category)
-    except (ValueError, AttributeError):
+            if (
+                category == "unclassified"
+                and response.status == 409
+                and re.fullmatch(
+                    r"Profile [A-Za-z0-9_-]{1,64} is leased by another holder"
+                    r"(?: \([A-Za-z0-9_.:-]{1,512}\))?",
+                    detail,
+                )
+            ):
+                category = "profile_busy"
+        if category == "runtime_failed" and response.status == 409:
+            details = payload.get("error", {}).get("details")
+            if isinstance(details, list) and len(details) == 1 and isinstance(details[0], dict):
+                diagnostic = details[0].get("diagnostic")
+    except (ValueError, AttributeError, TypeError):
         pass
-    return InstalledAPIError(response.status, category)
+    return InstalledAPIError(response.status, category, diagnostic)
+
+
+def record_relay_refusals(app, report):
+    """Observe only fixed HTTP409 coordinates in the synthetic CI relay."""
+    evidence = report.setdefault("relay_refusals", [])
+
+    async def refusal(request, error):
+        if error.status_code == 409:
+            diagnostic = operation_diagnostic(error, area="sync", stage="execute")
+            if diagnostic.site == "sync.relay":
+                evidence.append(
+                    {
+                        "status": 409,
+                        "diagnostic": diagnostic.model_dump(mode="json", exclude_none=True),
+                    }
+                )
+                del evidence[:-8]
+        # Preserve the original public status/body/headers; no new relay API.
+        return await http_exception_handler(request, error)
+
+    app.add_exception_handler(StarletteHTTPException, refusal)
+
+
+@contextlib.contextmanager
+def observe_relay_storage(report):
+    """Fixed, bounded observations of this harness's own disposable relay only."""
+    evidence = report.setdefault("relay_storage_checks", [])
+    opened_length = relay_module._opened_length
+    restart = relay_module._restart_lost_prefix
+
+    def record(code):
+        evidence.append(code)
+        del evidence[:-8]
+
+    def length(stream):
+        actual = opened_length(stream)
+        metadata = os.fstat(stream.fileno()).st_size
+        if metadata < actual:
+            record("metadata_shorter_than_eof")
+        elif metadata > actual:
+            record("metadata_longer_than_eof")
+        return actual
+
+    def recover(path, confirmed):
+        changed = restart(path, confirmed)
+        if changed:
+            record("uncommitted_prefix_restarted")
+        return changed
+
+    relay_module._opened_length = length
+    relay_module._restart_lost_prefix = recover
+    try:
+        yield
+    finally:
+        relay_module._opened_length = opened_length
+        relay_module._restart_lost_prefix = restart
 
 
 def tls_fixture(directory):
@@ -338,6 +455,30 @@ class Device:
             self.environment = original
             self.restart()
 
+    def check_runtime_diagnostic(self):
+        """A missing-profile lookup proves diagnostics without changing profiles."""
+        # Stop this observer page's refreshes, then settle existing read-only
+        # ceremony admission. The invalid POST is issued exactly once.
+        self.page.goto("about:blank")
+        self.call("/sync/devices")
+        before = self.call("/sync/profiles")
+        response = self.context.request.post(
+            self.origin + f"/api/v1/sync/profiles/{DIAGNOSTIC_PROFILE_ID}/acquire",
+            data=self.unlock_body,
+            headers={"Origin": self.origin},
+            timeout=180000,
+        )
+        error = installed_api_error(response)
+        assert error.status == 409 and error.category == "runtime_failed"
+        assert response.headers.get("cache-control") == "no-store"
+        assert error.diagnostic is not None
+        assert error.diagnostic["stage"] == "execute"
+        assert error.diagnostic["category"] == "invalid_state"
+        assert error.diagnostic["site"] == "core.profile_operations"
+        assert self.call("/sync/profiles") == before
+        self.page.goto(self.origin + "/")
+        return error.diagnostic
+
     @property
     def unlock_body(self):
         return {"password": self.password} if self.vault_kind == "encrypted_file" else {}
@@ -374,13 +515,21 @@ class Device:
     def call(self, path, body=None):
         deadline = time.monotonic() + 10
         while True:
-            response = self.context.request.fetch(
-                self.origin + "/api/v1" + path,
-                method="GET" if body is None else "POST",
-                data=body,
-                headers={"Origin": self.origin},
-                timeout=180000,
-            )
+            try:
+                response = self.context.request.fetch(
+                    self.origin + "/api/v1" + path,
+                    method="GET" if body is None else "POST",
+                    data=body,
+                    headers={"Origin": self.origin},
+                    timeout=180000,
+                    # Public Playwright transport retry: only ECONNRESET, only
+                    # read-only GET, at most two retries. Mutations remain one-shot.
+                    max_retries=2 if body is None else 0,
+                )
+            except PlaywrightError as error:
+                raise InstalledTransportError(
+                    error, read_only=body is None, process=self.process
+                ) from None
             # A bundled-UI status refresh may briefly hold ceremony admission.
             # Retry only this explicit busy response for read-only requests.
             # Never replay mutations or hide a credential/verification failure.
@@ -490,7 +639,20 @@ await fetch('/report?stage='+stage,{method:'POST',body:JSON.stringify({state,can
         self.end_headers()
 
 
-def observe(device, profile_id, site, stage):
+def prepare_profile_backup(device, profile_id, report=None):
+    return _prepare_profile_backup(
+        device, profile_id, report, wait=wait_for, api_error=InstalledAPIError
+    )
+
+
+def observe(device, profile_id, site, stage, report=None):
+    # Keep the ordinary automatic scheduler enabled. An accepted additive backup
+    # finishes and releases admission before a one-shot browser launch; fresh or
+    # newly imported profiles would otherwise race the next minute's due scan.
+    preparation = {}
+    if report is not None:
+        report.setdefault("backup_checks", {})[stage] = preparation
+    prepare_profile_backup(device, profile_id, preparation)
     device.call(
         f"/profiles/{profile_id}/launch",
         {
@@ -509,7 +671,7 @@ def observe(device, profile_id, site, stage):
         device.call("/browsers/close-all", {})
 
 
-def exercise(owner, recipient, relay_url, registration, site):
+def exercise(owner, recipient, relay_url, registration, site, report):
     print("Installed acceptance: owner recovery and relay registration", flush=True)
     password = owner.unlock_body
     owner.call(
@@ -528,6 +690,8 @@ def exercise(owner, recipient, relay_url, registration, site):
     print("Installed acceptance: owner restart and persistent key access", flush=True)
     owner.restart()
     owner.check_unavailable_linux_vault()
+    print("Installed acceptance: secret-free runtime diagnostic", flush=True)
+    report["diagnostic_check"] = owner.check_runtime_diagnostic()
     # The subsequent profile opt-in and pairing approval must load persisted keys.
     original = owner.call(
         "/profiles",
@@ -535,7 +699,7 @@ def exercise(owner, recipient, relay_url, registration, site):
     )
     local_id = original["id"]
     print("Installed acceptance: first native Camoufox launch", flush=True)
-    before = observe(owner, local_id, site, "first")
+    before = observe(owner, local_id, site, "first", report)
     pinned = owner.call(f"/profiles/{local_id}")
     assert pinned["fingerprint"] and pinned["browser_settings"]["stable_canvas"]
     print("Installed acceptance: UI profile opt-in", flush=True)
@@ -589,13 +753,13 @@ def exercise(owner, recipient, relay_url, registration, site):
     assert transferred["browser_settings"] == pinned["browser_settings"]
     assert transferred["storage_path"] != pinned["storage_path"]
     print("Installed acceptance: recipient native Camoufox reopen", flush=True)
-    after = observe(recipient, imported, site, "second")
+    after = observe(recipient, imported, site, "second", report)
     assert before == after, "Installed profile session or identity changed during transfer"
     print("Installed acceptance: recipient UI handoff", flush=True)
     recipient.complete_close_upload(imported)
     owner.action("Get latest profile", "Ready on this device")
     print("Installed acceptance: owner native Camoufox return", flush=True)
-    final = observe(owner, local_id, site, "return")
+    final = observe(owner, local_id, site, "return", report)
     assert final.pop("state") == "second"
     before.pop("state")
     assert final == before, "Installed profile identity changed on return"
@@ -653,7 +817,7 @@ def exercise(owner, recipient, relay_url, registration, site):
     expect(dialog.get_by_text("Cleanup cancelled", exact=True)).to_be_visible()
     owner.assert_password_cleared(dialog)
     print("Installed acceptance: restored native Camoufox fourth launch", flush=True)
-    recovered = observe(owner, local_id, site, "restored")
+    recovered = observe(owner, local_id, site, "restored", report)
     assert recovered.pop("state") == "second"
     assert recovered == before, "Installed profile session or identity changed after Trash restore"
     restored = owner.call(f"/profiles/{local_id}")
@@ -683,7 +847,11 @@ def main():
     ):
         parser.error("Use run_with_ci_keychain.py for disposable macOS native acceptance")
     phase = "setup"
+    revision = os.environ.get("GITHUB_SHA", "")
+    if not re.fullmatch(r"(?:[0-9a-f]{40}|[0-9a-f]{64})", revision):
+        revision = "unknown"
     result = {
+        "revision": revision,
         "platform": sys.platform,
         "passed": False,
         "manager": "two-installed-desktop-processes",
@@ -703,20 +871,25 @@ def main():
         "retention": "UI-schedule-and-cancel-no-collection",
     }
     try:
-        with tempfile.TemporaryDirectory(prefix="installed-sync-") as temporary:
+        with (
+            tempfile.TemporaryDirectory(prefix="installed-sync-") as temporary,
+            observe_relay_storage(result),
+        ):
             work = Path(temporary).resolve()
             certificate, private = tls_fixture(work)
             registration = secrets.token_urlsafe(32)
             listener = socket.socket()
             listener.bind(("127.0.0.1", 0))
             relay_url = f"https://127.0.0.1:{listener.getsockname()[1]}"
+            app = create_relay_app(
+                work / "relay",
+                relay_url=relay_url,
+                registration_token=SecretStr(registration),
+            )
+            record_relay_refusals(app, result)
             relay = uvicorn.Server(
                 uvicorn.Config(
-                    create_relay_app(
-                        work / "relay",
-                        relay_url=relay_url,
-                        registration_token=SecretStr(registration),
-                    ),
+                    app,
                     ssl_certfile=str(certificate),
                     ssl_keyfile=str(private),
                     log_level="error",
@@ -748,6 +921,7 @@ def main():
                             relay_url,
                             registration,
                             f"http://127.0.0.1:{site.server_port}",
+                            result,
                         )
                         result["passed"] = True
                     finally:
@@ -785,6 +959,8 @@ def main():
         if isinstance(exc, InstalledAPIError):
             result["http_status"] = exc.status
             result["api_error_category"] = exc.category
+            if exc.diagnostic is not None:
+                result["operation_diagnostic"] = exc.diagnostic
         raise RuntimeError(
             f"Installed synchronization acceptance failed at {phase} ({type(exc).__name__}); private diagnostics not exported"
         ) from None

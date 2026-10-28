@@ -40,6 +40,8 @@ dependencies = [
     "psutil>=6.1",
     # socks so a SOCKS5 proxy can be checked, not only HTTP ones.
     "httpx[socks]>=0.28",
+    # Public trace events own orphaned SOCKS streams; upgrade with lifecycle tests.
+    "httpcore==1.0.9",
     "packaging>=24.1",
     "async-timeout>=5,<6 ; python_full_version < '3.11'",
 ]

@@ -19,6 +19,7 @@ from loguru import logger
 
 from . import profile_archive
 from .leases import ProfileLocked, lease_expired, make_lease_holder
+from .operation_diagnostics import OperationDiagnostic, operation_diagnostic
 from .profile_operations import profile_data_path, profile_operation, run_file_operation
 
 
@@ -121,7 +122,18 @@ class ProfileBackupManager:
             result = {
                 "backups": [],
                 "skipped": [
-                    {"profile_id": item, "reason": "Profile not found"} for item in sorted(missing)
+                    {
+                        "profile_id": item,
+                        "reason": "Profile not found",
+                        "diagnostic": OperationDiagnostic(
+                            version=1,
+                            area="backup",
+                            stage="profile_lookup",
+                            category="missing_profile",
+                            site="core.backups",
+                        ).model_dump(mode="json", exclude_none=True),
+                    }
+                    for item in sorted(missing)
                 ],
             }
             for profile in profiles:
@@ -135,7 +147,15 @@ class ProfileBackupManager:
                     backup = await self._create_one(profile.id, reason)
                     result["backups"].append(backup)
                 except (ProfileLocked, ValueError, OSError) as exc:
-                    result["skipped"].append({"profile_id": profile.id, "reason": str(exc)})
+                    result["skipped"].append(
+                        {
+                            "profile_id": profile.id,
+                            "reason": str(exc),
+                            "diagnostic": operation_diagnostic(
+                                exc, area="backup", stage="backup_profile"
+                            ).model_dump(mode="json", exclude_none=True),
+                        }
+                    )
             return result
 
     async def create_due_backups(self) -> dict:

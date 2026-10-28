@@ -21,6 +21,7 @@ from __future__ import annotations
 import asyncio
 import ssl
 import time
+from collections.abc import Awaitable, Callable
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -29,6 +30,7 @@ from typing import Any
 from urllib.parse import quote
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+import httpcore
 import httpx
 from camoufox.ip import valid_ipv4, valid_ipv6
 from loguru import logger
@@ -299,6 +301,54 @@ def compare(settings: BrowserSettings, location: ProxyLocation) -> list[Finding]
     return findings
 
 
+async def _close_owned_streams(streams: list[httpcore.AsyncNetworkStream]) -> None:
+    """Drain request-owned TCP handles even when the caller cancels again."""
+
+    async def close() -> None:
+        results = await asyncio.gather(
+            *(stream.aclose() for stream in streams), return_exceptions=True
+        )
+        if any(isinstance(result, BaseException) for result in results):
+            raise ConnectionError("The proxy connection could not be closed safely.")
+
+    task = asyncio.create_task(close())
+    try:
+        await asyncio.shield(task)
+    except asyncio.CancelledError:
+        while not task.done():
+            try:
+                await asyncio.shield(task)
+            except asyncio.CancelledError:
+                if task.cancelled():
+                    raise
+        task.result()
+        raise
+    finally:
+        streams.clear()
+
+
+async def _read_exit_address(
+    client: httpx.AsyncClient,
+    endpoint: str,
+    trace: Callable[[str, dict[str, Any]], Awaitable[None]],
+) -> str:
+    async with client.stream(
+        "GET", endpoint, headers={"Accept-Encoding": "identity"}, extensions={"trace": trace}
+    ) as response:
+        response.raise_for_status()
+        if response.headers.get("content-encoding", "identity").strip().lower() not in {
+            "",
+            "identity",
+        }:
+            raise ValueError("Compressed exit-address response is unsupported")
+        body = bytearray()
+        async for chunk in response.aiter_raw(chunk_size=MAX_IP_RESPONSE_BYTES + 1):
+            if len(body) + len(chunk) > MAX_IP_RESPONSE_BYTES:
+                raise ValueError("Exit-address response is too large")
+            body.extend(chunk)
+        return body.decode("ascii").strip()
+
+
 async def resolve_exit_ip(
     proxy: ProxyConfig | None, timeout: float = DEFAULT_TIMEOUT
 ) -> tuple[str, int]:
@@ -326,25 +376,28 @@ async def resolve_exit_ip(
             stack.push_async_callback(relay.close)
             await relay.start()
             url = relay.browser_proxy["server"]
+        streams: list[httpcore.AsyncNetworkStream] = []
+
+        async def trace(event: str, info: dict[str, Any]) -> None:
+            # Public httpcore trace API, pinned and covered by real socket tests.
+            # SOCKS setup can fail before a stream belongs to the pool. Retain
+            # only the stream, never trace request/credential/exception metadata.
+            if event.endswith(".connect_tcp.complete"):
+                streams.append(info["return_value"])
+
+        # Registered BEFORE the client: close the pool first, then any stream it
+        # never adopted, and finally the optional session-owned SOCKS4 relay.
+        stack.push_async_callback(_close_owned_streams, streams)
         client = await stack.enter_async_context(httpx.AsyncClient(proxy=url, timeout=timeout))
         for endpoint in IP_ENDPOINTS:
             started = time.monotonic()
             try:
-                async with client.stream(
-                    "GET", endpoint, headers={"Accept-Encoding": "identity"}
-                ) as response:
-                    response.raise_for_status()
-                    if response.headers.get("content-encoding", "identity").strip().lower() not in {
-                        "",
-                        "identity",
-                    }:
-                        raise ValueError("Compressed exit-address response is unsupported")
-                    body = bytearray()
-                    async for chunk in response.aiter_raw(chunk_size=MAX_IP_RESPONSE_BYTES + 1):
-                        if len(body) + len(chunk) > MAX_IP_RESPONSE_BYTES:
-                            raise ValueError("Exit-address response is too large")
-                        body.extend(chunk)
-                    answer = body.decode("ascii").strip()
+                # httpcore's SOCKS negotiation has no read timeout in 1.0.9.
+                # Bound the whole endpoint exchange, including negotiation and
+                # trickling response bodies, without retrying a browser launch.
+                answer = await asyncio.wait_for(
+                    _read_exit_address(client, endpoint, trace), timeout=timeout
+                )
             except Exception as exc:
                 last_error = exc
                 # Transport errors may contain a credential-bearing proxy URL.
@@ -387,7 +440,7 @@ def _readable(error: Exception | None, proxy_type: ProxyType | None = None) -> s
         if "407" in str(error):
             return "The proxy rejected the credentials."
         return "The proxy refused the connection."
-    if isinstance(error, httpx.TimeoutException):
+    if isinstance(error, (httpx.TimeoutException, asyncio.TimeoutError)):
         if proxy_type == ProxyType.HTTPS:
             return HTTPS_TIMEOUT_ERROR
         return "The proxy did not answer in time."

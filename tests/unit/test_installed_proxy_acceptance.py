@@ -262,6 +262,38 @@ def test_backup_filesystem_failure_retains_only_fixed_code_and_errno():
     assert "private-" not in json.dumps(report)
 
 
+@pytest.mark.parametrize("category", ["permission_denied", "profile_busy", "resource_busy"])
+def test_structured_backup_diagnostic_never_authorizes_a_new_retry(category):
+    calls = []
+    evidence = {
+        "version": 1,
+        "area": "backup",
+        "stage": "backup_profile",
+        "category": category,
+        "site": "core.backups",
+        "line": 140,
+    }
+
+    def call(*args):
+        calls.append(True)
+        return {
+            "data": {
+                "backups": [],
+                "skipped": [
+                    {"profile_id": "target", "reason": "private-secret", "diagnostic": evidence}
+                ],
+            }
+        }
+
+    report = {}
+    with pytest.raises(RuntimeError):
+        harness.prepare_profile_backup(SimpleNamespace(call=call), "target", report)
+    assert calls == [True]
+    assert report["backup_preparation"]["operation_diagnostic"] == evidence
+    assert report["backup_preparation"]["last_skip_code"] == "other"
+    assert "private-secret" not in json.dumps(report)
+
+
 def test_workflow_diagnostics_allowlist_states_without_identity_or_error_text():
     private = "private-password-and-destination"
     result = harness.workflow_diagnostics(

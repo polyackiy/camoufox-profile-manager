@@ -255,3 +255,30 @@ passed on Linux, Windows and macOS ARM/Intel at `5bd37f6`, including four real
 browser launches, UI Trash/restore and retention schedule/cancel. See the
 [support matrix](sync-support-matrix.md) for exact coverage and limits. Same-runner
 testing does not prove every physical GPU/font environment.
+
+## Reliability review: control initialization and resumable staging (2026-10-28)
+
+Internal source review and regression tests for #141/#143/#144 cover:
+
+- Private, bounded OS serialization of first control-store creation and schema
+  inspection; invalid existing stores remain rejected. Timeout, process death,
+  descriptor ownership, link and permission failures have dedicated regressions.
+- Safe origin diagnostics through the actual loaded sanitizing wrapper classes,
+  with strict schema revalidation and no exception-cause traversal or private
+  data export. Current live-owner reauthorization remains mandatory.
+- Post-close chunk readback before offset acknowledgement, opened-handle EOF and
+  counted/hash-verified final bytes. Recovery is restricted to the original
+  writer's identical uncommitted upload under the SQLite writer transaction.
+  Valid prefixes, immutable source ciphertext, quota, expiry and all publication
+  checks remain intact. Missing/short prefixes recover; unsafe links/permissions,
+  active legacy writers, bad hashes and failed fsync do not grant publication.
+- The rename-before-metadata recovery path still verifies the final inode instead
+  of resetting it. A real RelayClient regression resends the original immutable
+  ciphertext when incomplete staging is lost.
+
+The observed Windows failure establishes a prefix-size invariant refusal, not
+its OS-level cause. Native harness observations contain bounded fixed codes only;
+no paths, lengths, process commands or bytes. A separately observed ambiguous
+browser process refusal is tracked in #145 and is not called fixed by upload
+recovery. This review does not replace external review or cross-device/physical
+acceptance in #90; synchronization remains experimental and explicitly enabled.

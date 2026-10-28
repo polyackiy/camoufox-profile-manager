@@ -239,3 +239,25 @@ def test_windows_existing_marker_create_error_reopens_only_verified_file(guarded
 
     monkeypatch.setattr(sync_guard, "create_private_file", windows_existing)
     mark_synchronized(manager, profile, state.checkpoint.owner_id, state.checkpoint.profile_id)
+
+
+async def test_wrapped_control_failure_retains_only_closed_origin(guarded, monkeypatch):
+    import errno
+    import json
+
+    from camoufox_pm.core.operation_diagnostics import operation_diagnostic
+    from camoufox_pm.sync.control import ControlStore
+
+    manager, profile, _, _ = guarded
+
+    def refuse(*args, **kwargs):
+        raise PermissionError(errno.EACCES, "private-password-and-profile-path")
+
+    monkeypatch.setattr(ControlStore, "_connect", refuse)
+    with pytest.raises(SyncBlocked) as captured:
+        await guard_profile(manager, profile.id)
+    evidence = operation_diagnostic(captured.value, area="backup", stage="backup_profile")
+    assert evidence.category == "permission_denied" and evidence.site == "sync.control"
+    assert evidence.area == "backup" and evidence.stage == "backup_profile"
+    assert "private-password" not in json.dumps(evidence.model_dump(mode="json"))
+    assert "private-password" not in str(captured.value)

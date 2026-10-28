@@ -146,7 +146,9 @@ independent retained checkpoint or explicit historical-copy recovery.
 
 **Resume pending transfer** continues the same saved encrypted file from the last
 server-confirmed byte offset. Keep the manager's private transfer directory intact.
-A partial network chunk is retried; it never reuses an encryption stream for
+If the relay has lost incomplete temporary bytes, it can request the same saved
+file again from offset zero. Completed revisions are not replaced. A partial
+network chunk is retried; it never reuses an encryption stream for
 changed browser data. Unfinished uploads expire after seven days. When the relay
 confirms expiry and checkout/history still match, an explicit retry creates a new
 revision with fresh encryption while retaining the original local ciphertext.
