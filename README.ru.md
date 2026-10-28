@@ -21,6 +21,10 @@ Self-hosted менеджер профилей антидетект-браузе�
 > [Начало работы](docs/getting-started.ru.md) / [English](docs/getting-started.md).
 > [Результаты установки и ограничения покрытия](docs/desktop-acceptance.md).
 > Миграция Chrome остаётся экспериментальной.
+>
+> В `main` уже есть новые функции для общего релиза 0.7.0.
+> [Статус разработки и приоритеты](docs/roadmap.md#delivery-status-after-060)
+> уточняют, что доступно в установщиках 0.6.0 и что войдёт в следующий выпуск.
 
 ![Список профилей](docs/assets/screenshot-profiles.png)
 
@@ -193,7 +197,7 @@ uv run python -c "from cryptography.fernet import Fernet; print(Fernet.generate_
 | Документ | О чём |
 | -------- | ----- |
 | [docs/getting-started.ru.md](docs/getting-started.ru.md) | Установка готового приложения и первые шаги |
-| [docs/automation.md](docs/automation.md) | Сценарии автоматизации, расписания и отмена (в разработке) |
+| [docs/automation.md](docs/automation.md) | Сценарии автоматизации, расписания и отмена (в main, для общего релиза 0.7.0) |
 | [docs/cli.md](docs/cli.md) | Все команды и флаги |
 | [docs/api.md](docs/api.md) | REST API, эндпоинт за эндпоинтом |
 | [docs/profile-settings.md](docs/profile-settings.md) | Что делает каждая настройка, как устроено закрепление машины и чего Camoufox не умеет |
@@ -202,7 +206,8 @@ uv run python -c "from cryptography.fernet import Fernet; print(Fernet.generate_
 | [docs/accessibility-roadmap.md](docs/accessibility-roadmap.md) | План по выходу на нетехнических пользователей |
 | [docs/releasing.md](docs/releasing.md) | Как выпускать релиз |
 | [docs/signing.md](docs/signing.md) | Релизы без подписи и целостность пакетов |
-| [docs/roadmap.md](docs/roadmap.md) | Что запланировано |
+| [docs/roadmap.md](docs/roadmap.md) | Что уже в main, что выпущено и что делать дальше |
+| [docs/operation-diagnostics.md](docs/operation-diagnostics.md) | Безопасная диагностика для сообщений об ошибках |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Как участвовать в разработке |
 | [SECURITY.md](SECURITY.md) | Как сообщить об уязвимости |
 
