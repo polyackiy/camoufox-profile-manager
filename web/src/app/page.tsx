@@ -591,7 +591,7 @@ export default function ProfilesPage() {
             className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-faint"
           />
           <input
-            className="field h-[30px] pl-7"
+            className="field field-compact pl-7"
             placeholder={t('Search name or ID')}
             value={search}
             onChange={(event) => setSearch(event.target.value)}
@@ -600,7 +600,7 @@ export default function ProfilesPage() {
         </div>
 
         <select
-          className="field h-[30px] w-[132px]"
+          className="field field-compact w-[132px]"
           value={statusFilter}
           onChange={(event) => setStatusFilter(event.target.value as ProfileViewConfig['status'])}
           aria-label={t('Filter by status')}
@@ -670,9 +670,9 @@ export default function ProfilesPage() {
         {canManageAccess && <SavedProfileViews config={viewConfig} onApply={applyView} />}
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <label htmlFor="profile-group-filter" className="text-ink-dim">{t('Group')}</label>
-          <select id="profile-group-filter" className="field h-[30px] w-[170px]" value={groupFilter ?? ''} onChange={event => setGroupFilter(event.target.value || null)}><option value="">{t('All groups')}</option><option value="__ungrouped__">{t('Ungrouped')}</option>{groupFilter && groupFilter !== '__ungrouped__' && !groups.some(group => group.id === groupFilter) && <option value={groupFilter}>{t('Unavailable group ({id})', { id: groupFilter })}</option>}{groups.map(group => <option key={group.id} value={group.id}>{group.name}</option>)}</select>
+          <select id="profile-group-filter" className="field field-compact w-[170px]" value={groupFilter ?? ''} onChange={event => setGroupFilter(event.target.value || null)}><option value="">{t('All groups')}</option><option value="__ungrouped__">{t('Ungrouped')}</option>{groupFilter && groupFilter !== '__ungrouped__' && !groups.some(group => group.id === groupFilter) && <option value={groupFilter}>{t('Unavailable group ({id})', { id: groupFilter })}</option>}{groups.map(group => <option key={group.id} value={group.id}>{group.name}</option>)}</select>
           <label htmlFor="profile-tag-filter" className="text-ink-dim">{t('Tags')}</label>
-          <select id="profile-tag-filter" className="field h-[30px] w-[170px]" value="" disabled={tagFilters.length >= 20} onChange={event => { if (event.target.value && !tagFilters.includes(event.target.value)) setTagFilters(current => [...current, event.target.value]) }}><option value="">{t('Add tag filter')}</option>{availableTags.filter(tag => !tagFilters.includes(tag)).map(tag => <option key={tag} value={tag}>{tag}</option>)}</select>
+          <select id="profile-tag-filter" className="field field-compact w-[170px]" value="" disabled={tagFilters.length >= 20} onChange={event => { if (event.target.value && !tagFilters.includes(event.target.value)) setTagFilters(current => [...current, event.target.value]) }}><option value="">{t('Add tag filter')}</option>{availableTags.filter(tag => !tagFilters.includes(tag)).map(tag => <option key={tag} value={tag}>{tag}</option>)}</select>
           {tagFilters.map(tag => <button key={tag} className="btn btn-default h-7" onClick={() => setTagFilters(current => current.filter(value => value !== tag))} aria-label={t('Remove tag filter {tag}', { tag })}>{tag} ×</button>)}
           {tagFilters.length > 0 && <span className="text-[11px] text-ink-dim">{t('Match all selected tags')}</span>}
           <button className="btn btn-ghost ml-auto" onClick={() => applyView(DEFAULT_VIEW)}>{t('Clear filters')}</button>

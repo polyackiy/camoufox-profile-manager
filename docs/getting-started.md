@@ -96,6 +96,13 @@ a cryptographic verification of the installer. Download it, close the manager, a
 it over the existing app. The app does not replace its executable automatically.
 A backup must succeed before update preparation continues.
 
+In unreleased builds with native installer support, Ubuntu x64 `.deb` and
+per-user Windows x64 installations instead offer **Download and install**.
+After confirmation, the app downloads, verifies the checksum, closes profiles,
+backs up data, runs the system installer and reopens. System authorization or
+security prompts may appear. See [native installer updates](native-installer-updates.md)
+for supported layouts, recovery and current validation limits.
+
 ## Where data lives
 
 The desktop app uses the same folder regardless of where you launch it:

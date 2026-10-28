@@ -176,3 +176,31 @@ def test_legacy_scan_ignores_unrelated_protected_process_but_not_candidate(monke
     assert recovery._legacy_processes_stopped()
     process.name = lambda: "camoufox.exe"
     assert not recovery._legacy_processes_stopped()
+
+
+def test_native_installer_retains_checkpoint_maintenance(layout):
+    _, _, gate = layout
+    checkpoint = recovery.offline_checkpoint(retain_maintenance=True)
+    assert gate.owner == f"checkpoint-{checkpoint}"
+    gate.release(f"checkpoint-{checkpoint}")
+
+
+def test_native_installer_backs_up_without_an_installed_browser(layout):
+    _, paths, gate = layout
+    (paths["browser"] / "config.json").unlink()
+    paths["browser"].rmdir()
+    checkpoint = recovery.offline_checkpoint(allow_missing_browser=True)
+    metadata = json.loads(
+        (gate.path.parent / "checkpoints" / checkpoint / "key-reference.json").read_text()
+    )
+    assert metadata["browser_active"] is None
+    assert not gate.blocked
+
+
+def test_native_installer_does_not_skip_missing_profile_data(layout):
+    _, paths, gate = layout
+    (paths["profiles"] / "cookie").unlink()
+    paths["profiles"].rmdir()
+    with pytest.raises(RuntimeError, match="Required checkpoint source is missing: profiles"):
+        recovery.offline_checkpoint(allow_missing_browser=True)
+    assert not gate.blocked

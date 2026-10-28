@@ -711,6 +711,9 @@ export const recoveryAPI = {
     const body = await request<{ data: Profile }>(`${API_PREFIX}/system/backups/${id}/restore`, { method: 'POST', body: JSON.stringify({}) })
     return body.data
   },
+  deleteBackup(id: string): Promise<unknown> {
+    return request(`${API_PREFIX}/system/backups/${encodeURIComponent(id)}?confirm=true`, { method: 'DELETE' })
+  },
 }
 
 /** A fingerprint captured from a real machine, bundled with Camoufox. */
@@ -762,7 +765,23 @@ export const authAPI = {
   },
 }
 
+export interface NativeInstallerStatus {
+  supported: boolean
+  state: 'idle' | 'downloading' | 'preparing' | 'ready' | 'restarting' | 'error'
+  downloaded?: number
+  total?: number | null
+  error?: string | null
+}
+
 export const systemAPI = {
+  async installerStatus(): Promise<NativeInstallerStatus> {
+    const body = await request<{ data: NativeInstallerStatus }>(`${API_PREFIX}/system/updates/installer`)
+    return body.data
+  },
+  async installUpdate(version: string, preview = false): Promise<NativeInstallerStatus> {
+    const body = await request<{ data: NativeInstallerStatus }>(`${API_PREFIX}/system/updates/installer`, { method: 'POST', body: JSON.stringify({ version, channel: preview ? 'preview' : 'stable' }) })
+    return body.data
+  },
   async browser(): Promise<BrowserReadiness> {
     const body = await request<{ data: BrowserReadiness }>(`${API_PREFIX}/system/browser`)
     return body.data

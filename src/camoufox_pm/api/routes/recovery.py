@@ -108,6 +108,28 @@ async def create_backups(request: CreateBackupsRequest):
     return ApiResponse(success=True, message="Backup run finished", data=result)
 
 
+@router.delete(
+    "/system/backups/{backup_id}",
+    response_model=ApiResponse[None],
+    operation_id="delete_backup",
+)
+async def delete_backup(backup_id: str, confirm: bool = Query(False)):
+    await require_admin()
+    if not confirm:
+        raise HTTPException(400, "Backup deletion requires confirm=true")
+    try:
+        await get_backup_manager().delete_backup(backup_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(404, "Backup not found") from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except OSError as exc:
+        raise HTTPException(
+            500, "Could not delete the backup. Check file permissions and try again."
+        ) from exc
+    return ApiResponse(success=True, message="Backup deleted", data=None)
+
+
 @router.post(
     "/system/backups/{backup_id}/restore",
     response_model=ApiResponse[ProfileResponse],

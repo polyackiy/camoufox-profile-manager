@@ -80,6 +80,8 @@ async def test_runtime_routes_use_existing_api_auth_guard(client, monkeypatch):
         ("/system/browser/install", "POST"),
         ("/system/updates", "GET"),
         ("/system/updates/prepare", "POST"),
+        ("/system/updates/installer", "GET"),
+        ("/system/updates/installer", "POST"),
     ]:
         response = await client.request(method, f"/api/v1{path}")
         assert response.status_code == 401
@@ -196,3 +198,30 @@ async def test_unexpected_backup_error_returns_no_update_link(
     assert response.status_code == 500
     assert "release_url" not in response.text
     assert f"{RELEASES}/tag/" not in response.text
+
+
+async def test_native_installer_is_unavailable_without_desktop_controller(client, monkeypatch):
+    from camoufox_pm.core import native_installer
+
+    monkeypatch.setattr(native_installer, "controller", None)
+    status = await client.get("/api/v1/system/updates/installer")
+    assert status.json()["data"]["supported"] is False
+    response = await client.post("/api/v1/system/updates/installer", json={"version": "0.7.0"})
+    assert response.status_code == 409
+
+
+async def test_native_installer_uses_only_version_and_channel(client, monkeypatch):
+    from camoufox_pm.core import native_installer
+
+    controller = Mock()
+    controller.start.return_value = {"supported": True, "state": "downloading"}
+    monkeypatch.setattr(native_installer, "controller", controller)
+    response = await client.post(
+        "/api/v1/system/updates/installer", json={"version": "0.7.0", "channel": "stable"}
+    )
+    assert response.status_code == 200
+    controller.start.assert_called_once_with("stable", "0.7.0")
+    response = await client.post(
+        "/api/v1/system/updates/installer", json={"version": "0.7.0", "channel": "untrusted"}
+    )
+    assert response.status_code == 422

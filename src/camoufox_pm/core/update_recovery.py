@@ -20,7 +20,10 @@ from .update_service import UpdateService
 
 
 def configured_layout(
-    *, require_existing: bool = True, configuration_directory: Path | None = None
+    *,
+    require_existing: bool = True,
+    configuration_directory: Path | None = None,
+    allow_missing_browser: bool = False,
 ):
     from camoufox.multiversion import CONFIG_FILE
     from camoufox.pkgman import INSTALL_DIR
@@ -38,7 +41,7 @@ def configured_layout(
         "environment": configuration_directory / ".env",
     }
     required = ["profiles", "browser"]
-    if require_existing and not CONFIG_FILE.exists():
+    if require_existing and not allow_missing_browser and not CONFIG_FILE.exists():
         raise ValueError("A configured versioned browser installation is required")
     if key.exists():
         required.append("secret_key")
@@ -175,10 +178,17 @@ def _legacy_processes_stopped() -> bool:
     return True
 
 
-def offline_checkpoint() -> str:
+def offline_checkpoint(
+    *, retain_maintenance: bool = False, allow_missing_browser: bool = False
+) -> str:
     gate = configured_gate()
     service = UpdateService(gate.path.parent, gate)
-    database, paths, required, key_reference = configured_layout()
+    database, paths, required, key_reference = configured_layout(
+        allow_missing_browser=allow_missing_browser
+    )
+    if allow_missing_browser:
+        required = tuple(name for name in required if name != "browser" or paths[name].exists())
+    complete = False
     checkpoint_id = uuid.uuid4().hex
     owner = f"checkpoint-{checkpoint_id}"
     with service._control():
@@ -218,15 +228,18 @@ def offline_checkpoint() -> str:
                         "wrapper_version": version("camoufox"),
                         "browser_active": json.loads(
                             (paths["browser"] / "config.json").read_text()
-                        ).get("active_version"),
+                        ).get("active_version")
+                        if (paths["browser"] / "config.json").exists()
+                        else None,
                     },
                     stream,
                 )
                 stream.flush()
                 os.fsync(stream.fileno())
+            complete = True
             return checkpoint_id
         finally:
-            if gate.owner == owner:
+            if gate.owner == owner and not (complete and retain_maintenance):
                 gate.release(owner)
 
 

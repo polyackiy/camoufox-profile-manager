@@ -61,6 +61,7 @@ class DesktopUI(unittest.TestCase):
         self.browser_state = {"installed": False, "version": None, "state": "idle", "progress": None, "message": "Browser not installed", "error": None}
         self.profiles = []
         self.backups = []
+        self.backup_delete_failure = False
         self.update_recovery = {"state": "idle", "maintenance_active": False, "automatic_install_available": False, "can_cancel": False}
         self.update_action_failure = False
         self.trash = []
@@ -92,6 +93,8 @@ class DesktopUI(unittest.TestCase):
             data = {"workflows": []}
         elif path == "/auth/session":
             data = {"user_auth_enabled": self.auth_required, "authenticated": not self.auth_required, "username": None, "role": "administrator", "actor_kind": "anonymous_local", "can_manage_access": True}
+        elif path == "/system/updates/installer":
+            data, envelope = {"supported": False, "state": "idle"}, True
         elif path == "/system/config":
             data, envelope = self.config, True
         elif path == "/system/status":
@@ -141,6 +144,12 @@ class DesktopUI(unittest.TestCase):
             data, envelope = {"backups": self.backups}, True
         elif path.startswith("/system/backups/") and path.endswith("/restore"):
             data, envelope = {"id": "restored-copy", "name": "Recovered profile"}, True
+        elif path.startswith("/system/backups/") and request.method == "DELETE":
+            if self.backup_delete_failure:
+                return route.fulfill(status=500, json={"detail": "Could not delete the backup. Check file permissions and try again."})
+            backup_id = path.split("/system/backups/", 1)[1].split("?", 1)[0]
+            self.backups = [item for item in self.backups if item["id"] != backup_id]
+            data, envelope = None, True
         elif path == "/proxies" and request.method == "GET":
             data, envelope = {"proxies": self.library}, True
         elif path == "/proxies" and request.method == "POST":
@@ -235,6 +244,38 @@ class DesktopUI(unittest.TestCase):
         expect(self.page.get_by_text("Backup restored as a new profile", exact=True)).to_be_visible()
         self.assertTrue(any(method == "POST" and path == "/system/backups/saved/restore" for method, path, _ in self.calls))
         self.assertFalse(any(method in {"PUT", "DELETE"} for method, _, _ in self.calls))
+
+    def test_backup_delete_confirmation_cancel_and_error_retry(self):
+        self.backups = [{"id": identifier, "profile_id": "original", "profile_name": name, "created_at": "2026-01-01T00:00:00Z", "reason": "manual", "size_bytes": 1024} for identifier, name in [("saved", "Selected profile"), ("kept", "Other profile")]]
+        self.page.goto(f"{self.origin}/settings/")
+        remove = self.page.get_by_role("button", name="Delete backup of Selected profile", exact=False)
+        remove.click()
+        dialog = self.page.get_by_role("dialog", name="Delete backup", exact=True)
+        expect(dialog).to_contain_text("Your current profiles and other backups are preserved.")
+        dialog.get_by_role("button", name="Cancel", exact=True).click()
+        self.assertFalse(any(method == "DELETE" for method, _, _ in self.calls))
+        remove.click()
+        self.backup_delete_failure = True
+        dialog.get_by_role("button", name="Delete permanently", exact=True).click()
+        expect(dialog.get_by_role("alert")).to_contain_text("Could not delete the backup")
+        expect(remove).to_be_visible()
+        self.backup_delete_failure = False
+        dialog.get_by_role("button", name="Delete permanently", exact=True).click()
+        expect(dialog).not_to_be_visible()
+        expect(remove).to_have_count(0)
+        expect(self.page.get_by_role("button", name="Delete backup of Other profile", exact=False)).to_be_visible()
+        self.assertEqual([(method, path) for method, path, _ in self.calls if method == "DELETE"], [("DELETE", "/system/backups/saved?confirm=true")] * 2)
+
+    def test_backup_delete_chinese_last_backup(self):
+        self.backups = [{"id": "saved", "profile_id": "original", "profile_name": "测试配置", "created_at": "2026-01-01T00:00:00Z", "reason": "manual", "size_bytes": 1024}]
+        self.page.goto(f"{self.origin}/settings/")
+        self.page.get_by_label("Language", exact=True).select_option("zh-CN")
+        self.page.get_by_role("button", name="删除 测试配置 于", exact=False).click()
+        dialog = self.page.get_by_role("dialog", name="删除备份", exact=True)
+        expect(dialog).to_contain_text("当前配置和其他备份将保留")
+        dialog.get_by_role("button", name="永久删除", exact=True).click()
+        expect(self.page.get_by_text("备份已删除", exact=True)).to_be_visible()
+        expect(self.page.get_by_text("暂无备份。", exact=True)).to_be_visible()
 
     def test_preview_channel_is_opt_in_and_preserved_during_preparation(self):
         self.page.goto(f"{self.origin}/settings/")

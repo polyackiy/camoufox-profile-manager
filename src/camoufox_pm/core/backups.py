@@ -33,7 +33,7 @@ class ProfileBackupManager:
 
     @asynccontextmanager
     async def _exclusive(self):
-        """Serialize archive creation/pruning/restoration across app processes."""
+        """Serialize archive creation/pruning/restoration/deletion across app processes."""
         storage = self.manager.storage
         holder = make_lease_holder()
         if not await storage.acquire_recovery_lock(holder, 300):
@@ -228,6 +228,21 @@ class ProfileBackupManager:
                 (self.directory / f"{item['id']}.json").unlink(missing_ok=True)
             except OSError as exc:
                 logger.warning(f"Could not prune backup {item['id']}: {exc}")
+
+    async def delete_backup(self, backup_id: str) -> None:
+        async with self._exclusive():
+            archive = self._archive_path(backup_id)
+            metadata = archive.with_suffix(".json")
+            if metadata.is_symlink() or any(
+                path.exists() and not path.is_file() for path in (archive, metadata)
+            ):
+                raise ValueError("Invalid backup path")
+            if not archive.exists() and not metadata.exists():
+                raise FileNotFoundError("Backup not found")
+            # Remove the payload first; a retry can clean up leftover metadata
+            # if the second unlink fails. Never touch the source profile.
+            archive.unlink(missing_ok=True)
+            metadata.unlink(missing_ok=True)
 
     async def restore_backup(self, backup_id: str, name: str | None = None):
         async with self._exclusive():

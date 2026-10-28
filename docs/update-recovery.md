@@ -1,5 +1,11 @@
 # Offline complete recovery
 
+The unreleased [native installer flow](native-installer-updates.md) reuses these
+checkpoints for user-confirmed Ubuntu/Windows OS installation. It is separate
+from the authenticated replacement transaction described below. Its unresolved
+installation marker prevents ordinary checkpoint cancellation after installation
+starts; follow its recovery instructions first.
+
 Automatic executable replacement remains disabled pending trusted TUF root,
 publisher policy and signed package-to-package acceptance on supported platforms.
 Issue #63 remains open for this separate automatic-replacement trust and acceptance
@@ -105,7 +111,8 @@ rollback shows the checkpoint timestamp and explains that later changes will no
 longer be active. The newer files are retained for recovery. Checkpoints and retained installation
 trees are not automatically pruned; keep them until recovery acceptance is complete. With no trusted
 policy or publisher credentials, Settings explains why automatic installation is
-unavailable and keeps the manual backup/download flow.
+unavailable. Released versions keep the manual backup/download flow; unreleased
+builds also offer the separate native installer flow on supported installations.
 
 The desktop closes profiles and the API before a helper proceeds. A private copy
 of the current installation runs the helper outside the directory being replaced,

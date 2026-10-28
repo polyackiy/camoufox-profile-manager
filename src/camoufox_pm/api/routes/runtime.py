@@ -64,3 +64,37 @@ async def prepare_update(channel: Literal["stable", "preview"] = "stable"):
             message="Profiles backed up. Close the application before installing the update.",
         ),
     )
+
+
+class InstallerRequest(BaseModel):
+    channel: Literal["stable", "preview"] = "stable"
+    version: str
+
+
+@router.get("/system/updates/installer")
+async def installer_status():
+    from camoufox_pm.core import native_installer
+
+    return ApiResponse(
+        success=True,
+        message="Installer status.",
+        data=native_installer.controller.status()
+        if native_installer.controller
+        else {"supported": False, "state": "idle"},
+    )
+
+
+@router.post("/system/updates/installer")
+async def start_installer(request: InstallerRequest):
+    from camoufox_pm.core import native_installer
+
+    if native_installer.controller is None:
+        raise HTTPException(409, "Native installation requires the packaged desktop app.")
+    try:
+        return ApiResponse(
+            success=True,
+            message="Installer started.",
+            data=native_installer.controller.start(request.channel, request.version),
+        )
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
