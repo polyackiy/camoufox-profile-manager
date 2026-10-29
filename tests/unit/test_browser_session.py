@@ -44,7 +44,7 @@ class FakeCamoufox:
         self.fail = fail
         self.starts = 0
         self.exits = 0
-        self.exit_error: Exception | None = None
+        self.exit_error: BaseException | None = None
 
     async def start(self):
         self.starts += 1
@@ -281,10 +281,22 @@ async def test_terminating_stops_the_watchdog():
 
 
 @pytest.mark.asyncio
-async def test_a_browser_that_fails_to_close_is_still_forgotten(installed):
-    """A crashed browser raises on close. Keeping the session would leave the
-    profile permanently 'running' and impossible to launch again."""
-    camoufox = installed(FakeCamoufox())
+async def test_failed_sdk_close_is_forgotten_after_owned_driver_exit_is_confirmed(
+    installed, monkeypatch
+):
+    """A verified dead owned driver permits recovery despite a stale SDK error."""
+    camoufox = installed(FakeCamoufox(FakeBrowser(pid=4242)))
+    monkeypatch.setattr(
+        bs.psutil,
+        "Process",
+        lambda pid: SimpleNamespace(
+            pid=pid,
+            parents=lambda: [SimpleNamespace(pid=os.getpid())],
+            children=lambda recursive: [],
+            is_running=lambda: camoufox.exits == 0,
+            terminate=lambda: None,
+        ),
+    )
     camoufox.exit_error = RuntimeError("connection already closed")
     mgr = BrowserSessionManager()
 
@@ -853,3 +865,30 @@ async def test_current_playwright_sdk_driver_identity_is_resolved_without_a_brow
         assert _resolve_process_id(first_context) == first_pid
         assert _resolve_process_id(SimpleNamespace(browser=first)) == first_pid
         assert any(parent.pid == os.getpid() for parent in psutil.Process(first_pid).parents())
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", [RuntimeError, asyncio.CancelledError])
+async def test_failed_sdk_close_without_driver_identity_retains_fence_until_retry(
+    installed, failure
+):
+    from unittest.mock import AsyncMock
+
+    camoufox = installed(FakeCamoufox())
+    camoufox.exit_error = failure("private SDK diagnostic")
+    storage = SimpleNamespace(release_lease=AsyncMock())
+    manager = BrowserSessionManager(storage=storage, holder="local")
+    stopped = AsyncMock()
+    manager.on_stopped = stopped
+    session = await manager.launch("p", {})
+    assert session.process_id is None
+    with pytest.raises(bs.BrowserTerminationError):
+        await manager.close_and_release("p")
+    assert manager.is_live("p") and not session._terminated
+    storage.release_lease.assert_not_awaited()
+    stopped.assert_not_awaited()
+    camoufox.exit_error = None
+    assert await manager.close_and_release("p")
+    assert not manager.is_live("p")
+    storage.release_lease.assert_awaited_once_with("p", "local")
+    stopped.assert_awaited_once_with("p")

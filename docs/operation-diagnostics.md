@@ -156,6 +156,10 @@ targets retain pinned process identities; a numeric driver PID is not re-adopted
 after SDK exit and global browser-name matches never authorize signals.
 
 An unconfirmed exit leaves its session and lease tracked; explicit Close can retry.
+If the SDK close itself fails or is cancelled and no driver identity was pinned,
+there is no exit evidence: the same fence remains until an explicit retry obtains
+SDK acknowledgement. A known, confirmed-dead owned driver still permits recovery
+from a stale SDK close error.
 A failed partial launch also stays tracked if its cleanup cannot confirm exit.
 Permission/identity uncertainty fails closed. A manager restart after manually
 closing remaining browsers may be needed if ownership could not be established.

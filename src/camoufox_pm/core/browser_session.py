@@ -314,6 +314,7 @@ class BrowserSession:
 
         self._owned_processes.refresh()
         cancelled = False
+        sdk_close_failed = False
         if self.socks_relay is not None:
             try:
                 await self.socks_relay.close()
@@ -327,12 +328,18 @@ class BrowserSession:
                 await self.camoufox.__aexit__(None, None, None)
             except asyncio.CancelledError:
                 cancelled = True
+                sdk_close_failed = True
             except Exception as exc:
+                sdk_close_failed = True
                 logger.warning(f"Browser context close failed: {type(exc).__name__}")
 
         # Blocking process waits must not freeze API/event-loop admission. The
         # strongly owned task drains this worker even after caller cancellation.
         await asyncio.to_thread(self._owned_processes.finish)
+        if sdk_close_failed and self._owned_processes.root is None:
+            # Neither SDK acknowledgement nor a pinned process identity proves
+            # exit. Retain the session/lease; an explicit SDK retry may recover.
+            raise BrowserTerminationError(BROWSER_EXIT_UNCONFIRMED)
         self._terminated = True
         if cancelled:
             raise asyncio.CancelledError
