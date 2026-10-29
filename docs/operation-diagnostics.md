@@ -201,3 +201,14 @@ post-failure snapshot exports no PID, birth time, name, commandline, path or URL
 it never authorizes signals or changes the production quiescence decision.
 `outside_current_ancestry` includes possible orphans and is not proof that a
 process was unrelated at the time of refusal. Exits can race the observation.
+
+
+Snapshot activation/recovery `ApplyError` wrappers use the same closed evidence
+forwarder as control-store and sync-guard wrappers. Capture the validated source
+category/site/line at the catch boundary, then keep the public error text generic
+and suppress exception chaining. No cause, message, filename or frame-local value
+is inspected for export. The actual loaded wrapper class and the exact revalidated
+`OperationDiagnostic` type are required; spoofed classes, subclasses and invalid
+constructed models cannot forward evidence. File permission and quiescence faults
+before publication, plus a recovery fault after the database CAS, retain old/new
+data and recovery state in regression tests.

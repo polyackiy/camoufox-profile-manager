@@ -32,6 +32,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   incomplete operations (#119). Interactive queues do not replay after reload.
 
 ### Fixed
+- Preserve validated source categories/sites through sanitized snapshot activation
+  and recovery errors, without exporting exception text, paths or causes. Keep
+  recovery/data guards intact while investigating remaining Windows refusals
+  (related #145).
 - Open relay ciphertext descriptors in binary mode on Windows before wrapping
   them in Python streams. Preserve terminal CTRL-Z bytes across chunk append,
   resume and duplicate requests; authenticated offsets and full hashes remain

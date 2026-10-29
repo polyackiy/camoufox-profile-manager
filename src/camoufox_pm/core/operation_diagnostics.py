@@ -184,6 +184,7 @@ _FORWARDERS = {
     ("camoufox_pm.sync.control", "ControlError"),
     ("camoufox_pm.sync.control", "ControlConflict"),
     ("camoufox_pm.core.sync_guard", "SyncBlocked"),
+    ("camoufox_pm.sync.apply", "ApplyError"),
 }
 
 
