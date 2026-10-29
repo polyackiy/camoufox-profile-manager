@@ -74,6 +74,9 @@ def _private_stream(path: Path, mode: Literal["rb", "r+b"]) -> Iterator[BinaryIO
     descriptor = os.open(
         path,
         (os.O_RDWR if mode == "r+b" else os.O_RDONLY)
+        # Windows CRT text-mode open can trim a terminal CTRL-Z before fdopen
+        # switches the descriptor to binary. Ciphertext must remain byte-exact.
+        | getattr(os, "O_BINARY", 0)
         | getattr(os, "O_NOFOLLOW", 0)
         | getattr(os, "O_NONBLOCK", 0),
     )

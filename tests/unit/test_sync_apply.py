@@ -435,3 +435,74 @@ async def test_revoked_authorization_after_backup_never_publishes(area):
     assert checks == ["prepared"]
     assert (await area.manager.storage.get_profile(area.profile.id)).storage_path == str(area.old)
     assert area.control.get("apply/" + area.profile.id).payload["phase"] == "prepared"
+
+
+async def test_apply_sanitizing_wrapper_retains_closed_permission_evidence(area, monkeypatch):
+    import errno
+
+    from camoufox_pm.core.operation_diagnostics import operation_diagnostic
+
+    def fail(step):
+        if step == "prepared":
+            raise PermissionError(errno.EACCES, "private path and credentials")
+
+    monkeypatch.setattr(adapter, "_step", fail)
+    with pytest.raises(adapter.ApplyError) as caught:
+        await activate(area)
+    evidence = operation_diagnostic(caught.value, area="sync", stage="execute")
+    assert evidence.category == "permission_denied" and evidence.site == "sync.apply"
+    assert "private" not in evidence.model_dump_json() and "private" not in str(caught.value)
+    assert caught.value.__cause__ is None
+    assert (area.old / "cookies.sqlite").read_bytes() == b"old local cookies"
+    monkeypatch.setattr(adapter, "_step", lambda _: None)
+    assert (await recover(area)).phase == "aborted"
+
+
+async def test_apply_sanitizing_wrapper_retains_quiescence_evidence(area, monkeypatch):
+    from camoufox_pm.core.operation_diagnostics import operation_diagnostic
+    from camoufox_pm.sync import quiescence
+
+    def busy(_):
+        raise quiescence.QuiescenceError("private process and profile information")
+
+    monkeypatch.setattr(quiescence, "assert_no_browser_process", busy)
+    with pytest.raises(adapter.ApplyError) as caught:
+        await activate(area)
+    evidence = operation_diagnostic(caught.value, area="sync", stage="execute")
+    assert evidence.category == "profile_not_quiescent" and evidence.site == "sync.quiescence"
+    assert "private" not in evidence.model_dump_json() and "private" not in str(caught.value)
+    assert (area.old / "cookies.sqlite").read_bytes() == b"old local cookies"
+
+
+async def test_recovery_sanitizing_wrapper_retains_closed_failure_after_cas(area, monkeypatch):
+    import errno
+
+    from camoufox_pm.core.operation_diagnostics import operation_diagnostic
+
+    class Crash(BaseException):
+        pass
+
+    def crash(step):
+        if step == "database_committed":
+            raise Crash()
+
+    monkeypatch.setattr(adapter, "_step", crash)
+    with pytest.raises(Crash):
+        await activate(area)
+    monkeypatch.setattr(adapter, "_step", lambda _: None)
+
+    def denied(*args):
+        raise PermissionError(errno.EACCES, "private path and credentials")
+
+    monkeypatch.setattr(adapter, "_verify_tree", denied)
+    with pytest.raises(adapter.ApplyError) as caught:
+        await recover(area)
+    evidence = operation_diagnostic(caught.value, area="sync", stage="execute")
+    assert evidence.category == "permission_denied"
+    assert evidence.site in {"sync.apply", "core.profile_operations"}
+    assert "private" not in evidence.model_dump_json() and "private" not in str(caught.value)
+    current = await area.manager.storage.get_profile(area.profile.id)
+    assert (
+        Path(current.storage_path) / "cookies.sqlite"
+    ).read_bytes() == b"new authenticated cookies"
+    assert (area.old / "cookies.sqlite").read_bytes() == b"old local cookies"

@@ -32,6 +32,23 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   incomplete operations (#119). Interactive queues do not replay after reload.
 
 ### Fixed
+- Preserve validated source categories/sites through sanitized snapshot activation
+  and recovery errors, without exporting exception text, paths or causes. Keep
+  recovery/data guards intact while investigating remaining Windows refusals
+  (related #145).
+- Open relay ciphertext descriptors in binary mode on Windows before wrapping
+  them in Python streams. Preserve terminal CTRL-Z bytes across chunk append,
+  resume and duplicate requests; authenticated offsets and full hashes remain
+  mandatory (#143).
+- Resolve the current Playwright SDK/manager transport (`_impl_obj`/connection),
+  verified with real isolated SDK drivers rather than only browser stand-ins.
+  Pin browser driver identities while they are owned, drain known descendants
+  after SDK close and confirm termination before releasing the session/lease.
+  Unconfirmed exits, including failed/cancelled SDK close without a driver
+  identity, stay tracked for explicit retry; Close all still attempts
+  the remaining authorized profiles, rechecks operator access and records each
+  result. Fixed recovery guidance is available in English, Russian and Chinese. Unknown-browser/native-profile guards stay intact
+  (related #145).
 - Prove resumable relay chunk bytes after close before acknowledging an offset,
   use open-handle EOF and counted/hash-checked bytes instead of cached file size,
   and safely restart only missing/short private uncommitted prefixes using the

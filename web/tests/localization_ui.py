@@ -77,6 +77,11 @@ class OnboardingLocaleUI(Localized, DesktopUI):
             return route.fulfill(json=self.profiles[0])
         if path.endswith(("/launch", "/close")):
             self.calls.append((request.method, path, request.post_data))
+            if path.endswith("/close") and getattr(self, "close_unconfirmed", False):
+                return route.fulfill(status=500, json={"detail": (
+                    "Browser exit could not be confirmed. Close remaining browsers, then retry "
+                    "Stop or restart the manager."
+                )})
             self.running_profile_ids = ["profile-1"] if path.endswith("/launch") else []
             return route.fulfill(json={"status": "ok"})
         super().route(route)
@@ -120,6 +125,26 @@ class OnboardingLocaleUI(Localized, DesktopUI):
         self.assertIsNone(saved.get("proxy_config"))
         self.assertEqual(sum(path.endswith("/launch") for _, path, _ in self.calls), 1)
         self.assertEqual(sum(path.endswith("/close") for _, path, _ in self.calls), 1)
+
+    def test_unconfirmed_stop_stays_active_until_explicit_retry(self):
+        self.browser_state.update(installed=True, state="ready", version="test")
+        self.profiles = [profile(1)]
+        self.running_profile_ids = ["profile-1"]
+        self.close_unconfirmed = True
+        self.page.goto(self.origin)
+        self.button("Stop").click()
+        message = self.tr(
+            "Browser exit could not be confirmed. Close remaining browsers, then retry "
+            "Stop or restart the manager."
+        )
+        expect(self.page.get_by_role("status").filter(has_text=message)).to_be_visible()
+        expect(self.button("Stop")).to_be_enabled()
+        self.assertEqual(sum(path.endswith("/close") for _, path, _ in self.calls), 1)
+        self.assertFalse(any(path.endswith("/launch") for _, path, _ in self.calls))
+        self.close_unconfirmed = False
+        self.button("Stop").click()
+        expect(self.button("Run")).to_be_enabled()
+        self.assertEqual(sum(path.endswith("/close") for _, path, _ in self.calls), 2)
 
     def test_language_switch_preserves_draft_focus_and_fingerprint(self):
         self.page.goto(self.origin)

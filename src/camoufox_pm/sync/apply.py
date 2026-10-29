@@ -25,6 +25,7 @@ from camoufox_pm.core import profile_archive
 from camoufox_pm.core.leases import lease_expired, make_lease_holder
 from camoufox_pm.core.maintenance import MaintenanceGate
 from camoufox_pm.core.models import Profile
+from camoufox_pm.core.operation_diagnostics import retain_operation_diagnostic
 from camoufox_pm.core.profile_operations import (
     profile_data_path,
     profile_operation,
@@ -47,6 +48,11 @@ _LOCKS = {"lock", ".parentlock", "parent.lock"}
 
 class ApplyError(ValueError):
     """Safe error; the durable journal and existing data remain recoverable."""
+
+    def __init__(self, message: str = _ERROR, *, source: BaseException | None = None):
+        super().__init__(message)
+        if source is not None:
+            retain_operation_diagnostic(self, source)
 
 
 @dataclass(frozen=True)
@@ -388,8 +394,8 @@ async def apply_snapshot(
                     record = _advance(control, record, phase="complete")
                     _step("complete")
                     return _result(record)
-    except Exception:
-        raise ApplyError(_ERROR) from None
+    except Exception as error:
+        raise ApplyError(_ERROR, source=error) from None
 
 
 async def recover_apply(
@@ -482,5 +488,5 @@ async def recover_apply(
                     if p["phase"] != "complete":
                         record = _advance(control, record, phase="complete")
                     return _result(record)
-    except Exception:
-        raise ApplyError(_ERROR) from None
+    except Exception as error:
+        raise ApplyError(_ERROR, source=error) from None

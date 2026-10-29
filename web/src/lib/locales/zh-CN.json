@@ -1164,5 +1164,7 @@
   "Workflow not found.": "未找到工作流。",
   "Workflow run not found.": "未找到工作流运行记录。",
   "The installation already has 100 workflows.": "此安装中已有 100 个工作流。",
-  "Run history expired. Review the targets and use a new request ID.": "运行历史已过期。请检查目标并使用新的请求 ID。"
+  "Run history expired. Review the targets and use a new request ID.": "运行历史已过期。请检查目标并使用新的请求 ID。",
+  "Browser exit could not be confirmed. Close remaining browsers, then retry Stop or restart the manager.": "无法确认浏览器已退出。请关闭仍在运行的浏览器，然后重试“停止”，或重启管理器。",
+  "Some browser exits could not be confirmed. Retry Stop for active profiles.": "部分浏览器尚未确认退出。请对仍处于运行状态的配置重试“停止”。"
 }
