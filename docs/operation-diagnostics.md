@@ -142,7 +142,11 @@ a browser executable; installed CI runs these on all four desktop platforms.
 
 ## Browser close ownership
 
-A session pins the SDK driver's process/birth identity while it is a descendant
+The resolver supports the current SDK's `_impl_obj` connection and the context
+manager's direct connection, retaining legacy wrappers as fallbacks. A regression
+starts two real Playwright drivers without browser executables, verifies distinct
+owned driver identities and closes both contexts. It fails with the former
+`_impl`-only lookup. A session pins the SDK driver's process/birth identity while it is a descendant
 of this manager, and captures known descendants before SDK close can lose their
 ancestry. After the SDK close, descendants get five seconds to exit naturally;
 owned survivors and the driver then get bounded terminate/wait and kill/wait
@@ -183,3 +187,13 @@ license to lower an acknowledged offset, fabricate missing bytes or publish a
 mismatched snapshot. Existing authenticated lost-prefix restart retains the local
 source and the full final digest. Historical failing ciphertext was not exported,
 so reproducing this mechanism does not prove every old HTTP 409 had this cause.
+
+
+Installed CI captures `browser_process_checks` only after a quiescence refusal,
+before disposable-manager cleanup. At most eight entries report fixed ambiguity,
+current managed-ancestry, content-child, browser-parent and zombie/other categories.
+An absent process and unavailable inspection have separate fixed results. This
+post-failure snapshot exports no PID, birth time, name, commandline, path or URL;
+it never authorizes signals or changes the production quiescence decision.
+`outside_current_ancestry` includes possible orphans and is not proof that a
+process was unrelated at the time of refusal. Exits can race the observation.

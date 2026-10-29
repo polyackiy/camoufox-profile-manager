@@ -363,8 +363,10 @@ def test_sync_observation_finishes_backup_before_one_shot_launch(monkeypatch, bu
         calls.append(path)
         if path == "/system/backups":
             return {"data": {"backups": [{"profile_id": "target"}]}}
-        if path.endswith("/launch") and busy:
-            raise harness.InstalledAPIError(409, "profile_busy")
+        if path.endswith("/launch"):
+            if busy:
+                raise harness.InstalledAPIError(409, "profile_busy")
+            return {"process_id": 4242}
         return {}
 
     monkeypatch.setattr(harness, "wait_for", lambda check, **kwargs: check())
@@ -702,3 +704,84 @@ def test_storage_probe_failure_does_not_replace_original_error(tmp_path, monkeyp
     assert relay._private_stream is private_stream
     assert report["relay_storage_events"][0]["readable_prefix"] == "unavailable"
     assert "private" not in str(report)
+
+
+@pytest.mark.parametrize("managed", [True, False])
+def test_ambiguous_browser_observer_exports_only_closed_categories(monkeypatch, managed):
+    root = SimpleNamespace(name=lambda: "private-manager-name")
+    process = SimpleNamespace(
+        name=lambda: "firefox.exe",
+        cmdline=lambda: ["private executable path", "private URL and credentials"],
+        parents=lambda: [root] if managed else [],
+        status=lambda: "private status value",
+    )
+    monkeypatch.setattr(harness, "_PROCESSES", [SimpleNamespace(pid=4242, poll=lambda: None)])
+    monkeypatch.setattr(harness.psutil, "Process", lambda _: root)
+    monkeypatch.setattr(harness.psutil, "process_iter", lambda: iter([process]))
+    report = {}
+    harness.record_ambiguous_browser_checks(report)
+    assert report == {
+        "browser_process_checks": [
+            {
+                "result": "ambiguous",
+                "ancestry": "managed" if managed else "outside_current_ancestry",
+                "content_child": False,
+                "browser_parent": False,
+                "state": "other",
+            }
+        ]
+    }
+    assert "private" not in str(report) and "4242" not in str(report)
+
+
+def test_ambiguous_browser_observer_caps_candidates_and_does_not_signal(monkeypatch):
+    process = SimpleNamespace(
+        name=lambda: "camoufox",
+        cmdline=lambda: ["private executable"],
+        parents=lambda: [],
+        status=lambda: harness.psutil.STATUS_ZOMBIE,
+    )
+    monkeypatch.setattr(harness, "_PROCESSES", [])
+    monkeypatch.setattr(harness.psutil, "process_iter", lambda: iter([process] * 20))
+    report = {}
+    harness.record_ambiguous_browser_checks(report)
+    assert len(report["browser_process_checks"]) == 8
+    assert all(item["state"] == "zombie" for item in report["browser_process_checks"])
+    assert "private" not in str(report)
+
+
+@pytest.mark.parametrize("denied", [False, True])
+def test_ambiguous_browser_observer_keeps_absence_and_denied_inspection_distinct(
+    monkeypatch, denied
+):
+    def inspect():
+        if denied:
+            raise PermissionError("private process diagnostic")
+        return iter(())
+
+    monkeypatch.setattr(harness, "_PROCESSES", [])
+    monkeypatch.setattr(harness.psutil, "process_iter", inspect)
+    report = {}
+    harness.record_ambiguous_browser_checks(report)
+    assert report == {
+        "browser_process_checks": [
+            {"result": "inspection_unavailable" if denied else "not_observed"}
+        ]
+    }
+    assert "private" not in str(report)
+
+
+@pytest.mark.parametrize("identity", [None, 0, True])
+def test_installed_observation_rejects_missing_driver_identity_without_replay(
+    monkeypatch, identity
+):
+    calls = []
+
+    def call(path, body):
+        calls.append(path)
+        return {"process_id": identity}
+
+    monkeypatch.setattr(harness, "prepare_profile_backup", lambda *args: None)
+    with pytest.raises(AssertionError):
+        harness.observe(SimpleNamespace(call=call), "target", "http://local", "first")
+    assert calls == ["/profiles/target/launch", "/browsers/close-all"]

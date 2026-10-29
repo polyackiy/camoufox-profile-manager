@@ -839,3 +839,17 @@ async def test_driver_identity_is_pinned_before_sdk_exit_and_never_relooked_up(m
     session = BrowserSession("p", FakeCamoufox(), 4242)
     await session.terminate()
     assert lookups == [4242] and session._terminated
+
+
+@pytest.mark.asyncio
+async def test_current_playwright_sdk_driver_identity_is_resolved_without_a_browser():
+    from playwright.async_api import async_playwright
+
+    first_context, second_context = async_playwright(), async_playwright()
+    async with first_context as first, second_context as second:
+        first_pid, second_pid = _resolve_process_id(first), _resolve_process_id(second)
+        assert first_pid is not None and second_pid is not None
+        assert first_pid != second_pid
+        assert _resolve_process_id(first_context) == first_pid
+        assert _resolve_process_id(SimpleNamespace(browser=first)) == first_pid
+        assert any(parent.pid == os.getpid() for parent in psutil.Process(first_pid).parents())

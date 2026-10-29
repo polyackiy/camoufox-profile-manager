@@ -150,6 +150,55 @@ def record_relay_refusals(app, report):
     app.add_exception_handler(StarletteHTTPException, refusal)
 
 
+def record_ambiguous_browser_checks(report):
+    """Post-refusal CI observation only; no PID/command/path exports or signals."""
+    from camoufox_pm.sync import quiescence
+
+    evidence = report.setdefault("browser_process_checks", [])
+    try:
+        managers = []
+        for owned in _PROCESSES:
+            if owned.poll() is None:
+                try:
+                    managers.append(psutil.Process(owned.pid))
+                except psutil.NoSuchProcess:
+                    continue
+        for process in psutil.process_iter():
+            if len(evidence) >= 8:
+                break
+            try:
+                if process.name().lower() not in quiescence._BROWSER_NAMES:
+                    continue
+                try:
+                    quiescence._process_profile(process)
+                    continue
+                except quiescence.QuiescenceError:
+                    pass
+                command = process.cmdline()
+                parents = process.parents()
+                evidence.append(
+                    {
+                        "result": "ambiguous",
+                        "ancestry": "managed"
+                        if any(p in managers for p in parents)
+                        else "outside_current_ancestry",
+                        "content_child": "-contentproc" in command,
+                        "browser_parent": bool(
+                            parents and parents[0].name().lower() in quiescence._BROWSER_NAMES
+                        ),
+                        "state": "zombie" if process.status() == psutil.STATUS_ZOMBIE else "other",
+                    }
+                )
+            except psutil.NoSuchProcess:
+                continue
+        if not evidence:
+            evidence.append({"result": "not_observed"})
+    except Exception:
+        # Private inspection errors must not replace the original API failure.
+        if len(evidence) < 8:
+            evidence.append({"result": "inspection_unavailable"})
+
+
 @contextlib.contextmanager
 def observe_relay_storage(report):
     """Bounded observations of this harness's disposable relay; never authority."""
@@ -734,7 +783,7 @@ def observe(device, profile_id, site, stage, report=None):
     if report is not None:
         report.setdefault("backup_checks", {})[stage] = preparation
     prepare_profile_backup(device, profile_id, preparation)
-    device.call(
+    launched = device.call(
         f"/profiles/{profile_id}/launch",
         {
             "headless": True,
@@ -745,6 +794,9 @@ def observe(device, profile_id, site, stage, report=None):
         },
     )
     try:
+        # Prove real packaged SDK wiring, not merely stand-in resolver shapes.
+        # This identity stays private; successful acceptance implies resolution.
+        assert type(launched.get("process_id")) is int and launched["process_id"] > 0
         result = wait_for(lambda: Probe.reports.get(stage), seconds=120)
         assert not result.get("error") and result["httpOnly"] and result["authenticated"]
         return result
@@ -1005,6 +1057,10 @@ def main():
                             result,
                         )
                         result["passed"] = True
+                    except InstalledAPIError as error:
+                        if (error.diagnostic or {}).get("category") == "profile_not_quiescent":
+                            record_ambiguous_browser_checks(result)
+                        raise
                     finally:
                         # Execute every cleanup even when another one fails.
                         with contextlib.ExitStack() as cleanup:

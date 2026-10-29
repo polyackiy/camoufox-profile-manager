@@ -36,7 +36,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   them in Python streams. Preserve terminal CTRL-Z bytes across chunk append,
   resume and duplicate requests; authenticated offsets and full hashes remain
   mandatory (#143).
-- Pin browser driver identities while they are owned, drain known descendants
+- Resolve the current Playwright SDK/manager transport (`_impl_obj`/connection),
+  verified with real isolated SDK drivers rather than only browser stand-ins.
+  Pin browser driver identities while they are owned, drain known descendants
   after SDK close and confirm termination before releasing the session/lease.
   Unconfirmed exits stay tracked for explicit retry; Close all still attempts
   the remaining authorized profiles, rechecks operator access and records each

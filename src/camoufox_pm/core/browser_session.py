@@ -243,6 +243,9 @@ def _resolve_process_id(obj: Any) -> int | None:
     """
     candidates = (
         lambda b: b._browser_process.pid,  # noqa: SLF001
+        lambda b: b.browser._impl_obj._connection._transport._proc.pid,  # noqa: SLF001
+        lambda b: b._impl_obj._connection._transport._proc.pid,  # noqa: SLF001
+        lambda b: b._connection._transport._proc.pid,  # noqa: SLF001
         lambda b: b.browser._impl._connection._transport._proc.pid,  # noqa: SLF001
         lambda b: b._impl._connection._transport._proc.pid,  # noqa: SLF001
     )
