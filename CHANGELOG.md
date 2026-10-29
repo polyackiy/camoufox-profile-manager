@@ -32,6 +32,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   incomplete operations (#119). Interactive queues do not replay after reload.
 
 ### Fixed
+- Open relay ciphertext descriptors in binary mode on Windows before wrapping
+  them in Python streams. Preserve terminal CTRL-Z bytes across chunk append,
+  resume and duplicate requests; authenticated offsets and full hashes remain
+  mandatory (#143).
 - Pin browser driver identities while they are owned, drain known descendants
   after SDK close and confirm termination before releasing the session/lease.
   Unconfirmed exits stay tracked for explicit retry; Close all still attempts

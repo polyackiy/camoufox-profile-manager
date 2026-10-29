@@ -147,9 +147,9 @@ of this manager, and captures known descendants before SDK close can lose their
 ancestry. After the SDK close, descendants get five seconds to exit naturally;
 owned survivors and the driver then get bounded terminate/wait and kill/wait
 fallbacks. OS waits run off the API event loop and the owned cleanup task drains
-them before releasing the lease, including after caller cancellation. Numeric
-PIDs are never freshly looked up after SDK exit and global browser-name matches
-never authorize signals.
+them before releasing the lease, including after caller cancellation. Signal
+targets retain pinned process identities; a numeric driver PID is not re-adopted
+after SDK exit and global browser-name matches never authorize signals.
 
 An unconfirmed exit leaves its session and lease tracked; explicit Close can retry.
 A failed partial launch also stays tracked if its cleanup cannot confirm exit.
@@ -164,3 +164,22 @@ The Firefox native lock and ambiguous-process checks remain independent safeguar
 The historical #145 process identity was not captured; this fixes the independently
 reproduced early-close acknowledgement and does not claim every possible ambiguous
 browser refusal is an error.
+
+
+## Windows ciphertext descriptor mode
+
+Relay ciphertext opens explicitly include `O_BINARY` at the `os.open` boundary.
+Windows CRT read/write text-mode open can remove a terminal CTRL-Z byte before
+`os.fdopen(..., "r+b")` changes the stream mode. This is data-dependent, so
+random binary samples do not guarantee coverage. [CPython's Windows I/O
+analysis](https://bugs.python.org/msg376702) describes this exact distinction.
+
+Deterministic regressions place CTRL-Z at 64-byte and full 8 MiB chunk boundaries,
+then append, resume, duplicate a confirmed chunk and verify the final complete
+bytes/hash. A separate native Windows negative control uses the former flagless
+open sequence and verifies the removed byte; it changes no global CRT setting.
+The storage observer's between-open shortening category is evidence, not a
+license to lower an acknowledged offset, fabricate missing bytes or publish a
+mismatched snapshot. Existing authenticated lost-prefix restart retains the local
+source and the full final digest. Historical failing ciphertext was not exported,
+so reproducing this mechanism does not prove every old HTTP 409 had this cause.
