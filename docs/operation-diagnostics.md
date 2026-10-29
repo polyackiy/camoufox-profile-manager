@@ -68,7 +68,14 @@ allowlisted `sync.relay` frames in `relay_refusals`. Its actual API response is
 unchanged; request bodies, URLs, identifiers and private exception details are
 not collected. `relay_storage_checks` records at most eight fixed codes for
 metadata/EOF discrepancies or restarted uncommitted prefixes; no file metadata,
-paths, lengths or bytes are exported. Observers wrap only this harness's synthetic
+paths, lengths or bytes are exported. `relay_storage_events` keeps the first 16
+pending-file anomalies with fixed open/close, read/write/restart, missing/replaced/
+shorter and prefix-readability codes, plus a boolean relating adjacent anomalies.
+An internal 64-path cache is never exported. On an anomaly only, a separate
+private read counts at most 32 MiB for at most two seconds between reads, retaining
+all original permission/link checks. This distinguishes metadata from readable
+bytes without changing file offsets on the observed stream, repairing storage,
+granted authority, acknowledgements or public relay responses. Observers wrap only this harness's synthetic
 relay and restore its helpers on exit. This is harness evidence, not an
 authenticated relay proof.
 

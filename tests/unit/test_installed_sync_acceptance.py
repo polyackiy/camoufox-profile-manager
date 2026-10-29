@@ -459,7 +459,10 @@ def test_relay_storage_observer_is_bounded_private_and_restored(monkeypatch, tmp
         raise RuntimeError("private error")
     assert relay._opened_length is original_length
     assert relay._restart_lost_prefix is original_restart
-    assert report == {"relay_storage_checks": ["metadata_shorter_than_eof"] * 8}
+    assert report == {
+        "relay_storage_checks": ["metadata_shorter_than_eof"] * 8,
+        "relay_storage_events": [],
+    }
 
 
 @pytest.mark.parametrize("body", [None, {}])
@@ -568,3 +571,134 @@ def test_transport_evidence_rejects_mutated_private_fields():
     error.category = "request_failed"
     error.read_only = 1
     assert harness.transport_diagnostic(error) is None
+
+
+@pytest.mark.parametrize("inside", [False, True])
+def test_storage_observer_locates_shortening_without_repair_or_private_data(tmp_path, inside):
+    from camoufox_pm.core.update_permissions import create_private_file
+    from camoufox_pm.sync import relay
+
+    path = tmp_path / ".pending-private-owner-private-revision"
+    with os.fdopen(create_private_file(path), "wb") as output:
+        output.write(b"private-content" * 100)
+    original = relay._private_stream
+    report = {}
+    with harness.observe_relay_storage(report):
+        with relay._private_stream(path, "rb") as source:
+            assert source.read(1) == b"p"
+        if inside:
+            with relay._private_stream(path, "r+b") as output:
+                output.truncate(10)
+        else:
+            with path.open("r+b") as output:
+                output.truncate(10)
+            with relay._private_stream(path, "rb") as source:
+                assert len(source.read()) == 10
+    assert relay._private_stream is original
+    assert path.read_bytes() == (b"private-content" * 100)[:10]
+    assert report["relay_storage_events"] == [
+        {
+            "phase": "close" if inside else "open",
+            "access": "write" if inside else "read",
+            "change": "shorter",
+            "readable_prefix": "short",
+            "same_pending": False,
+        }
+    ]
+    assert "private" not in str(report)
+
+
+def test_storage_observer_labels_explicit_restart_and_keeps_original_failure(tmp_path):
+    from camoufox_pm.core.update_permissions import create_private_file
+    from camoufox_pm.sync import relay
+
+    path = tmp_path / ".pending-private"
+    with os.fdopen(create_private_file(path), "wb") as output:
+        output.write(b"x" * 20)
+    report = {}
+    with pytest.raises(RuntimeError, match="original"), harness.observe_relay_storage(report):
+        assert relay._restart_lost_prefix(path, 40)
+        raise RuntimeError("original")
+    assert path.read_bytes() == b""
+    assert report["relay_storage_checks"] == ["uncommitted_prefix_restarted"]
+    assert report["relay_storage_events"] == [
+        {
+            "phase": "close",
+            "access": "restart",
+            "change": "shorter",
+            "readable_prefix": "short",
+            "same_pending": False,
+        }
+    ]
+
+
+def test_storage_observer_bounds_first_anomalies(tmp_path):
+    from camoufox_pm.core.update_permissions import create_private_file
+    from camoufox_pm.sync import relay
+
+    path = tmp_path / ".pending-private"
+    with os.fdopen(create_private_file(path), "wb") as output:
+        output.write(b"x" * 32)
+    report = {}
+    with harness.observe_relay_storage(report):
+        for length in range(31, 0, -1):
+            with relay._private_stream(path, "r+b") as output:
+                output.truncate(length)
+    assert len(report["relay_storage_events"]) == 16
+    assert report["relay_storage_events"][0]["same_pending"] is False
+    assert all(e["same_pending"] is True for e in report["relay_storage_events"][1:])
+    assert path.stat().st_size == 1
+
+
+def test_storage_observer_distinguishes_stale_metadata_from_readable_bytes(tmp_path, monkeypatch):
+    from camoufox_pm.core.update_permissions import create_private_file
+    from camoufox_pm.sync import relay
+
+    path = tmp_path / ".pending-secret-path"
+    with os.fdopen(create_private_file(path), "wb") as output:
+        output.write(b"secret binary data")
+    report = {}
+    original = os.fstat
+    with harness.observe_relay_storage(report):
+        with relay._private_stream(path, "rb"):
+            pass
+
+        def stale(descriptor):
+            values = list(original(descriptor))
+            values[6] = 0
+            return os.stat_result(values)
+
+        monkeypatch.setattr(os, "fstat", stale)
+        with relay._private_stream(path, "rb") as current:
+            assert current.read() == b"secret binary data"
+    assert report["relay_storage_events"][0]["readable_prefix"] == "preserved"
+    assert "secret" not in str(report)
+
+
+def test_storage_probe_failure_does_not_replace_original_error(tmp_path, monkeypatch):
+    from camoufox_pm.core.update_permissions import create_private_file
+    from camoufox_pm.sync import relay
+
+    path = tmp_path / ".pending-secret"
+    with os.fdopen(create_private_file(path), "wb") as output:
+        output.write(b"x" * 100)
+    original = relay._private_stream
+    denied = False
+
+    @harness.contextlib.contextmanager
+    def private_stream(selected, mode):
+        if denied and mode == "rb":
+            raise PermissionError("private credentials and path")
+        with original(selected, mode) as current:
+            yield current
+
+    monkeypatch.setattr(relay, "_private_stream", private_stream)
+    report = {}
+    with pytest.raises(ValueError, match="original"), harness.observe_relay_storage(report):
+        with relay._private_stream(path, "r+b") as output:
+            output.truncate(0)
+            denied = True
+            raise ValueError("original")
+    assert relay._private_stream is private_stream
+    assert report["relay_storage_events"][0]["readable_prefix"] == "unavailable"
+    assert "private" not in str(report)

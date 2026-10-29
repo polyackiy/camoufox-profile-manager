@@ -8,6 +8,7 @@ No secret-bearing traces, screenshots, request bodies or desktop logs are upload
 
 import argparse
 import contextlib
+import contextvars
 import datetime
 import http.server
 import ipaddress
@@ -151,18 +152,92 @@ def record_relay_refusals(app, report):
 
 @contextlib.contextmanager
 def observe_relay_storage(report):
-    """Fixed, bounded observations of this harness's own disposable relay only."""
+    """Bounded observations of this harness's disposable relay; never authority."""
     evidence = report.setdefault("relay_storage_checks", [])
+    events = report.setdefault("relay_storage_events", [])
     opened_length = relay_module._opened_length
     restart = relay_module._restart_lost_prefix
+    private_stream = relay_module._private_stream
+    recovering = contextvars.ContextVar("relay_storage_recovering", default=False)
+    history = {}
+    previous_event_path = None
 
     def record(code):
         evidence.append(code)
         del evidence[:-8]
 
-    def length(stream):
-        actual = opened_length(stream)
-        metadata = os.fstat(stream.fileno()).st_size
+    def readable_prefix(path, expected):
+        # Read only on an observed anomaly. No repair, seek fallback or new ACK.
+        # The original helper retains private-path/ACL/regular/single-link checks.
+        if expected > 32 * 1024 * 1024:
+            return "incomplete"
+        deadline = time.monotonic() + 2
+        try:
+            with private_stream(path, "rb") as source:
+                received = 0
+                while received < expected:
+                    if time.monotonic() >= deadline:
+                        return "incomplete"
+                    part = source.read(min(1024 * 1024, expected - received))
+                    if not part:
+                        return "short"
+                    received += len(part)
+            return "preserved"
+        except Exception:
+            return "unavailable"
+
+    def transition(path, before, after, phase, access):
+        nonlocal previous_event_path
+        if before is None or len(events) >= 16:
+            return
+        if after is None:
+            change = "missing"
+        elif (before.st_dev, before.st_ino) != (after.st_dev, after.st_ino):
+            change = "replaced"
+        elif after.st_size < before.st_size:
+            change = "shorter"
+        else:
+            return
+        events.append(
+            {
+                "phase": phase,
+                "access": access,
+                "change": change,
+                "readable_prefix": readable_prefix(path, before.st_size),
+                "same_pending": previous_event_path == path,
+            }
+        )
+        previous_event_path = path
+
+    @contextlib.contextmanager
+    def stream(path, mode):
+        if not path.name.startswith(".pending-"):
+            with private_stream(path, mode) as current:
+                yield current
+            return
+        access = "restart" if recovering.get() else ("write" if mode == "r+b" else "read")
+        before = None
+        try:
+            with private_stream(path, mode) as current:
+                try:
+                    before = os.fstat(current.fileno())
+                except OSError:
+                    pass
+                transition(path, history.get(path), before, "open", access)
+                yield current
+        finally:
+            try:
+                after = path.lstat()
+            except OSError:
+                after = None
+            transition(path, before, after, "close", access)
+            if len(history) >= 64 and path not in history:
+                history.pop(next(iter(history)))
+            history[path] = after
+
+    def length(current):
+        actual = opened_length(current)
+        metadata = os.fstat(current.fileno()).st_size
         if metadata < actual:
             record("metadata_shorter_than_eof")
         elif metadata > actual:
@@ -170,18 +245,24 @@ def observe_relay_storage(report):
         return actual
 
     def recover(path, confirmed):
-        changed = restart(path, confirmed)
+        token = recovering.set(True)
+        try:
+            changed = restart(path, confirmed)
+        finally:
+            recovering.reset(token)
         if changed:
             record("uncommitted_prefix_restarted")
         return changed
 
     relay_module._opened_length = length
     relay_module._restart_lost_prefix = recover
+    relay_module._private_stream = stream
     try:
         yield
     finally:
         relay_module._opened_length = opened_length
         relay_module._restart_lost_prefix = restart
+        relay_module._private_stream = private_stream
 
 
 def tls_fixture(directory):
