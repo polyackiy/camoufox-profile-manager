@@ -35,7 +35,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Pin browser driver identities while they are owned, drain known descendants
   after SDK close and confirm termination before releasing the session/lease.
   Unconfirmed exits stay tracked for explicit retry; Close all still attempts
-  the remaining profiles. Unknown-browser/native-profile guards stay intact
+  the remaining authorized profiles, rechecks operator access and records each
+  result. Fixed recovery guidance is available in English, Russian and Chinese. Unknown-browser/native-profile guards stay intact
   (related #145).
 - Prove resumable relay chunk bytes after close before acknowledging an offset,
   use open-handle EOF and counted/hash-checked bytes instead of cached file size,

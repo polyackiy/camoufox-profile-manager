@@ -291,3 +291,97 @@ async def test_archive_temp_file_is_removed_if_export_revoked_during_generation(
     assert response.status_code == 404
     assert len(paths) == 1 and not paths[0].exists()
     assert "private archive" not in response.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("prefix", ["/api", "/api/v1"])
+async def test_operator_unconfirmed_stop_is_safe_actionable_and_retriable(
+    client, monkeypatch, prefix
+):
+    from camoufox_pm.core.browser_session import BrowserSession, BrowserTerminationError
+
+    manager, own, hidden = await setup_actor(client, "operator", monkeypatch)
+    session = BrowserSession(own.id, None)
+    manager.browser_sessions.active_sessions[own.id] = session
+    await manager.storage.acquire_lease(own.id, manager.lease_holder, 120)
+
+    def fail():
+        raise BrowserTerminationError("private process diagnostic")
+
+    monkeypatch.setattr(session._owned_processes, "finish", fail)
+    response = await client.post(prefix + "/profiles/" + own.id + "/close")
+    assert response.status_code == 500
+    assert response.json()["error"]["message"] == (
+        "Browser exit could not be confirmed. Close remaining browsers, then retry "
+        "Stop or restart the manager."
+    )
+    assert "private process diagnostic" not in response.text and hidden.id not in response.text
+    assert manager.browser_sessions.is_live(own.id)
+    assert (await manager.storage.get_lease(own.id))[0] == manager.lease_holder
+    monkeypatch.setattr(session._owned_processes, "finish", lambda: None)
+    assert (await client.post(prefix + "/profiles/" + own.id + "/close")).status_code == 200
+    assert not manager.browser_sessions.is_live(own.id)
+    assert (await manager.storage.get_lease(own.id))[0] is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("prefix", ["/api", "/api/v1"])
+async def test_operator_stop_all_continues_owned_profiles_and_preserves_hidden(
+    client, monkeypatch, prefix
+):
+    from camoufox_pm.core.browser_session import BrowserSession, BrowserTerminationError
+
+    manager, own, hidden = await setup_actor(client, "operator", monkeypatch)
+    other = await manager.create_profile("Also visible", generate_fingerprint=False)
+    await manager.storage.set_profile_grant("member", other.id)
+    sessions = {p.id: BrowserSession(p.id, None) for p in (own, other, hidden)}
+    manager.browser_sessions.active_sessions.update(sessions)
+    for profile in (own, other, hidden):
+        await manager.storage.acquire_lease(profile.id, manager.lease_holder, 120)
+
+    def fail():
+        raise BrowserTerminationError("private process diagnostic")
+
+    monkeypatch.setattr(sessions[own.id]._owned_processes, "finish", fail)
+    response = await client.post(prefix + "/browsers/close-all")
+    assert response.status_code == 500
+    assert response.json()["error"]["message"] == (
+        "Some browser exits could not be confirmed. Retry Stop for active profiles."
+    )
+    assert "private process diagnostic" not in response.text and hidden.id not in response.text
+    assert manager.browser_sessions.is_live(own.id)
+    assert not manager.browser_sessions.is_live(other.id)
+    assert manager.browser_sessions.is_live(hidden.id)
+    assert (await manager.storage.get_lease(own.id))[0] == manager.lease_holder
+    assert (await manager.storage.get_lease(other.id))[0] is None
+    assert (await manager.storage.get_lease(hidden.id))[0] == manager.lease_holder
+    audit = await manager.storage.list_audit(action="close_profile_browser")
+    assert {(item["object_id"], item["result"]) for item in audit} == {
+        (own.id, "failure"),
+        (other.id, "success"),
+    }
+    monkeypatch.setattr(sessions[own.id]._owned_processes, "finish", lambda: None)
+    assert (await client.post(prefix + "/browsers/close-all")).status_code == 200
+    assert manager.browser_sessions.is_live(hidden.id)
+
+
+@pytest.mark.asyncio
+async def test_operator_stop_all_rechecks_revocation_between_closes(client, monkeypatch):
+    manager, own, hidden = await setup_actor(client, "operator", monkeypatch)
+    other = await manager.create_profile("Revoked during batch", generate_fingerprint=False)
+    await manager.storage.set_profile_grant("member", other.id)
+    closed = []
+
+    async def active():
+        return [{"profile_id": p.id} for p in (own, other, hidden)]
+
+    async def close(profile_id):
+        closed.append(profile_id)
+        await manager.storage.delete_profile_grant("member", other.id)
+
+    monkeypatch.setattr(manager, "get_active_browsers", active)
+    monkeypatch.setattr(manager, "close_browser", close)
+    response = await client.post("/api/v1/browsers/close-all")
+    assert response.status_code == 404
+    assert closed == [own.id]
+    assert other.id not in response.text and hidden.id not in response.text

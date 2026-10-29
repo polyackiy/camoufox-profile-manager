@@ -156,6 +156,10 @@ A failed partial launch also stays tracked if its cleanup cannot confirm exit.
 Permission/identity uncertainty fails closed. A manager restart after manually
 closing remaining browsers may be needed if ownership could not be established.
 Close all attempts other tracked profiles even if one exit cannot be confirmed.
+The operator route only attempts profiles with current launch access, rechecks
+revocation before each close and audits each result. The API exposes only typed,
+fixed recovery text to non-administrators; arbitrary 5xx details and spoofed error
+codes remain redacted. English/Russian/Chinese recovery uses the actual Stop control.
 The Firefox native lock and ambiguous-process checks remain independent safeguards.
 The historical #145 process identity was not captured; this fixes the independently
 reproduced early-close acknowledgement and does not claim every possible ambiguous

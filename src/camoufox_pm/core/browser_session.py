@@ -47,6 +47,15 @@ class BrowserLaunchError(RuntimeError):
     """Raised when a Camoufox browser fails to launch."""
 
 
+BROWSER_EXIT_UNCONFIRMED = (
+    "Browser exit could not be confirmed. Close remaining browsers, then retry "
+    "Stop or restart the manager."
+)
+BROWSER_EXITS_UNCONFIRMED = (
+    "Some browser exits could not be confirmed. Retry Stop for active profiles."
+)
+
+
 class BrowserTerminationError(RuntimeError):
     """Exit could not be confirmed; retain the tracked session and lease."""
 
@@ -117,10 +126,7 @@ class _OwnedProcessTree:
                 self.uncertain = True
         alive = self._wait(alive)
         if alive or self.uncertain:
-            raise BrowserTerminationError(
-                "Browser exit could not be confirmed. Close remaining browsers, then retry "
-                "Stop or restart the manager."
-            )
+            raise BrowserTerminationError(BROWSER_EXIT_UNCONFIRMED)
 
 
 def _browser_launch_options(launch_options: dict[str, Any]) -> dict[str, Any]:
@@ -635,9 +641,7 @@ class BrowserSessionManager:
             except BrowserTerminationError:
                 failed = True
         if failed:
-            raise BrowserTerminationError(
-                "Some browser exits could not be confirmed. Retry Stop for active profiles."
-            )
+            raise BrowserTerminationError(BROWSER_EXITS_UNCONFIRMED)
         return count
 
     async def _monitor(self, profile_id: str, process_id: int) -> None:
