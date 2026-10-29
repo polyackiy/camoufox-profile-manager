@@ -12,6 +12,8 @@ on:
       - 'src/camoufox_pm/sync/control.py'
       - 'src/camoufox_pm/core/browser_session.py'
       - 'tests/unit/test_browser_session.py'
+      - 'src/camoufox_pm/sync/relay.py'
+      - 'tests/unit/test_sync_relay.py'
       - 'src/camoufox_pm/sync/runtime.py'
       - 'src/camoufox_pm/api/routes/sync.py'
       - 'tests/unit/test_sync_control.py'
@@ -56,6 +58,8 @@ jobs:
           python-version: '3.12'
       - name: Install locked build and acceptance dependencies
         run: uv sync --locked --extra build --extra dev --extra sync
+      - name: Native binary ciphertext open and resumable CTRL-Z regressions
+        run: uv run --no-sync pytest tests/unit/test_sync_relay.py -k "binary_open or text_open_control or binary_ctrl_z" -W error::ResourceWarning -W error::pytest.PytestUnraisableExceptionWarning
       - name: Native read-only transport reset and mutation no-replay regressions
         run: uv run --no-sync pytest tests/unit/test_installed_sync_acceptance.py -k "real_request_context or transport_evidence" -x
       - name: Native control-store initialization, path, CAS and process-kill regressions

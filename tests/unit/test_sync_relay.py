@@ -1572,3 +1572,54 @@ def test_prefix_restart_never_resets_ready_or_committed_objects(relay):
         db.execute("UPDATE revisions SET state='committed' WHERE id=?", (revision,))
     assert start_resumable(relay, revision, data).status_code == 409
     assert final.read_bytes() == data
+
+
+@pytest.mark.parametrize("ending", [b"\x1a", b"\x1a\x1a", b"\r\n", b"\x00"])
+def test_private_ciphertext_binary_open_preserves_terminal_bytes(tmp_path, ending):
+    from camoufox_pm.core.update_permissions import create_private_file
+    from camoufox_pm.sync.relay import _private_stream
+
+    path = tmp_path / "ciphertext"
+    data = b"binary\r\n\x00\x1a" * 8 + ending
+    with os.fdopen(create_private_file(path), "wb") as output:
+        output.write(data)
+    # A binary fdopen is too late if a text-mode CRT open already trimmed EOF.
+    for mode in ("r+b", "rb", "r+b"):
+        with _private_stream(path, mode) as stream:
+            assert stream.read() == data
+        assert path.read_bytes() == data
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows CRT text-open negative control")
+def test_windows_text_open_control_trims_terminal_ctrl_z(tmp_path):
+    path = tmp_path / "text-open-control"
+    data = b"controlled binary prefix\x1a"
+    path.write_bytes(data)
+    # This is the former helper's exact missing-binary-flag sequence. The CRT
+    # trims before fdopen can set binary mode; no default/global mode is changed.
+    descriptor = os.open(path, os.O_RDWR)
+    with os.fdopen(descriptor, "r+b") as stream:
+        assert stream.read() == data[:-1]
+    assert path.read_bytes() == data[:-1]
+
+
+@pytest.mark.parametrize("chunk_size", [64, 8 * 1024 * 1024])
+def test_resumable_binary_ctrl_z_prefix_survives_reopen_resume_and_duplicate(relay, chunk_size):
+    revision = str(uuid4())
+    first = b"a" * (chunk_size - 1) + b"\x1a"
+    second = b"b" * (chunk_size - 1) + b"\x1a"
+    tail = b"\x00\r\n\x1a" * 10 + b"\x1a"
+    data = first + second + tail
+    assert start_resumable(relay, revision, data).json()["offset"] == 0
+    assert send_chunk(relay, revision, 0, first).json()["offset"] == chunk_size
+    # The very next write open used to remove the acknowledged terminal byte.
+    response = send_chunk(relay, revision, chunk_size, second)
+    assert response.status_code == 200
+    assert response.json()["offset"] == chunk_size * 2
+    assert start_resumable(relay, revision, data).json()["offset"] == chunk_size * 2
+    assert send_chunk(relay, revision, 0, first).json()["offset"] == chunk_size * 2
+    assert send_chunk(relay, revision, chunk_size * 2, tail).json()["offset"] == len(data)
+    assert start_resumable(relay, revision, data).json()["offset"] == len(data)
+    assert relay.rpc("upload_finish", revision_id=revision).status_code == 200
+    final = relay.directory / "blobs" / f"{relay.root.owner_id}-{revision}.blob"
+    assert final.read_bytes() == data
