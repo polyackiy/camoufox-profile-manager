@@ -1,6 +1,8 @@
 """Tests for the browser session registry (no real browser launched)."""
 
 import asyncio
+import os
+from types import SimpleNamespace
 
 import psutil
 import pytest
@@ -267,7 +269,7 @@ async def test_the_watchdog_tears_down_when_the_process_disappears(monkeypatch):
 async def test_terminating_stops_the_watchdog():
     """A watchdog outliving its session would tear down whatever session took its
     place under the same profile id."""
-    session = BrowserSession("p1", camoufox=None, process_id=4242)
+    session = BrowserSession("p1", camoufox=None, process_id=None)
     session.monitor_task = asyncio.create_task(asyncio.sleep(3600))
 
     await session.terminate()
@@ -316,20 +318,35 @@ async def test_a_driver_that_survived_the_close_is_killed(monkeypatch):
 
     class FakeProcess:
         def __init__(self, pid):
+            self.pid = pid
+            self.alive = True
             actions.append(("open", pid))
+
+        def parents(self):
+            return [SimpleNamespace(pid=os.getpid())]
+
+        def children(self, recursive=False):
+            return []
 
         def terminate(self):
             actions.append(("terminate", None))
 
+        def is_running(self):
+            return self.alive
+
         def wait(self, timeout=None):
             actions.append(("wait", timeout))
+            self.alive = False
+            return 0
 
     monkeypatch.setattr(bs.psutil, "Process", FakeProcess)
     session = BrowserSession("p1", camoufox=FakeCamoufox(), process_id=4242)
 
     await session.terminate()
 
-    assert actions == [("open", 4242), ("terminate", None), ("wait", 5)]
+    assert actions[0] == ("open", 4242)
+    assert actions[1] == ("terminate", None)
+    assert [item for item in actions if item[0] == "wait"]
 
 
 @pytest.mark.asyncio
@@ -338,13 +355,24 @@ async def test_a_driver_that_ignores_terminate_is_killed(monkeypatch):
 
     class StubbornProcess:
         def __init__(self, pid):
-            pass
+            self.pid = pid
+
+        def parents(self):
+            return [SimpleNamespace(pid=os.getpid())]
+
+        def children(self, recursive=False):
+            return []
 
         def terminate(self):
             pass
 
         def wait(self, timeout=None):
-            raise psutil.TimeoutExpired(timeout)
+            if not killed:
+                raise psutil.TimeoutExpired(timeout)
+            return 0
+
+        def is_running(self):
+            return not killed
 
         def kill(self):
             killed.append(True)
@@ -607,3 +635,207 @@ async def test_failed_stopped_intent_retains_local_lease_for_retry(installed):
         await manager.close_and_release("p")
     storage.release_lease.assert_not_called()
     assert "p" in manager.active_sessions
+
+
+@pytest.mark.asyncio
+async def test_close_drains_owned_browser_child_after_driver_disappears(tmp_path):
+    """A close acknowledgement must follow the owned child's native profile lock."""
+    import subprocess
+    import sys
+
+    from camoufox_pm.sync.quiescence import browser_profile_lock
+
+    profile = tmp_path / "profile"
+    profile.mkdir()
+    child_code = (
+        "import os,sys,time; from pathlib import Path; "
+        "from camoufox_pm.sync.quiescence import browser_profile_lock; "
+        "guard=browser_profile_lock(Path(sys.argv[1])); guard.__enter__(); "
+        "print(os.getpid(),flush=True); time.sleep(60)"
+    )
+    parent_code = (
+        "import subprocess,sys,time; "
+        "subprocess.Popen([sys.executable,'-u','-c',sys.argv[1],sys.argv[2]]); time.sleep(60)"
+    )
+    driver = subprocess.Popen(
+        [sys.executable, "-u", "-c", parent_code, child_code, str(profile)],
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+    child = None
+    try:
+        assert driver.stdout is not None
+        line = await asyncio.wait_for(asyncio.to_thread(driver.stdout.readline), 20)
+        child = psutil.Process(int(line))
+
+        class DriverExit:
+            async def __aexit__(self, *args):
+                driver.terminate()
+                await asyncio.to_thread(driver.wait, 5)
+
+        session = BrowserSession("test", DriverExit(), driver.pid)
+        await session.terminate()
+        with browser_profile_lock(profile):
+            pass
+        assert session._terminated
+    finally:
+        if child is not None:
+            try:
+                child.kill()
+                await asyncio.to_thread(child.wait, 5)
+            except psutil.NoSuchProcess:
+                pass
+        if driver.poll() is None:
+            driver.kill()
+            await asyncio.to_thread(driver.wait, 5)
+        if driver.stdout is not None:
+            driver.stdout.close()
+
+
+def test_teardown_never_adopts_unrelated_or_manager_pid(monkeypatch):
+    calls = []
+
+    class Unrelated:
+        def __init__(self, pid):
+            self.pid = pid
+
+        def parents(self):
+            return []
+
+        def terminate(self):
+            calls.append("terminate")
+
+        def kill(self):
+            calls.append("kill")
+
+    monkeypatch.setattr(bs.psutil, "Process", Unrelated)
+    for pid in (4242, os.getpid()):
+        tree = bs._OwnedProcessTree(pid)
+        with pytest.raises(bs.BrowserTerminationError):
+            tree.finish()
+    assert calls == []
+
+
+@pytest.mark.asyncio
+async def test_unconfirmed_exit_retains_lease_and_explicit_close_can_retry(monkeypatch):
+    from unittest.mock import AsyncMock
+
+    storage = SimpleNamespace(release_lease=AsyncMock())
+    manager = BrowserSessionManager(storage=storage, holder="local")
+    session = BrowserSession("p", None)
+    stopped = AsyncMock()
+    session.on_stopped = stopped
+    manager.active_sessions["p"] = session
+
+    def failed():
+        raise bs.BrowserTerminationError("Exit could not be confirmed")
+
+    monkeypatch.setattr(session._owned_processes, "finish", failed)
+    with pytest.raises(bs.BrowserTerminationError):
+        await manager.close_and_release("p")
+    assert manager.is_live("p") and not session._terminated
+    storage.release_lease.assert_not_awaited()
+    stopped.assert_not_awaited()
+    monkeypatch.setattr(session._owned_processes, "finish", lambda: None)
+    assert await manager.close_and_release("p")
+    assert not manager.is_live("p")
+    storage.release_lease.assert_awaited_once_with("p", "local")
+    stopped.assert_awaited_once_with("p")
+
+
+@pytest.mark.asyncio
+async def test_close_all_attempts_remaining_profiles_after_unconfirmed_exit(monkeypatch):
+    manager = BrowserSessionManager()
+    first, second = BrowserSession("first", None), BrowserSession("second", None)
+    manager.active_sessions.update(first=first, second=second)
+
+    def failed():
+        raise bs.BrowserTerminationError("Exit could not be confirmed")
+
+    monkeypatch.setattr(first._owned_processes, "finish", failed)
+    with pytest.raises(bs.BrowserTerminationError):
+        await manager.close_all()
+    assert manager.is_live("first") and not manager.is_live("second")
+
+
+@pytest.mark.asyncio
+async def test_failed_start_with_unconfirmed_child_keeps_live_fence(installed, monkeypatch):
+    installed(FakeCamoufox(fail=RuntimeError("SDK start failed")))
+    manager = BrowserSessionManager()
+    original = bs._OwnedProcessTree.finish
+
+    def unconfirmed(self):
+        raise bs.BrowserTerminationError("Exit could not be confirmed")
+
+    monkeypatch.setattr(bs._OwnedProcessTree, "finish", unconfirmed)
+    with pytest.raises(bs.BrowserTerminationError):
+        await manager.launch("p", {})
+    assert manager.is_live("p") and manager.is_running("p")
+    assert "p" not in manager._starting
+    monkeypatch.setattr(bs._OwnedProcessTree, "finish", original)
+    assert await manager.close_and_release("p")
+    assert not manager.is_live("p")
+
+
+@pytest.mark.asyncio
+async def test_cancelled_waiter_drains_owned_process_worker_before_releasing_lease(monkeypatch):
+    import threading
+    from unittest.mock import AsyncMock
+
+    entered, finish = threading.Event(), threading.Event()
+    storage = SimpleNamespace(release_lease=AsyncMock())
+    manager = BrowserSessionManager(storage=storage, holder="owner")
+    session = BrowserSession("p", None)
+    manager.active_sessions["p"] = session
+
+    def slow_worker():
+        entered.set()
+        assert finish.wait(10)
+
+    monkeypatch.setattr(session._owned_processes, "finish", slow_worker)
+    close = asyncio.create_task(manager.close_and_release("p"))
+    try:
+        assert await asyncio.to_thread(entered.wait, 5)
+        close.cancel()
+        await asyncio.sleep(0)
+        assert not close.done() and manager.is_live("p")
+        storage.release_lease.assert_not_awaited()
+    finally:
+        finish.set()
+    with pytest.raises(asyncio.CancelledError):
+        await close
+    assert not manager.is_live("p")
+    storage.release_lease.assert_awaited_once_with("p", "owner")
+
+
+@pytest.mark.asyncio
+async def test_driver_identity_is_pinned_before_sdk_exit_and_never_relooked_up(monkeypatch):
+    lookups = []
+
+    class Original:
+        pid = 4242
+
+        def parents(self):
+            return [SimpleNamespace(pid=os.getpid())]
+
+        def children(self, recursive=False):
+            return []
+
+        def is_running(self):
+            return False
+
+        def terminate(self):
+            raise psutil.NoSuchProcess(self.pid)
+
+    original = Original()
+
+    def lookup(pid):
+        lookups.append(pid)
+        if len(lookups) != 1:
+            pytest.fail("A recycled numeric PID must never be looked up during teardown")
+        return original
+
+    monkeypatch.setattr(bs.psutil, "Process", lookup)
+    session = BrowserSession("p", FakeCamoufox(), 4242)
+    await session.terminate()
+    assert lookups == [4242] and session._terminated

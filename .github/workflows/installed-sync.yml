@@ -10,6 +10,8 @@ on:
       - 'src/camoufox_pm/core/update_permissions.py'
       - 'src/camoufox_pm/sync/vault.py'
       - 'src/camoufox_pm/sync/control.py'
+      - 'src/camoufox_pm/core/browser_session.py'
+      - 'tests/unit/test_browser_session.py'
       - 'src/camoufox_pm/sync/runtime.py'
       - 'src/camoufox_pm/api/routes/sync.py'
       - 'tests/unit/test_sync_control.py'
@@ -58,6 +60,8 @@ jobs:
         run: uv run --no-sync pytest tests/unit/test_installed_sync_acceptance.py -k "real_request_context or transport_evidence" -x
       - name: Native control-store initialization, path, CAS and process-kill regressions
         run: uv run --no-sync pytest tests/unit/test_sync_control.py -x
+      - name: Native owned-process teardown, profile-lock and lease regressions
+        run: uv run --no-sync pytest tests/unit/test_browser_session.py -x -W error::ResourceWarning -W error::pytest.PytestUnraisableExceptionWarning
       - name: Native local handoff lease regressions
         run: uv run --no-sync pytest tests/unit/test_sync_runtime.py -k "local_handoff_lease or expired_local_lease" -x
       - name: Install Linux desktop runtime

@@ -139,3 +139,24 @@ The older Windows workflow-status polling failure did not record this evidence,
 so its actual transport/desktop cause is not retroactively established. Real
 loopback reset tests demonstrate GET recovery and one-shot POST failure without
 a browser executable; installed CI runs these on all four desktop platforms.
+
+## Browser close ownership
+
+A session pins the SDK driver's process/birth identity while it is a descendant
+of this manager, and captures known descendants before SDK close can lose their
+ancestry. After the SDK close, descendants get five seconds to exit naturally;
+owned survivors and the driver then get bounded terminate/wait and kill/wait
+fallbacks. OS waits run off the API event loop and the owned cleanup task drains
+them before releasing the lease, including after caller cancellation. Numeric
+PIDs are never freshly looked up after SDK exit and global browser-name matches
+never authorize signals.
+
+An unconfirmed exit leaves its session and lease tracked; explicit Close can retry.
+A failed partial launch also stays tracked if its cleanup cannot confirm exit.
+Permission/identity uncertainty fails closed. A manager restart after manually
+closing remaining browsers may be needed if ownership could not be established.
+Close all attempts other tracked profiles even if one exit cannot be confirmed.
+The Firefox native lock and ambiguous-process checks remain independent safeguards.
+The historical #145 process identity was not captured; this fixes the independently
+reproduced early-close acknowledgement and does not claim every possible ambiguous
+browser refusal is an error.

@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useI18n } from '@/components/i18n-provider'
 import { Modal } from '@/components/modal'
-import { ApiRequestError, profilesAPI } from '@/lib/api'
+import { ApiRequestError, browserCloseFailure, profilesAPI } from '@/lib/api'
 import { BatchQueue, MAX_BATCH_CONCURRENCY, MAX_BATCH_SIZE, type BatchSnapshot, type BatchTarget, type BatchStatus } from '@/lib/batch-queue'
 
 export function BatchProfileOperations({ action, targets, onClose, onUpdated }: {
@@ -59,6 +59,8 @@ export function BatchProfileOperations({ action, targets, onClose, onUpdated }: 
         describeError: error => {
           if (error instanceof ApiRequestError && (error.status === 401 || error.status === 403)) return t('Access changed. Sign in again and check your profile permissions.')
           if (error instanceof ApiRequestError && error.status === 409) return t('This profile is busy or owned by another device. Refresh its state before retrying.')
+          const closeFailure = action === 'close' ? browserCloseFailure(error, t) : null
+          if (closeFailure) return closeFailure
           return t('Operation failed. Refresh running status and inspect this profile before retrying; a request may have reached the server.')
         },
       })

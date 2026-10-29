@@ -1299,5 +1299,7 @@
   "Workflow not found.": "Сценарий не найден.",
   "Workflow run not found.": "Запуск сценария не найден.",
   "The installation already has 100 workflows.": "В этой установке уже сохранено 100 сценариев.",
-  "Run history expired. Review the targets and use a new request ID.": "История запуска уже очищена. Проверьте профили и используйте новый ID запроса."
+  "Run history expired. Review the targets and use a new request ID.": "История запуска уже очищена. Проверьте профили и используйте новый ID запроса.",
+  "Browser exit could not be confirmed. Close remaining browsers, then retry Stop or restart the manager.": "Не удалось подтвердить завершение браузера. Закройте оставшиеся браузеры, затем повторите «Остановить» или перезапустите менеджер.",
+  "Some browser exits could not be confirmed. Retry Stop for active profiles.": "Не удалось подтвердить закрытие части браузеров. Повторите «Остановить» для активных профилей."
 }
