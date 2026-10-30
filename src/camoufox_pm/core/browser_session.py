@@ -112,8 +112,14 @@ class _OwnedProcessTree:
         # Give already-closing descendants their own grace period before any
         # Windows TerminateProcess/SIGTERM fallback. Never scan/kill by name.
         self.refresh()
-        alive = self._wait(list(self.children))
-        targets = alive + ([self.root] if self.root is not None else [])
+        known = self.children.copy()
+        alive = self._wait(list(known))
+        # A still-closing parent can create a child during the same bounded
+        # grace period. Adopt it from the pinned parent before signalling it.
+        self.refresh()
+        targets = (
+            alive + list(self.children - known) + ([self.root] if self.root is not None else [])
+        )
         for process in targets:
             try:
                 process.terminate()  # psutil checks the pinned PID/birth identity.

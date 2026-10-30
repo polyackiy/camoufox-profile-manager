@@ -650,11 +650,14 @@ async def test_failed_stopped_intent_retains_local_lease_for_retry(installed):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("late_descendant", [False, True])
-async def test_close_drains_owned_browser_child_after_driver_disappears(tmp_path, late_descendant):
+@pytest.mark.parametrize("late_descendant", [False, "sdk", "grace"])
+async def test_close_drains_owned_browser_child_after_driver_disappears(
+    tmp_path, monkeypatch, late_descendant
+):
     """A close acknowledgement must follow the owned child's native profile lock."""
     import subprocess
     import sys
+    import threading
 
     from camoufox_pm.sync.quiescence import browser_profile_lock
 
@@ -676,6 +679,15 @@ async def test_close_drains_owned_browser_child_after_driver_disappears(tmp_path
             "sys.stdin.readline(); "
             "subprocess.Popen([sys.executable,'-u','-c',sys.argv[1],sys.argv[2]]); time.sleep(60)"
         )
+        if late_descendant == "grace":
+            broker_code = (
+                "import subprocess,sys,time,os\nfrom pathlib import Path\n"
+                "print(os.getpid(),flush=True)\n"
+                "trigger=Path(sys.argv[2]).parent/'spawn-late'\n"
+                "while not trigger.exists():\n time.sleep(0.01)\n"
+                "subprocess.Popen([sys.executable,'-u','-c',sys.argv[1],sys.argv[2]])\n"
+                "time.sleep(60)"
+            )
         parent_code = (
             "import subprocess,sys,time; "
             "broker=subprocess.Popen([sys.executable,'-u','-c',sys.argv[1],sys.argv[2],sys.argv[3]],"
@@ -692,6 +704,8 @@ async def test_close_drains_owned_browser_child_after_driver_disappears(tmp_path
         text=True,
     )
     children = []
+    close = None
+    waiting, spawned = threading.Event(), threading.Event()
     try:
         assert driver.stdout is not None
         line = await asyncio.wait_for(asyncio.to_thread(driver.stdout.readline), 20)
@@ -699,7 +713,7 @@ async def test_close_drains_owned_browser_child_after_driver_disappears(tmp_path
 
         class DriverExit:
             async def __aexit__(self, *args):
-                if late_descendant:
+                if late_descendant == "sdk":
                     # This child is born after the manager's last pre-exit snapshot.
                     # Its known parent survives the SDK driver long enough to inspect.
                     assert driver.stdin is not None
@@ -711,11 +725,34 @@ async def test_close_drains_owned_browser_child_after_driver_disappears(tmp_path
                 await asyncio.to_thread(driver.wait, 5)
 
         session = BrowserSession("test", DriverExit(), driver.pid)
-        await session.terminate()
+        if late_descendant == "grace":
+            original_wait = session._owned_processes._wait
+
+            def wait_for_children(processes):
+                if not waiting.is_set():
+                    waiting.set()
+                    assert spawned.wait(20)
+                return original_wait(processes)
+
+            monkeypatch.setattr(session._owned_processes, "_wait", wait_for_children)
+            close = asyncio.create_task(session.terminate())
+            try:
+                assert await asyncio.to_thread(waiting.wait, 10)
+                (profile.parent / "spawn-late").touch()
+                line = await asyncio.wait_for(asyncio.to_thread(driver.stdout.readline), 20)
+                children.append(psutil.Process(int(line)))
+            finally:
+                spawned.set()
+            await close
+        else:
+            await session.terminate()
         with browser_profile_lock(profile):
             pass
         assert session._terminated
     finally:
+        spawned.set()
+        if close is not None:
+            await asyncio.gather(close, return_exceptions=True)
         for child in reversed(children):
             try:
                 child.kill()

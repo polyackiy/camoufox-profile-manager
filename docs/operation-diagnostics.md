@@ -174,8 +174,10 @@ After SDK shutdown, process discovery continues from every live, pinned browser
 descendant as well as the driver. A known child may create another descendant
 before the driver exits; losing the original ancestor must not turn that new
 process into an untracked profile-lock holder. Recycled identities are never
-queried for new children. A native regression creates the late child during SDK
-exit and verifies the profile lock is available before Stop succeeds. This
+queried for new children. Discovery is repeated after the existing grace period,
+so a child born while its parent is closing is included before termination.
+Native regressions create late children during SDK exit and during that grace
+period, then verify the profile lock is available before Stop succeeds. This
 proves that lifecycle correction, without identifying every historical ambiguous
 process or assigning a cause to an older generic activation error.
 The historical #145 process identity was not captured; this fixes the independently
