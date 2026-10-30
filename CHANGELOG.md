@@ -36,6 +36,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   incomplete operations (#119). Interactive queues do not replay after reload.
 
 ### Fixed
+- Discover late browser descendants from already pinned child processes after
+  the SDK driver exits, so Stop drains their native profile locks before
+  acknowledging closure or releasing the profile lease (#145).
 - Allow a one-attempt GitHub token during browser setup to recover from public
   API request limits, with fixed authentication/rate-limit messages, no saved
   credential and no token forwarding to download hosts (#149).
