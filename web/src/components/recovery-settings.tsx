@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { Archive, Download, ExternalLink, LoaderCircle, RotateCcw } from 'lucide-react'
+import { Archive, Download, ExternalLink, LoaderCircle, RotateCcw, Trash2 } from 'lucide-react'
 import { useI18n } from '@/components/i18n-provider'
 import { Modal } from '@/components/modal'
 import { VerifiedUpdateSettings } from '@/components/verified-update-settings'
@@ -82,6 +82,7 @@ export function BackupSettings() {
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<string | null>(null)
   const [restore, setRestore] = useState<BackupInfo | null>(null)
+  const [deleting, setDeleting] = useState<BackupInfo | null>(null)
   const toast = useToast()
   const load = useCallback(async () => {
     try { setBackups(await recoveryAPI.backups()); setError(null) }
@@ -114,6 +115,17 @@ export function BackupSettings() {
     } catch (err) { setError(message(err)); setRestore(null) }
     finally { setBusy(false) }
   }
+  async function deleteBackup() {
+    if (!deleting || busy) return
+    setBusy(true); setError(null); setResult(null)
+    try {
+      await recoveryAPI.deleteBackup(deleting.id)
+      setBackups(current => current.filter(backup => backup.id !== deleting.id))
+      setDeleting(null)
+      setResult(t('Backup deleted'))
+    } catch (err) { setError(message(err)) }
+    finally { setBusy(false) }
+  }
 
   return <section aria-labelledby="backups-title">
     <h2 id="backups-title" className="mb-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-faint">{t('Profile backups')}</h2>
@@ -129,14 +141,22 @@ export function BackupSettings() {
         {error && <p className="mt-3 break-words text-danger" role="alert">{t(error)}</p>}
       </div>
       {loading ? <p className="border-t border-line px-4 py-3 text-ink-dim" role="status">{t('Loading backups…')}</p> : backups.length === 0 ? <p className="border-t border-line px-4 py-3 text-ink-dim">{t('No backups yet.')}</p> :
-        <ul className="max-h-[360px] divide-y divide-line overflow-y-auto border-t border-line">{backups.map(backup => <li key={backup.id} className="flex items-center gap-3 px-4 py-3">
+        <ul className="max-h-[360px] divide-y divide-line overflow-y-auto border-t border-line">{backups.map(backup => <li key={backup.id} className="flex flex-wrap items-center gap-3 px-4 py-3">
           <div className="min-w-0 flex-1"><p className="break-words font-medium">{backup.profile_name}</p><p className="text-ink-dim">{new Date(backup.created_at).toLocaleString(locale)} · {Math.max(1, Math.round(backup.size_bytes / 1024))} KB · {t(backup.reason)}</p></div>
           <button className="btn btn-default shrink-0" disabled={busy} onClick={() => setRestore(backup)} aria-label={t('Restore backup of {name} from {date}', { name: backup.profile_name, date: new Date(backup.created_at).toLocaleString(locale) })}><RotateCcw size={13} aria-hidden="true" />{t('Restore')}</button>
+          <button className="btn btn-danger shrink-0" disabled={busy} onClick={() => { setError(null); setDeleting(backup) }} aria-label={t('Delete backup of {name} from {date}', { name: backup.profile_name, date: new Date(backup.created_at).toLocaleString(locale) })}><Trash2 size={13} aria-hidden="true" />{t('Delete')}</button>
         </li>)}</ul>}
     </div>
     <Modal open={!!restore} title={t('Restore backup as a new profile')} onClose={() => { if (!busy) setRestore(null) }} width={460} footer={<>
       <button className="btn btn-default" disabled={busy} onClick={() => setRestore(null)}>{t('Cancel')}</button>
       <button className="btn btn-primary" disabled={busy} onClick={restoreBackup}>{busy ? t('Restoring…') : t('Restore as new profile')}</button>
     </>}><p className="text-ink-dim">{restore && t('Restore {name} from {date}? A separate profile with its saved cookies, storage and fingerprint will be created. Your current profiles and this backup are preserved.', { name: restore.profile_name, date: new Date(restore.created_at).toLocaleString(locale) })}</p></Modal>
+    <Modal open={!!deleting} title={t('Delete backup')} onClose={() => { if (!busy) setDeleting(null) }} width={460} footer={<>
+      <button className="btn btn-default" disabled={busy} onClick={() => setDeleting(null)}>{t('Cancel')}</button>
+      <button className="btn btn-danger" disabled={busy} onClick={deleteBackup}>{busy ? t('Deleting…') : t('Delete permanently')}</button>
+    </>}>
+      <p className="text-ink-dim">{deleting && t('Permanently delete the backup of {name} from {date}? This cannot be undone. Your current profiles and other backups are preserved.', { name: deleting.profile_name, date: new Date(deleting.created_at).toLocaleString(locale) })}</p>
+      {error && <p className="mt-3 break-words text-danger" role="alert">{t(error)}</p>}
+    </Modal>
   </section>
 }

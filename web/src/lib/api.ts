@@ -721,6 +721,9 @@ export const recoveryAPI = {
     const body = await request<{ data: Profile }>(`${API_PREFIX}/system/backups/${id}/restore`, { method: 'POST', body: JSON.stringify({}) })
     return body.data
   },
+  deleteBackup(id: string): Promise<unknown> {
+    return request(`${API_PREFIX}/system/backups/${encodeURIComponent(id)}?confirm=true`, { method: 'DELETE' })
+  },
 }
 
 /** A fingerprint captured from a real machine, bundled with Camoufox. */

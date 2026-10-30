@@ -7,6 +7,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- Check selected proxies or the current proxy-library search results in batches,
+  with bounded concurrency, progress, cancellation of waiting checks and saved
+  results; delete individual profile backups with confirmation and administrator
+  authorization (#147).
 - Add versioned operation diagnostics for authorized synchronization failures and
   skipped administrator backups, with fixed categories and allowlisted source
   sites; installed reports validate metadata without exporting private errors (#140).
@@ -32,6 +36,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   incomplete operations (#119). Interactive queues do not replay after reload.
 
 ### Fixed
+- Keep compact search and filter controls tall enough to display Chinese text
+  without clipping (#147).
 - Preserve validated source categories/sites through sanitized snapshot activation
   and recovery errors, without exporting exception text, paths or causes. Keep
   recovery/data guards intact while investigating remaining Windows refusals

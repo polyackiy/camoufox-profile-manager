@@ -69,12 +69,22 @@ before launch. A responding proxy can still need location resources: choose
 **Settings → Browser setup → Retry download** if the diagnostic asks for them.
 See the [protocol and authentication guide](proxy-support.md).
 
+In **Proxy library**, select saved proxies and choose **Batch check**. With no
+selection, the current search results are used. Review the listed proxies before
+starting; one batch accepts up to 100 proxies with one to four simultaneous
+checks. Closing the dialog cancels waiting checks, while checks already started
+may finish and save their results to the library.
+
 ## Protect and recover your data
 
 **Settings → Profile backups → Back up profiles** creates a recovery archive.
 Stop your profiles first; running or leased profiles are skipped and retried later.
 Keep a copy outside this computer. Restore a backup with **Restore as new
 profile**; it creates a separate profile so the current one is preserved.
+
+Administrators can delete an individual archive with its **Delete** button in
+**Settings → Profile backups**. Confirm the profile name and backup date in the
+dialog before deleting permanently. Current profiles and other backups are kept.
 
 Deleting a profile moves it to **Trash**. Use **Restore** there to bring it back.
 **Delete permanently** asks you to type its name and removes its browser data;

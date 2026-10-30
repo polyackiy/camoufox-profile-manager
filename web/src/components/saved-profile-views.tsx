@@ -52,7 +52,7 @@ export function SavedProfileViews({ config, onApply }: { config: ProfileViewConf
     <div className="flex flex-wrap items-center gap-2">
       <Bookmark size={14} aria-hidden="true" className="text-ink-dim" />
       <label htmlFor="saved-profile-view" className="sr-only">{t('Saved views')}</label>
-      <select id="saved-profile-view" className="field h-[30px] w-[190px]" value={active?.id ?? ''} onChange={event => { const view = views.find(item => item.id === event.target.value); setSelected(event.target.value); if (view) onApply(view.config) }}><option value="">{t('Current view')}</option>{views.map(view => <option key={view.id} value={view.id}>{view.name}</option>)}</select>
+      <select id="saved-profile-view" className="field field-compact w-[190px]" value={active?.id ?? ''} onChange={event => { const view = views.find(item => item.id === event.target.value); setSelected(event.target.value); if (view) onApply(view.config) }}><option value="">{t('Current view')}</option>{views.map(view => <option key={view.id} value={view.id}>{view.name}</option>)}</select>
       <button className="btn btn-default" onClick={() => open('create')}>{t('Save view')}</button>
       {active && <><button className="btn btn-default" disabled={!modified} onClick={() => open('update')}>{t('Update view')}</button><button className="btn btn-ghost h-[30px] w-[30px] p-0" aria-label={t('Rename saved view')} onClick={() => open('rename')}><Pencil size={13} aria-hidden="true" /></button><button className="btn btn-ghost h-[30px] w-[30px] p-0" aria-label={t('Delete saved view')} onClick={() => open('delete')}><Trash2 size={13} aria-hidden="true" /></button></>}
       {modified && <span className="text-ink-dim">{t('View modified')}</span>}

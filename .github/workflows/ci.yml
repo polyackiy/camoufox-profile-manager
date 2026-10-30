@@ -106,6 +106,10 @@ jobs:
         working-directory: .
         run: uv run python web/tests/batch_operations_ui.py
 
+      - name: Batch proxy check UI contracts
+        working-directory: .
+        run: uv run python web/tests/proxy_batch_ui.py
+
       - name: Template batch creation UI contracts
         working-directory: .
         run: uv run python web/tests/template_batches_ui.py

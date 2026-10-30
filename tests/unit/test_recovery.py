@@ -198,6 +198,45 @@ async def test_backup_paths_and_symbolic_links_cannot_escape_storage(profile_man
 
 
 @pytest.mark.asyncio
+async def test_backup_delete_preserves_profiles_and_serializes_with_restore(profile_manager):
+    profile, path = await seeded(profile_manager)
+    backups = ProfileBackupManager(profile_manager)
+    first = (await backups.create_backups())["backups"][0]
+    second = (await backups.create_backups())["backups"][0]
+    async with backups._exclusive():
+        with pytest.raises(ProfileLocked):
+            await ProfileBackupManager(profile_manager).delete_backup(first["id"])
+    assert len(backups.list_backups()) == 2
+    await backups.delete_backup(first["id"])
+    assert not (backups.directory / f"{first['id']}.zip").exists()
+    assert not (backups.directory / f"{first['id']}.json").exists()
+    assert [item["id"] for item in backups.list_backups()] == [second["id"]]
+    assert (path / "cookies.sqlite").read_bytes() == b"identity"
+    assert await profile_manager.storage.get_profile(profile.id) is not None
+    with pytest.raises(FileNotFoundError):
+        await backups.delete_backup(first["id"])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("suffix", [".zip", ".json"])
+async def test_backup_delete_rejects_traversal_and_symlinks(profile_manager, tmp_path, suffix):
+    await seeded(profile_manager)
+    backups = ProfileBackupManager(profile_manager)
+    backup_id = (await backups.create_backups())["backups"][0]["id"]
+    with pytest.raises(ValueError):
+        await backups.delete_backup("../outside")
+    outside = tmp_path / "outside"
+    outside.write_bytes(b"private")
+    link = backups.directory / (backup_id + suffix)
+    link.unlink()
+    link.symlink_to(outside)
+    with pytest.raises(ValueError):
+        await backups.delete_backup(backup_id)
+    assert outside.read_bytes() == b"private"
+    assert link.is_symlink()
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("cancellations", [1, 3])
 async def test_cancelled_backup_keeps_lease_until_io_finishes(
     profile_manager, monkeypatch, cancellations

@@ -65,6 +65,36 @@ async def test_backup_create_list_and_additive_restore(recovery_client):
     assert (await client.get("/api/v1/profiles")).json()["total"] == 2
 
 
+async def test_backup_delete_requires_confirmation_and_preserves_profile(recovery_client):
+    client = recovery_client
+    profile = await create(client)
+    cookies = Path(profile["storage_path"], "cookies.sqlite")
+    cookies.write_bytes(b"cookies")
+    result = await client.post("/api/v1/system/backups", json={})
+    backup_id = result.json()["data"]["backups"][0]["id"]
+    url = f"/api/v1/system/backups/{backup_id}"
+    assert (await client.delete(url)).status_code == 400
+    assert len((await client.get("/api/v1/system/backups")).json()["data"]["backups"]) == 1
+    assert (await client.delete(url + "?confirm=true")).status_code == 200
+    assert (await client.get("/api/v1/system/backups")).json()["data"]["backups"] == []
+    assert (await client.get(f"/api/v1/profiles/{profile['id']}")).status_code == 200
+    assert cookies.read_bytes() == b"cookies"
+    assert (await client.delete(url + "?confirm=true")).status_code == 404
+    assert (await client.delete("/api/v1/system/backups/invalid?confirm=true")).status_code == 400
+
+
+async def test_backup_delete_requires_authentication(recovery_client, monkeypatch):
+    from camoufox_pm.config import get_settings
+
+    monkeypatch.setenv("CPM_API_KEY", "test-backup-delete-key")
+    get_settings.cache_clear()
+    try:
+        response = await recovery_client.delete("/api/v1/system/backups/invalid?confirm=true")
+        assert response.status_code == 401
+    finally:
+        get_settings.cache_clear()
+
+
 @pytest.mark.asyncio
 async def test_lease_conflicts_are_409_and_backups_report_skips(recovery_client):
     client = recovery_client
