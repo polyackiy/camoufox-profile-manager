@@ -23,6 +23,8 @@ from tests.browser.test_fingerprint_stability import (
 async def capture_native_canvas(profile_directory, url, *, observe_processes=None):
     """One independent native browser/driver launch of the fixed synthetic draw."""
     async with async_playwright() as playwright:
+        if observe_processes is not None:
+            observe_processes(playwright)
         context = await playwright.firefox.launch_persistent_context(
             user_data_dir=str(profile_directory),
             headless=True,

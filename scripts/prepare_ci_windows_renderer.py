@@ -23,33 +23,50 @@ class RendererNotStable(RuntimeError):
     """The native renderer did not converge within the bounded precondition."""
 
 
+class RendererCleanupError(RuntimeError):
+    """Native-control ownership must be known before acceptance can continue."""
+
+
+def _native_control_tree(playwright):
+    from camoufox_pm.core.browser_session import _OwnedProcessTree, _resolve_process_id
+
+    tree = _OwnedProcessTree(_resolve_process_id(playwright))
+    if tree.root is None or tree.uncertain:
+        raise RendererCleanupError("Native-control driver identity could not be verified")
+    return tree
+
+
 async def prepare_renderer(output_directory: Path) -> list[dict]:
     output_directory.mkdir(parents=True, exist_ok=True)
     records = []
     with tempfile.TemporaryDirectory(prefix="cpm-ci-native-renderer-") as temporary:
         with serve_local_sites() as sites:
             for number in range(1, 4):
-                from camoufox_pm.core.browser_session import _OwnedProcessTree, _resolve_process_id
-
                 owned = None
 
                 def observe_processes(playwright):
                     nonlocal owned
                     if owned is None:
-                        owned = _OwnedProcessTree(_resolve_process_id(playwright))
+                        owned = _native_control_tree(playwright)
                     else:
                         owned.refresh()
 
                 # Fresh profile and native browser/driver each time: convergence
                 # must describe the host, not a warmed persistent test profile.
-                record, png = await asyncio.wait_for(
-                    capture_native_canvas(
-                        Path(temporary) / f"native-{number}",
-                        sites.first,
-                        observe_processes=observe_processes,
-                    ),
-                    timeout=180,
-                )
+                try:
+                    record, png = await asyncio.wait_for(
+                        capture_native_canvas(
+                            Path(temporary) / f"native-{number}",
+                            sites.first,
+                            observe_processes=observe_processes,
+                        ),
+                        timeout=180,
+                    )
+                    if owned is None:
+                        raise RendererCleanupError("Native-control ownership was not observed")
+                finally:
+                    if owned is not None:
+                        await asyncio.to_thread(owned.finish)
                 record["phase"] = f"host-preflight-{number}"
                 try:
                     record["owned_children_remaining"] = (

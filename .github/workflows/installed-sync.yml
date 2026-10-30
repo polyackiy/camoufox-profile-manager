@@ -65,7 +65,7 @@ jobs:
       - name: Native control-store initialization, path, CAS and process-kill regressions
         run: uv run --no-sync pytest tests/unit/test_sync_control.py -x
       - name: Native owned-process teardown, profile-lock and lease regressions
-        run: uv run --no-sync pytest tests/unit/test_browser_session.py -x -W error::ResourceWarning -W error::pytest.PytestUnraisableExceptionWarning
+        run: uv run --no-sync pytest tests/unit/test_browser_session.py tests/unit/test_windows_renderer_preflight.py tests/unit/test_native_preflight_cleanup.py -x -W error::ResourceWarning -W error::pytest.PytestUnraisableExceptionWarning
       - name: Native local handoff lease regressions
         run: uv run --no-sync pytest tests/unit/test_sync_runtime.py -k "local_handoff_lease or expired_local_lease" -x
       - name: Install Linux desktop runtime
