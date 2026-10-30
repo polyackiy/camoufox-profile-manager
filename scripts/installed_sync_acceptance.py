@@ -150,12 +150,32 @@ def record_relay_refusals(app, report):
     app.add_exception_handler(StarletteHTTPException, refusal)
 
 
-def record_ambiguous_browser_checks(report):
+def record_ambiguous_browser_checks(report, *, native_control=None):
     """Post-refusal CI observation only; no PID/command/path exports or signals."""
     from camoufox_pm.sync import quiescence
 
     evidence = report.setdefault("browser_process_checks", [])
     try:
+        known_engines = {}
+        if native_control is not None:
+            known_engines["native_control"] = os.path.normcase(os.path.realpath(native_control))
+            if os.environ.get("ProgramFiles"):
+                known_engines["system_browser"] = os.path.normcase(
+                    os.path.realpath(
+                        Path(os.environ["ProgramFiles"]) / "Mozilla Firefox" / "firefox.exe"
+                    )
+                )
+            try:
+                from camoufox.multiversion import get_active_path
+                from camoufox.pkgman import launch_path
+
+                active = get_active_path()
+                if active is not None:
+                    known_engines["paired_browser"] = os.path.normcase(
+                        os.path.realpath(launch_path(active))
+                    )
+            except Exception:
+                pass
         managers = []
         for owned in _PROCESSES:
             if owned.poll() is None:
@@ -183,12 +203,29 @@ def record_ambiguous_browser_checks(report):
                         if any(p in managers for p in parents)
                         else "outside_current_ancestry",
                         "content_child": "-contentproc" in command,
+                        "background_task": any(
+                            arg.lower() in {"-backgroundtask", "--backgroundtask"}
+                            for arg in command
+                        ),
                         "browser_parent": bool(
                             parents and parents[0].name().lower() in quiescence._BROWSER_NAMES
                         ),
                         "state": "zombie" if process.status() == psutil.STATUS_ZOMBIE else "other",
                     }
                 )
+                if native_control is not None:
+                    try:
+                        executable = os.path.normcase(os.path.realpath(process.exe()))
+                        evidence[-1]["engine"] = next(
+                            (
+                                name
+                                for name, expected in known_engines.items()
+                                if executable == expected
+                            ),
+                            "other",
+                        )
+                    except Exception:
+                        evidence[-1]["engine"] = "inspection_unavailable"
             except psutil.NoSuchProcess:
                 continue
         if not evidence:
@@ -459,9 +496,12 @@ def delete_native_slot(owner_id, slot):
 
 
 class Device:
-    def __init__(self, work, browser, certificate, vault_kind="encrypted_file"):
+    def __init__(
+        self, work, browser, certificate, vault_kind="encrypted_file", *, native_control=None
+    ):
         self.work = work
         self.browser = browser
+        self.native_control = native_control
         self.vault_kind = vault_kind
         self.password = secrets.token_urlsafe(24)
         work.mkdir(mode=0o700)
@@ -802,6 +842,12 @@ def observe(device, profile_id, site, stage, report=None):
         return result
     finally:
         device.call("/browsers/close-all", {})
+        if report is not None and getattr(device, "native_control", None) is not None:
+            observed = {}
+            record_ambiguous_browser_checks(observed, native_control=device.native_control)
+            report.setdefault("close_process_checks", {})[stage] = observed[
+                "browser_process_checks"
+            ]
 
 
 def exercise(owner, recipient, relay_url, registration, site, report):
@@ -1046,7 +1092,13 @@ def main():
                         phase = "installed-startup"
                         for name in ("owner", "recipient"):
                             devices.append(
-                                Device(work / name, browser, certificate, arguments.vault)
+                                Device(
+                                    work / name,
+                                    browser,
+                                    certificate,
+                                    arguments.vault,
+                                    native_control=playwright.firefox.executable_path,
+                                )
                             )
                         phase = "UI-encrypted-roundtrip"
                         exercise(
@@ -1059,7 +1111,9 @@ def main():
                         result["passed"] = True
                     except InstalledAPIError as error:
                         if (error.diagnostic or {}).get("category") == "profile_not_quiescent":
-                            record_ambiguous_browser_checks(result)
+                            record_ambiguous_browser_checks(
+                                result, native_control=playwright.firefox.executable_path
+                            )
                         raise
                     finally:
                         # Execute every cleanup even when another one fails.

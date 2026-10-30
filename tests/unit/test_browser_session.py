@@ -650,10 +650,14 @@ async def test_failed_stopped_intent_retains_local_lease_for_retry(installed):
 
 
 @pytest.mark.asyncio
-async def test_close_drains_owned_browser_child_after_driver_disappears(tmp_path):
+@pytest.mark.parametrize("late_descendant", [False, "sdk", "grace"])
+async def test_close_drains_owned_browser_child_after_driver_disappears(
+    tmp_path, monkeypatch, late_descendant
+):
     """A close acknowledgement must follow the owned child's native profile lock."""
     import subprocess
     import sys
+    import threading
 
     from camoufox_pm.sync.quiescence import browser_profile_lock
 
@@ -669,29 +673,87 @@ async def test_close_drains_owned_browser_child_after_driver_disappears(tmp_path
         "import subprocess,sys,time; "
         "subprocess.Popen([sys.executable,'-u','-c',sys.argv[1],sys.argv[2]]); time.sleep(60)"
     )
+    if late_descendant:
+        broker_code = (
+            "import subprocess,sys,time,os; print(os.getpid(),flush=True); "
+            "sys.stdin.readline(); "
+            "subprocess.Popen([sys.executable,'-u','-c',sys.argv[1],sys.argv[2]]); time.sleep(60)"
+        )
+        if late_descendant == "grace":
+            broker_code = (
+                "import subprocess,sys,time,os\nfrom pathlib import Path\n"
+                "print(os.getpid(),flush=True)\n"
+                "trigger=Path(sys.argv[2]).parent/'spawn-late'\n"
+                "while not trigger.exists():\n time.sleep(0.01)\n"
+                "subprocess.Popen([sys.executable,'-u','-c',sys.argv[1],sys.argv[2]])\n"
+                "time.sleep(60)"
+            )
+        parent_code = (
+            "import subprocess,sys,time; "
+            "broker=subprocess.Popen([sys.executable,'-u','-c',sys.argv[1],sys.argv[2],sys.argv[3]],"
+            "stdin=subprocess.PIPE,text=True); "
+            "sys.stdin.readline(); broker.stdin.write('go\\n'); broker.stdin.flush(); time.sleep(60)"
+        )
+        arguments = [broker_code, child_code, str(profile)]
+    else:
+        arguments = [child_code, str(profile)]
     driver = subprocess.Popen(
-        [sys.executable, "-u", "-c", parent_code, child_code, str(profile)],
+        [sys.executable, "-u", "-c", parent_code, *arguments],
+        stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         text=True,
     )
-    child = None
+    children = []
+    close = None
+    waiting, spawned = threading.Event(), threading.Event()
     try:
         assert driver.stdout is not None
         line = await asyncio.wait_for(asyncio.to_thread(driver.stdout.readline), 20)
-        child = psutil.Process(int(line))
+        children.append(psutil.Process(int(line)))
 
         class DriverExit:
             async def __aexit__(self, *args):
+                if late_descendant == "sdk":
+                    # This child is born after the manager's last pre-exit snapshot.
+                    # Its known parent survives the SDK driver long enough to inspect.
+                    assert driver.stdin is not None
+                    driver.stdin.write("go\n")
+                    driver.stdin.flush()
+                    line = await asyncio.wait_for(asyncio.to_thread(driver.stdout.readline), 20)
+                    children.append(psutil.Process(int(line)))
                 driver.terminate()
                 await asyncio.to_thread(driver.wait, 5)
 
         session = BrowserSession("test", DriverExit(), driver.pid)
-        await session.terminate()
+        if late_descendant == "grace":
+            original_wait = session._owned_processes._wait
+
+            def wait_for_children(processes):
+                if not waiting.is_set():
+                    waiting.set()
+                    assert spawned.wait(20)
+                return original_wait(processes)
+
+            monkeypatch.setattr(session._owned_processes, "_wait", wait_for_children)
+            close = asyncio.create_task(session.terminate())
+            try:
+                assert await asyncio.to_thread(waiting.wait, 10)
+                (profile.parent / "spawn-late").touch()
+                line = await asyncio.wait_for(asyncio.to_thread(driver.stdout.readline), 20)
+                children.append(psutil.Process(int(line)))
+            finally:
+                spawned.set()
+            await close
+        else:
+            await session.terminate()
         with browser_profile_lock(profile):
             pass
         assert session._terminated
     finally:
-        if child is not None:
+        spawned.set()
+        if close is not None:
+            await asyncio.gather(close, return_exceptions=True)
+        for child in reversed(children):
             try:
                 child.kill()
                 await asyncio.to_thread(child.wait, 5)
@@ -702,6 +764,8 @@ async def test_close_drains_owned_browser_child_after_driver_disappears(tmp_path
             await asyncio.to_thread(driver.wait, 5)
         if driver.stdout is not None:
             driver.stdout.close()
+        if driver.stdin is not None:
+            driver.stdin.close()
 
 
 def test_teardown_never_adopts_unrelated_or_manager_pid(monkeypatch):
@@ -726,6 +790,33 @@ def test_teardown_never_adopts_unrelated_or_manager_pid(monkeypatch):
         with pytest.raises(bs.BrowserTerminationError):
             tree.finish()
     assert calls == []
+
+
+def test_refresh_never_walks_a_recycled_pinned_descendant(monkeypatch):
+    class RecycledChild:
+        def is_running(self):
+            return False
+
+        def children(self, **kwargs):
+            pytest.fail("A recycled process must never authorize descendant adoption")
+
+    child = RecycledChild()
+    root = SimpleNamespace(
+        pid=4242,
+        parents=lambda: [SimpleNamespace(pid=os.getpid())],
+        is_running=lambda: True,
+        children=lambda **kwargs: [child],
+    )
+    lookups = []
+
+    def lookup(pid):
+        lookups.append(pid)
+        return root
+
+    monkeypatch.setattr(bs.psutil, "Process", lookup)
+    tree = bs._OwnedProcessTree(4242)
+    tree.refresh()
+    assert lookups == [4242] and tree.children == {child}
 
 
 @pytest.mark.asyncio

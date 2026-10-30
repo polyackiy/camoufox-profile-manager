@@ -20,7 +20,7 @@ async def test_preflight_requires_last_two_matches_keeps_every_baseline_and_warn
 ):
     calls = []
 
-    async def capture(profile, url):
+    async def capture(profile, url, **kwargs):
         calls.append(profile)
         assert url == "http://127.0.0.1:1234/"
         return (
@@ -58,7 +58,7 @@ async def test_nonconvergent_renderer_hard_fails_after_three_and_retains_evidenc
 ):
     calls = []
 
-    async def capture(profile, _url):
+    async def capture(profile, _url, **kwargs):
         calls.append(profile)
         return (
             {"pngHash": str(len(calls)), "engineVersion": "153.0"},

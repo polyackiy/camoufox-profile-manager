@@ -169,6 +169,17 @@ revocation before each close and audits each result. The API exposes only typed,
 fixed recovery text to non-administrators; arbitrary 5xx details and spoofed error
 codes remain redacted. English/Russian/Chinese recovery uses the actual Stop control.
 The Firefox native lock and ambiguous-process checks remain independent safeguards.
+
+After SDK shutdown, process discovery continues from every live, pinned browser
+descendant as well as the driver. A known child may create another descendant
+before the driver exits; losing the original ancestor must not turn that new
+process into an untracked profile-lock holder. Recycled identities are never
+queried for new children. Discovery is repeated after the existing grace period,
+so a child born while its parent is closing is included before termination.
+Native regressions create late children during SDK exit and during that grace
+period, then verify the profile lock is available before Stop succeeds. This
+proves that lifecycle correction, without identifying every historical ambiguous
+process or assigning a cause to an older generic activation error.
 The historical #145 process identity was not captured; this fixes the independently
 reproduced early-close acknowledgement and does not claim every possible ambiguous
 browser refusal is an error.
@@ -201,6 +212,15 @@ post-failure snapshot exports no PID, birth time, name, commandline, path or URL
 it never authorizes signals or changes the production quiescence decision.
 `outside_current_ancestry` includes possible orphans and is not proof that a
 process was unrelated at the time of refusal. Exits can race the observation.
+
+Installed acceptance also records the same bounded observation immediately after
+each synthetic profile close. Executable comparisons produce only fixed
+`native_control`, `paired_browser`, `system_browser`, `other` or
+`inspection_unavailable` labels; executable paths remain local. A background-task
+switch is reported only as a boolean. Preflight summaries count only descendants
+whose identities were pinned while their driver was alive; a zero count does not
+prove there are no other orphaned processes. None of these observations changes
+admission, authorizes signals or replays a rejected operation.
 
 
 Snapshot activation/recovery `ApplyError` wrappers use the same closed evidence

@@ -85,12 +85,17 @@ class _OwnedProcessTree:
     def refresh(self) -> None:
         if self.root is None:
             return
-        try:
-            self.children.update(self.root.children(recursive=True))
-        except psutil.NoSuchProcess:
-            pass
-        except psutil.Error:
-            self.uncertain = True
+        # The SDK driver can exit before a pinned browser child. That child may
+        # have spawned more descendants during SDK shutdown; its birth identity
+        # still proves ownership even after it loses the driver as an ancestor.
+        for parent in [self.root, *self.children]:
+            try:
+                if parent.is_running():
+                    self.children.update(parent.children(recursive=True))
+            except psutil.NoSuchProcess:
+                pass
+            except psutil.Error:
+                self.uncertain = True
 
     def _wait(self, processes: list[psutil.Process]) -> list[psutil.Process]:
         try:
@@ -107,8 +112,14 @@ class _OwnedProcessTree:
         # Give already-closing descendants their own grace period before any
         # Windows TerminateProcess/SIGTERM fallback. Never scan/kill by name.
         self.refresh()
-        alive = self._wait(list(self.children))
-        targets = alive + ([self.root] if self.root is not None else [])
+        known = self.children.copy()
+        alive = self._wait(list(known))
+        # A still-closing parent can create a child during the same bounded
+        # grace period. Adopt it from the pinned parent before signalling it.
+        self.refresh()
+        targets = (
+            alive + list(self.children - known) + ([self.root] if self.root is not None else [])
+        )
         for process in targets:
             try:
                 process.terminate()  # psutil checks the pinned PID/birth identity.

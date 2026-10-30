@@ -20,7 +20,7 @@ from tests.browser.test_fingerprint_stability import (
 )
 
 
-async def capture_native_canvas(profile_directory, url):
+async def capture_native_canvas(profile_directory, url, *, observe_processes=None):
     """One independent native browser/driver launch of the fixed synthetic draw."""
     async with async_playwright() as playwright:
         context = await playwright.firefox.launch_persistent_context(
@@ -33,6 +33,8 @@ async def capture_native_canvas(profile_directory, url):
                 "privacy.resistFingerprinting": False,
             },
         )
+        if observe_processes is not None:
+            observe_processes(playwright)
         try:
             page = await context.new_page()
             await page.goto(url, wait_until="domcontentloaded", timeout=45000)
@@ -44,6 +46,8 @@ async def capture_native_canvas(profile_directory, url):
                 "engineVersion": context.browser.version if context.browser else "unavailable",
             }
         finally:
+            if observe_processes is not None:
+                observe_processes(playwright)
             await context.close()
     record.update(canvas_profile_diagnostic(profile_directory))
     return record, snapshot["value"]
