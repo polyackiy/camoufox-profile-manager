@@ -1185,5 +1185,14 @@
   "Permanently delete the backup of {name} from {date}? This cannot be undone. Your current profiles and other backups are preserved.": "确定永久删除 {name} 于 {date} 创建的备份吗？此操作无法撤销，当前配置和其他备份将保留。",
   "Backup deleted": "备份已删除",
   "Could not delete the backup. Check file permissions and try again.": "无法删除备份，请检查文件权限后重试。",
-  "Backup not found": "备份不存在"
+  "Backup not found": "备份不存在",
+  "GitHub download authentication (optional)": "GitHub 下载认证（可选）",
+  "If GitHub limits downloads, use a personal access token for this attempt. It is not saved and is sent only to the GitHub API.": "如果 GitHub 限制下载，可为本次尝试提供个人访问令牌。令牌不会被保存，且仅发送到 GitHub API。",
+  "Create a GitHub token": "创建 GitHub 令牌",
+  "Public repository access is enough. Do not grant write access or access to private repositories.": "仅需公开仓库访问权限。请勿授予写入权限或私有仓库访问权限。",
+  "GitHub token": "GitHub 令牌",
+  "GitHub's download request limit was reached. Wait and retry, or use a GitHub token below.": "已达到 GitHub 下载请求上限。请稍后重试，或在下方提供 GitHub 令牌。",
+  "GitHub rejected the token. Check that it is valid and has not expired.": "GitHub 拒绝了此令牌。请检查令牌是否有效且尚未过期。",
+  "GitHub refused the request. Check token access or wait before retrying.": "GitHub 拒绝了请求。请检查令牌访问权限，或稍后重试。",
+  "Could not read browser releases from GitHub. Check your connection and retry.": "无法从 GitHub 获取浏览器版本信息。请检查网络连接后重试。"
 }

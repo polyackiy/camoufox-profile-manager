@@ -1320,5 +1320,14 @@
   "Permanently delete the backup of {name} from {date}? This cannot be undone. Your current profiles and other backups are preserved.": "Навсегда удалить резервную копию {name} от {date}? Это действие нельзя отменить. Текущие профили и другие резервные копии сохранятся.",
   "Backup deleted": "Резервная копия удалена",
   "Could not delete the backup. Check file permissions and try again.": "Не удалось удалить резервную копию. Проверьте права доступа к файлам и повторите попытку.",
-  "Backup not found": "Резервная копия не найдена"
+  "Backup not found": "Резервная копия не найдена",
+  "GitHub download authentication (optional)": "Доступ к загрузкам GitHub (необязательно)",
+  "If GitHub limits downloads, use a personal access token for this attempt. It is not saved and is sent only to the GitHub API.": "Если GitHub ограничивает загрузки, укажите персональный токен для этой попытки. Он не сохраняется и отправляется только в API GitHub.",
+  "Create a GitHub token": "Создать токен GitHub",
+  "Public repository access is enough. Do not grant write access or access to private repositories.": "Достаточно доступа к публичным репозиториям. Не выдавайте права на запись или доступ к приватным репозиториям.",
+  "GitHub token": "Токен GitHub",
+  "GitHub's download request limit was reached. Wait and retry, or use a GitHub token below.": "Достигнут лимит запросов к загрузкам GitHub. Подождите и повторите попытку или укажите токен GitHub ниже.",
+  "GitHub rejected the token. Check that it is valid and has not expired.": "GitHub отклонил токен. Проверьте, что он действителен и срок его действия не истёк.",
+  "GitHub refused the request. Check token access or wait before retrying.": "GitHub отклонил запрос. Проверьте права токена или подождите перед повторной попыткой.",
+  "Could not read browser releases from GitHub. Check your connection and retry.": "Не удалось получить список выпусков браузера с GitHub. Проверьте подключение и повторите попытку."
 }

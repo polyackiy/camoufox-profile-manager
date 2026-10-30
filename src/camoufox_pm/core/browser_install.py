@@ -14,7 +14,69 @@ from pathlib import Path
 from typing import Any, Literal
 
 import httpx
-from pydantic import BaseModel
+from pydantic import BaseModel, SecretStr
+
+GITHUB_RATE_LIMIT = (
+    "GitHub's download request limit was reached. Wait and retry, or use a GitHub token below."
+)
+GITHUB_TOKEN_REJECTED = "GitHub rejected the token. Check that it is valid and has not expired."
+GITHUB_FORBIDDEN = "GitHub refused the request. Check token access or wait before retrying."
+GITHUB_UNAVAILABLE = "Could not read browser releases from GitHub. Check your connection and retry."
+SETUP_FAILED = "Could not finish installing the browser. Check your connection and retry."
+
+
+class GitHubDownloadError(RuntimeError):
+    """Fixed public messages; never include upstream headers, bodies or credentials."""
+
+
+def github_releases(repository: str, token: SecretStr | None = None) -> list[dict]:
+    """Authenticate release discovery only, without modifying upstream global state."""
+    from camoufox.pkgman import GITHUB_TOKEN
+
+    credential = token.get_secret_value() if token is not None else GITHUB_TOKEN
+    headers = {"Accept": "application/vnd.github+json"}
+    if credential:
+        headers["Authorization"] = f"Bearer {credential}"
+    url = httpx.URL(f"https://api.github.com/repos/{repository}/releases")
+    try:
+        with httpx.Client(timeout=20, follow_redirects=False) as client:
+            for _ in range(5):
+                # Follow renamed repositories without forwarding a token off-origin.
+                if (
+                    url.scheme != "https"
+                    or url.host != "api.github.com"
+                    or url.port not in (None, 443)
+                    or url.userinfo
+                ):
+                    raise GitHubDownloadError(GITHUB_UNAVAILABLE)
+                response = client.get(url, headers=headers)
+                if response.is_redirect:
+                    url = response.url.join(response.headers.get("location", ""))
+                    continue
+                if response.status_code == 401:
+                    raise GitHubDownloadError(GITHUB_TOKEN_REJECTED)
+                if response.status_code in (403, 429):
+                    limited = (
+                        response.status_code == 429
+                        or response.headers.get("x-ratelimit-remaining") == "0"
+                        or "retry-after" in response.headers
+                    )
+                    # Secondary limits may supply only the documented message.
+                    if not limited:
+                        try:
+                            message = response.json().get("message", "")
+                            limited = isinstance(message, str) and "rate limit" in message.lower()
+                        except (ValueError, AttributeError):
+                            pass
+                    raise GitHubDownloadError(GITHUB_RATE_LIMIT if limited else GITHUB_FORBIDDEN)
+                response.raise_for_status()
+                releases = response.json()
+                if not isinstance(releases, list):
+                    raise GitHubDownloadError(GITHUB_UNAVAILABLE)
+                return releases
+    except (httpx.HTTPError, ValueError):
+        raise GitHubDownloadError(GITHUB_UNAVAILABLE) from None
+    raise GitHubDownloadError(GITHUB_UNAVAILABLE)
 
 
 class BrowserStatus(BaseModel):
@@ -148,7 +210,7 @@ class BrowserInstaller:
         with self._lock:
             self._state = self._state.model_copy(update=values)
 
-    def start(self) -> BrowserStatus:
+    def start(self, github_token: SecretStr | None = None) -> BrowserStatus:
         with self._lock:
             if self._state.state != "downloading":
                 self._state = BrowserStatus(
@@ -158,17 +220,23 @@ class BrowserInstaller:
                     message="Finding a compatible browser…",
                 )
                 self._thread = threading.Thread(
-                    target=self._run, daemon=True, name="browser-download"
+                    target=self._run,
+                    kwargs={"github_token": github_token} if github_token is not None else {},
+                    daemon=True,
+                    name="browser-download",
                 )
                 self._thread.start()
         return self.status()
 
-    def _run(self) -> None:
+    def _run(self, github_token: SecretStr | None = None) -> None:
         try:
             from .maintenance import configured_gate
 
             with configured_gate().operation(), installation_lock():
-                self._install()
+                if github_token is None:
+                    self._install()
+                else:
+                    self._install(github_token)
             installed, version = installed_browser()
             if not installed or not browser_resources_ready():
                 raise RuntimeError(
@@ -186,11 +254,13 @@ class BrowserInstaller:
             self._update(
                 state="error",
                 progress=None,
-                message="Could not finish installing the browser. Check your connection and retry.",
-                error=str(exc),
+                message=SETUP_FAILED,
+                error=str(exc)
+                if github_token is None or isinstance(exc, GitHubDownloadError)
+                else SETUP_FAILED,
             )
 
-    def _install(self) -> None:
+    def _install(self, github_token: SecretStr | None = None) -> None:
         from camoufox.addons import DefaultAddons, get_addon_path, maybe_download_addons
         from camoufox.fpgen_model import ensure_fpgen_model
         from camoufox.geolocation import download_mmdb
@@ -199,6 +269,9 @@ class BrowserInstaller:
         owner = self
 
         class ProgressFetcher(CamoufoxFetcher):
+            def _get_releases(self, github_repo):
+                return github_releases(github_repo, github_token)
+
             def download_file(self, file, url):
                 digest = hashlib.sha256()
                 count = 0

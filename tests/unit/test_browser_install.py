@@ -7,7 +7,9 @@ from contextlib import nullcontext
 from types import SimpleNamespace
 from unittest.mock import Mock
 
+import httpx
 import pytest
+from pydantic import SecretStr
 
 from camoufox_pm.core import browser_install
 from camoufox_pm.core.browser_session import BrowserLaunchError
@@ -291,3 +293,205 @@ def test_retry_replaces_only_target_with_missing_executable(upstream_cache, monk
     browser_install.BrowserInstaller()._install()
     assert result["replace"] is True
     assert (target / "version.json").exists()  # Our code delegates replacement to upstream.
+
+
+def github_transport(monkeypatch, handler):
+    client = httpx.Client
+    monkeypatch.setattr(
+        browser_install.httpx,
+        "Client",
+        lambda **kwargs: client(transport=httpx.MockTransport(handler), **kwargs),
+    )
+
+
+def test_github_limit_can_be_retried_with_a_one_attempt_token(monkeypatch):
+    from camoufox import pkgman
+
+    monkeypatch.setattr(pkgman, "GITHUB_TOKEN", None)
+    credential = "github_pat_test_only"
+    authorization = []
+
+    def handler(request):
+        assert request.url.host == "api.github.com"
+        authorization.append(request.headers.get("authorization"))
+        if not request.headers.get("authorization"):
+            return httpx.Response(403, headers={"x-ratelimit-remaining": "0"})
+        return httpx.Response(200, json=[{"tag_name": "paired-browser"}])
+
+    github_transport(monkeypatch, handler)
+    with pytest.raises(RuntimeError, match="limit"):
+        browser_install.github_releases("owner/browser")
+    assert browser_install.github_releases("owner/browser", SecretStr(credential)) == [
+        {"tag_name": "paired-browser"}
+    ]
+    with pytest.raises(RuntimeError, match="limit"):
+        browser_install.github_releases("owner/browser")
+    assert authorization == [None, f"Bearer {credential}", None]
+    assert pkgman.GITHUB_TOKEN is None
+
+
+def test_source_environment_token_still_authenticates_release_discovery(monkeypatch):
+    from camoufox import pkgman
+
+    monkeypatch.setattr(pkgman, "GITHUB_TOKEN", "environment_test_token")
+
+    def handler(request):
+        assert request.headers["authorization"] == "Bearer environment_test_token"
+        return httpx.Response(200, json=[])
+
+    github_transport(monkeypatch, handler)
+    assert browser_install.github_releases("owner/browser") == []
+
+
+@pytest.mark.parametrize(
+    ("status", "headers", "body", "expected"),
+    [
+        (401, {}, {}, browser_install.GITHUB_TOKEN_REJECTED),
+        (403, {}, {}, browser_install.GITHUB_FORBIDDEN),
+        (403, {}, {"message": "API rate limit exceeded"}, browser_install.GITHUB_RATE_LIMIT),
+        (403, {"retry-after": "60"}, {}, browser_install.GITHUB_RATE_LIMIT),
+        (429, {}, {}, browser_install.GITHUB_RATE_LIMIT),
+        (500, {}, {}, browser_install.GITHUB_UNAVAILABLE),
+        (200, {}, {"unexpected": True}, browser_install.GITHUB_UNAVAILABLE),
+    ],
+)
+def test_release_errors_have_fixed_messages_without_private_response_data(
+    monkeypatch, status, headers, body, expected
+):
+    credential = "github_pat_private_test_value"
+    github_transport(
+        monkeypatch,
+        lambda _: httpx.Response(status, headers=headers, json={**body, "private": credential}),
+    )
+    with pytest.raises(RuntimeError) as error:
+        browser_install.github_releases("owner/browser", SecretStr(credential))
+    assert str(error.value) == expected
+    assert credential not in str(error.value)
+
+
+@pytest.mark.parametrize(
+    "redirect",
+    [
+        "https://untrusted.invalid/releases",
+        "http://api.github.com/releases",
+        "https://api.github.com:444/releases",
+    ],
+)
+def test_github_token_is_not_forwarded_to_another_origin(monkeypatch, redirect):
+    calls = []
+
+    def handler(request):
+        calls.append(request.url)
+        return httpx.Response(302, headers={"location": redirect})
+
+    github_transport(monkeypatch, handler)
+    with pytest.raises(RuntimeError, match="GitHub"):
+        browser_install.github_releases("owner/browser", SecretStr("test_token"))
+    assert len(calls) == 1
+
+
+def test_repository_rename_redirect_keeps_authentication(monkeypatch):
+    calls = []
+
+    def handler(request):
+        calls.append(request)
+        if len(calls) == 1:
+            return httpx.Response(301, headers={"location": "/repositories/123/releases"})
+        assert request.headers["authorization"] == "Bearer test_token"
+        return httpx.Response(200, json=[])
+
+    github_transport(monkeypatch, handler)
+    assert browser_install.github_releases("owner/browser", SecretStr("test_token")) == []
+    assert len(calls) == 2
+
+
+def test_authenticated_install_keeps_token_out_of_error_status(upstream_cache, monkeypatch):
+    installer = browser_install.BrowserInstaller()
+    token = SecretStr("github_pat_private_test_value")
+    monkeypatch.setattr(browser_install, "installation_lock", nullcontext)
+    install = Mock(side_effect=RuntimeError(token.get_secret_value()))
+    monkeypatch.setattr(installer, "_install", install)
+    installer._run(token)
+    install.assert_called_once_with(token)
+    status = installer.status()
+    assert status.state == "error" and status.error == browser_install.SETUP_FAILED
+    assert token.get_secret_value() not in status.model_dump_json()
+
+
+def test_progress_fetcher_uses_per_attempt_auth_only_for_release_discovery(
+    upstream_cache, monkeypatch
+):
+    cache = upstream_cache
+    result = fake_fetcher(cache, monkeypatch)
+    original_initialize = cache.pkgman.CamoufoxFetcher.__init__
+    token = SecretStr("github_pat_private_test_value")
+    lookup = Mock(return_value=[])
+    monkeypatch.setattr(browser_install, "github_releases", lookup)
+
+    def initialize(fetcher):
+        original_initialize(fetcher)
+        fetcher._get_releases("owner/browser")
+
+    monkeypatch.setattr(cache.pkgman.CamoufoxFetcher, "__init__", initialize)
+    stream = browser_install.httpx.stream
+    requests = []
+
+    def download(*args, **kwargs):
+        requests.append(kwargs)
+        return stream(*args, **kwargs)
+
+    monkeypatch.setattr(browser_install.httpx, "stream", download)
+    browser_install.BrowserInstaller()._install(token)
+    lookup.assert_called_once_with("owner/browser", token)
+    assert result["download"] == b"downloaded archive"
+    assert requests and all("headers" not in request for request in requests)
+
+
+def test_authenticated_real_fetcher_keeps_wrapper_browser_pin_and_checksum(
+    upstream_cache, monkeypatch
+):
+    from camoufox.browser_pin import load_pin
+    from camoufox.pkgman import RepoConfig
+
+    cache = upstream_cache
+    pin = load_pin()
+    assert pin is not None
+    config = RepoConfig.get_default()
+    platform = f"{config.get_os_name()}.{config.get_arch()}"
+    paired_url = "https://github.com/example/browser/releases/download/paired/browser.zip"
+    digest = "a" * 64
+    releases = [
+        {
+            "tag_name": pin.tag,
+            "prerelease": False,
+            "assets": [
+                {
+                    "name": f"camoufox-999.0-beta.1-{platform}.zip",
+                    "browser_download_url": "https://unused.invalid/newer",
+                },
+                {
+                    "name": f"camoufox-{pin.version}-{pin.build}-{platform}.zip",
+                    "browser_download_url": paired_url,
+                    "digest": f"sha256:{digest}",
+                },
+            ],
+        }
+    ]
+
+    def handler(request):
+        assert request.url.host == "api.github.com"
+        assert request.headers["authorization"] == "Bearer test_token"
+        return httpx.Response(200, json=releases)
+
+    github_transport(monkeypatch, handler)
+    selected = []
+
+    def install(fetcher, replace=False):
+        selected.append((fetcher.version, fetcher.build, fetcher._url, fetcher.installed_sha256))
+
+    monkeypatch.setattr(cache.pkgman.CamoufoxFetcher, "install", install)
+    monkeypatch.setattr(browser_install, "installed_browser", lambda: (False, None))
+    monkeypatch.setattr(browser_install, "browser_resources_ready", lambda: True)
+    monkeypatch.setattr(cache.addons, "maybe_download_addons", lambda addons: None)
+    browser_install.BrowserInstaller()._install(SecretStr("test_token"))
+    assert selected == [(pin.version, pin.build, paired_url, digest)]

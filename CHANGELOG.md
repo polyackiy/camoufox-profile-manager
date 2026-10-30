@@ -36,6 +36,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   incomplete operations (#119). Interactive queues do not replay after reload.
 
 ### Fixed
+- Allow a one-attempt GitHub token during browser setup to recover from public
+  API request limits, with fixed authentication/rate-limit messages, no saved
+  credential and no token forwarding to download hosts (#149).
 - Keep compact search and filter controls tall enough to display Chinese text
   without clipping (#147).
 - Preserve validated source categories/sites through sanitized snapshot activation

@@ -70,6 +70,60 @@ async def test_explicit_post_starts_download_and_returns_pollable_progress(clien
     installer.start.assert_called_once_with()
 
 
+@pytest.mark.parametrize("prefix", ["/api", "/api/v1"])
+async def test_browser_download_token_is_one_request_only(client, monkeypatch, prefix):
+    token = "github_pat_test_value"
+    installer = Mock()
+    installer.start.return_value = BrowserStatus(installed=False, state="downloading")
+    installer.status.return_value = BrowserStatus(installed=False, state="downloading")
+    monkeypatch.setattr(runtime, "browser_installer", installer)
+    response = await client.post(f"{prefix}/system/browser/install", json={"github_token": token})
+    assert response.status_code == 200
+    assert token not in response.text
+    installer.start.assert_called_once()
+    assert installer.start.call_args.kwargs["github_token"].get_secret_value() == token
+    assert token not in (await client.get(f"{prefix}/system/browser")).text
+    installer.start.reset_mock()
+    assert (await client.post(f"{prefix}/system/browser/install")).status_code == 200
+    installer.start.assert_called_once_with()
+
+
+@pytest.mark.parametrize("token", ["secret " * 50, "secret\nvalue", "secret\x00value", 123])
+@pytest.mark.parametrize("prefix", ["/api", "/api/v1"])
+async def test_invalid_download_token_does_not_leak_through_validation(
+    client, monkeypatch, prefix, token
+):
+    installer = Mock()
+    monkeypatch.setattr(runtime, "browser_installer", installer)
+    response = await client.post(f"{prefix}/system/browser/install", json={"github_token": token})
+    assert response.status_code == 422
+    assert '"input"' not in response.text and '"ctx"' not in response.text
+    assert "secret" not in response.text
+    installer.start.assert_not_called()
+
+
+async def test_browser_download_token_requires_admin_session(client, monkeypatch):
+    from camoufox_pm.api.dependencies import get_storage_manager
+    from camoufox_pm.core import auth
+
+    storage = get_storage_manager()
+    password = "test-password-149"
+    await storage.create_user(auth.new_user_id(), "admin", auth.hash_password(password))
+    await storage.create_user(
+        auth.new_user_id(), "operator", auth.hash_password(password), role="operator"
+    )
+    assert (
+        await client.post("/api/v1/auth/login", json={"username": "operator", "password": password})
+    ).status_code == 200
+    installer = Mock()
+    monkeypatch.setattr(runtime, "browser_installer", installer)
+    response = await client.post(
+        "/api/v1/system/browser/install", json={"github_token": "github_pat_test_value"}
+    )
+    assert response.status_code == 403
+    installer.start.assert_not_called()
+
+
 async def test_runtime_routes_use_existing_api_auth_guard(client, monkeypatch):
     monkeypatch.setenv("CPM_API_KEY", "test-runtime-key")
     get_settings.cache_clear()
