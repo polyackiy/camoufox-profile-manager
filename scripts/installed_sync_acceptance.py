@@ -496,9 +496,12 @@ def delete_native_slot(owner_id, slot):
 
 
 class Device:
-    def __init__(self, work, browser, certificate, vault_kind="encrypted_file"):
+    def __init__(
+        self, work, browser, certificate, vault_kind="encrypted_file", *, native_control=None
+    ):
         self.work = work
         self.browser = browser
+        self.native_control = native_control
         self.vault_kind = vault_kind
         self.password = secrets.token_urlsafe(24)
         work.mkdir(mode=0o700)
@@ -839,6 +842,12 @@ def observe(device, profile_id, site, stage, report=None):
         return result
     finally:
         device.call("/browsers/close-all", {})
+        if report is not None and getattr(device, "native_control", None) is not None:
+            observed = {}
+            record_ambiguous_browser_checks(observed, native_control=device.native_control)
+            report.setdefault("close_process_checks", {})[stage] = observed[
+                "browser_process_checks"
+            ]
 
 
 def exercise(owner, recipient, relay_url, registration, site, report):
@@ -1083,7 +1092,13 @@ def main():
                         phase = "installed-startup"
                         for name in ("owner", "recipient"):
                             devices.append(
-                                Device(work / name, browser, certificate, arguments.vault)
+                                Device(
+                                    work / name,
+                                    browser,
+                                    certificate,
+                                    arguments.vault,
+                                    native_control=playwright.firefox.executable_path,
+                                )
                             )
                         phase = "UI-encrypted-roundtrip"
                         exercise(
