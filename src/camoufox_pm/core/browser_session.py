@@ -85,17 +85,12 @@ class _OwnedProcessTree:
     def refresh(self) -> None:
         if self.root is None:
             return
-        # The SDK driver can exit before a pinned browser child. That child may
-        # have spawned more descendants during SDK shutdown; its birth identity
-        # still proves ownership even after it loses the driver as an ancestor.
-        for parent in [self.root, *self.children]:
-            try:
-                if parent.is_running():
-                    self.children.update(parent.children(recursive=True))
-            except psutil.NoSuchProcess:
-                pass
-            except psutil.Error:
-                self.uncertain = True
+        try:
+            self.children.update(self.root.children(recursive=True))
+        except psutil.NoSuchProcess:
+            pass
+        except psutil.Error:
+            self.uncertain = True
 
     def _wait(self, processes: list[psutil.Process]) -> list[psutil.Process]:
         try:
