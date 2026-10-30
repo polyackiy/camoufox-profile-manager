@@ -102,7 +102,11 @@ exception — see [System](#system)):
 
 - `error.code` is a stable snake_case token: `bad_request`, `unauthorized`,
   `not_found`, `method_not_allowed`, `conflict`, `validation_error`,
-  `internal_error`.
+  `internal_error`. Browser Stop/Stop all can return `500 browser_exit_unconfirmed`:
+  the affected session and lease remain tracked until exit can be confirmed.
+  Use the fixed recovery guidance and retry explicitly; do not automatically
+  replay a stop or profile handoff. Stop all still attempts other authorized
+  profiles, rechecking operator access and auditing individual outcomes.
 - `error.message` is always a single human-readable string — including for
   validation failures, which used to arrive as a list.
 - `error.details` carries the structured specifics when there are any; for

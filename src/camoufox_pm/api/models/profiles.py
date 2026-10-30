@@ -301,7 +301,7 @@ class ProfileLaunchResponse(BaseModel):
     )
     status: str = Field(..., description="launched or already_running")
     message: str
-    process_id: int | None = Field(None, description="OS process id of the browser, if known")
+    process_id: int | None = Field(None, description="SDK driver/browser OS process id, if known")
     camoufox_options: dict[str, Any] = Field(
         ...,
         description="Launch internals passed to Camoufox; shape not covered by the API contract",

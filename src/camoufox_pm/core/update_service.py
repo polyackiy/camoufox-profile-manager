@@ -157,9 +157,7 @@ class UpdateService:
             raise MaintenanceBlocked(
                 "Browser installation has begun; resume or restore the checkpoint"
             )
-        if (self.root / "replacement.json").exists() or (
-            self.root / "native-install.json"
-        ).exists():
+        if (self.root / "replacement.json").exists():
             raise MaintenanceBlocked(
                 "A replacement helper journal exists; complete offline recovery before resuming writes"
             )
@@ -180,9 +178,7 @@ class UpdateService:
         owner = self.gate.owner
         if not owner or not re.fullmatch(r"checkpoint-[a-f0-9]{32}", owner):
             raise MaintenanceBlocked("Only an abandoned offline checkpoint can be cancelled")
-        if (self.root / "replacement.json").exists() or (
-            self.root / "native-install.json"
-        ).exists():
+        if (self.root / "replacement.json").exists():
             raise MaintenanceBlocked(
                 "A replacement helper journal exists; offline recovery is required"
             )

@@ -26,7 +26,7 @@ from camoufox_pm.api.access import (
     visible_profile_ids,
 )
 from camoufox_pm.api.dependencies import get_profile_manager
-from camoufox_pm.api.errors import ApiError, validation_message
+from camoufox_pm.api.errors import ApiError, BrowserCloseError, validation_message
 from camoufox_pm.api.models.profiles import (
     ActiveBrowsersResponse,
     BrowserCloseResponse,
@@ -49,6 +49,7 @@ from camoufox_pm.api.models.profiles import (
 )
 from camoufox_pm.api.models.system import ApiResponse, ExcelImportData
 from camoufox_pm.core import proxy_check
+from camoufox_pm.core.browser_session import BrowserTerminationError
 from camoufox_pm.core.database import StaleWriteError
 from camoufox_pm.core.excel_manager import ExcelManager
 from camoufox_pm.core.leases import ProfileLocked
@@ -970,6 +971,10 @@ async def close_profile_browser(profile_id: str):
         logger.info(f"Browser closed for profile: {profile_id}")
         return result
 
+    except BrowserTerminationError as exc:
+        # Fixed recovery text is safe for every authorized role. Never disclose
+        # a process exception, even if its implementation adds private context.
+        raise BrowserCloseError() from exc
     except Exception as e:
         logger.error(f"Failed to close browser for profile {profile_id}: {e}")
         raise HTTPException(
@@ -1026,9 +1031,20 @@ async def close_all_browsers():
         ids = [item["profile_id"] for item in active if item["profile_id"] in allowed]
         for profile_id in ids:
             await require_profile_access(profile_id, "launch")
+        failed = False
         for profile_id in ids:
-            await manager.close_browser(profile_id)
-            await record_audit("close_profile_browser", profile_id)
+            # Recheck revocation immediately before each mutation, as well as
+            # validating the complete scoped selection before starting it.
+            await require_profile_access(profile_id, "launch")
+            try:
+                await manager.close_browser(profile_id)
+            except BrowserTerminationError:
+                failed = True
+                await record_audit("close_profile_browser", profile_id, "failure")
+            else:
+                await record_audit("close_profile_browser", profile_id)
+        if failed:
+            raise BrowserCloseError(all_profiles=True)
         return {
             "status": "completed",
             "closed_count": len(ids),
@@ -1042,6 +1058,8 @@ async def close_all_browsers():
         logger.info(f"Closed {result['closed_count']} browsers")
         return result
 
+    except BrowserTerminationError as exc:
+        raise BrowserCloseError(all_profiles=True) from exc
     except Exception as e:
         logger.error(f"Failed to close all browsers: {e}")
         raise HTTPException(

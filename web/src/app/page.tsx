@@ -44,6 +44,7 @@ import { DEFAULT_VIEW, profileViewQuery, readProfileView } from '@/lib/profile-v
 import { useToast } from '@/components/toast'
 import {
   browsersAPI,
+  browserCloseFailure,
   formatLastUsed,
   formatProxyString,
   groupsAPI,
@@ -327,7 +328,7 @@ export default function ProfilesPage() {
         await profilesAPI.closeProfile(profile.id)
         await loadRunning()
       } catch (err) {
-        toast('error', t('Could not close browser'), String(err))
+        toast('error', t('Could not close browser'), browserCloseFailure(err, t) ?? String(err))
       }
     })
   }
@@ -536,7 +537,7 @@ export default function ProfilesPage() {
     try {
       await action.run()
     } catch (err) {
-      toast('error', t('Action failed'), String(err))
+      toast('error', t('Action failed'), browserCloseFailure(err, t) ?? String(err))
     }
   }
 

@@ -32,11 +32,6 @@ def _admitted_command(function):
 
 
 def main() -> None:
-    if len(sys.argv) == 3 and sys.argv[1] == "--native-installer-helper":
-        from camoufox_pm.core.native_installer import run_helper
-
-        run_helper(sys.argv[2])
-        return
     if sys.argv[1:] == ["--sync-recovery-verify"]:
         from camoufox_pm.sync.recovery import recovery_worker_main
 

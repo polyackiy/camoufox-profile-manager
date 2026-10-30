@@ -47,6 +47,88 @@ class BrowserLaunchError(RuntimeError):
     """Raised when a Camoufox browser fails to launch."""
 
 
+BROWSER_EXIT_UNCONFIRMED = (
+    "Browser exit could not be confirmed. Close remaining browsers, then retry "
+    "Stop or restart the manager."
+)
+BROWSER_EXITS_UNCONFIRMED = (
+    "Some browser exits could not be confirmed. Retry Stop for active profiles."
+)
+
+
+class BrowserTerminationError(RuntimeError):
+    """Exit could not be confirmed; retain the tracked session and lease."""
+
+
+class _OwnedProcessTree:
+    """Pin driver/descendant birth identities before SDK teardown loses ancestry."""
+
+    def __init__(self, pid: int | None):
+        self.root: psutil.Process | None = None
+        self.children: set[psutil.Process] = set()
+        self.uncertain = False
+        if pid is not None:
+            try:
+                candidate = psutil.Process(pid)
+                if candidate.pid == os.getpid() or not any(
+                    parent.pid == os.getpid() for parent in candidate.parents()
+                ):
+                    self.uncertain = True
+                else:
+                    self.root = candidate
+            except psutil.NoSuchProcess:
+                pass
+            except psutil.Error:
+                self.uncertain = True
+        self.refresh()
+
+    def refresh(self) -> None:
+        if self.root is None:
+            return
+        try:
+            self.children.update(self.root.children(recursive=True))
+        except psutil.NoSuchProcess:
+            pass
+        except psutil.Error:
+            self.uncertain = True
+
+    def _wait(self, processes: list[psutil.Process]) -> list[psutil.Process]:
+        try:
+            # Exited/reused identities must not make us wait on a new PID owner.
+            current = [process for process in processes if process.is_running()]
+            return psutil.wait_procs(current, timeout=5)[1]
+        except psutil.Error:
+            # Try every remaining owned signal even if one exit is unreadable.
+            # No private process exception text leaves the lifecycle boundary.
+            self.uncertain = True
+            return processes
+
+    def finish(self) -> None:
+        # Give already-closing descendants their own grace period before any
+        # Windows TerminateProcess/SIGTERM fallback. Never scan/kill by name.
+        self.refresh()
+        alive = self._wait(list(self.children))
+        targets = alive + ([self.root] if self.root is not None else [])
+        for process in targets:
+            try:
+                process.terminate()  # psutil checks the pinned PID/birth identity.
+            except psutil.NoSuchProcess:
+                pass
+            except psutil.Error:
+                self.uncertain = True
+        alive = self._wait(targets)
+        for process in alive:
+            try:
+                process.kill()
+            except psutil.NoSuchProcess:
+                pass
+            except psutil.Error:
+                self.uncertain = True
+        alive = self._wait(alive)
+        if alive or self.uncertain:
+            raise BrowserTerminationError(BROWSER_EXIT_UNCONFIRMED)
+
+
 def _browser_launch_options(launch_options: dict[str, Any]) -> dict[str, Any]:
     """Preserve declared screens and keep Linux desktop input methods usable.
 
@@ -161,6 +243,9 @@ def _resolve_process_id(obj: Any) -> int | None:
     """
     candidates = (
         lambda b: b._browser_process.pid,  # noqa: SLF001
+        lambda b: b.browser._impl_obj._connection._transport._proc.pid,  # noqa: SLF001
+        lambda b: b._impl_obj._connection._transport._proc.pid,  # noqa: SLF001
+        lambda b: b._connection._transport._proc.pid,  # noqa: SLF001
         lambda b: b.browser._impl._connection._transport._proc.pid,  # noqa: SLF001
         lambda b: b._impl._connection._transport._proc.pid,  # noqa: SLF001
     )
@@ -203,6 +288,7 @@ class BrowserSession:
         self.profile_id = profile_id
         self.camoufox = camoufox  # AsyncCamoufox context manager instance
         self.process_id = process_id
+        self._owned_processes = _OwnedProcessTree(process_id)
         self.started_at = datetime.now()
         self.monitor_task: asyncio.Task | None = None
         self.on_exit: ExitHandler | None = None
@@ -214,7 +300,9 @@ class BrowserSession:
 
     async def terminate(self) -> None:
         """Drain one strongly owned teardown, including after caller cancellation."""
-        if self._termination_task is None:
+        if self._terminated:
+            return
+        if self._termination_task is None or self._termination_task.done():
             self._termination_task = asyncio.create_task(self._terminate())
         await _drain_cleanup(self._termination_task)
 
@@ -224,33 +312,37 @@ class BrowserSession:
         if self.monitor_task and not self.monitor_task.done():
             self.monitor_task.cancel()
 
+        self._owned_processes.refresh()
+        cancelled = False
+        sdk_close_failed = False
         if self.socks_relay is not None:
             try:
                 await self.socks_relay.close()
+            except asyncio.CancelledError:
+                cancelled = True
             except Exception as exc:
-                logger.warning(f"Error closing proxy relay for {self.profile_id}: {exc}")
+                logger.warning(f"Proxy relay close failed: {type(exc).__name__}")
 
         if self.camoufox is not None:
             try:
                 await self.camoufox.__aexit__(None, None, None)
-            except Exception as exc:  # noqa: BLE001
-                logger.warning(f"Error closing browser for {self.profile_id}: {exc}")
+            except asyncio.CancelledError:
+                cancelled = True
+                sdk_close_failed = True
+            except Exception as exc:
+                sdk_close_failed = True
+                logger.warning(f"Browser context close failed: {type(exc).__name__}")
 
-        # Best-effort: make sure the driver process is gone.
-        if self.process_id:
-            try:
-                process = psutil.Process(self.process_id)
-                process.terminate()
-                try:
-                    process.wait(timeout=5)
-                except psutil.TimeoutExpired:
-                    process.kill()
-            except psutil.NoSuchProcess:
-                pass
-            except Exception as exc:  # noqa: BLE001
-                logger.warning(f"Error killing process {self.process_id}: {exc}")
-
+        # Blocking process waits must not freeze API/event-loop admission. The
+        # strongly owned task drains this worker even after caller cancellation.
+        await asyncio.to_thread(self._owned_processes.finish)
+        if sdk_close_failed and self._owned_processes.root is None:
+            # Neither SDK acknowledgement nor a pinned process identity proves
+            # exit. Retain the session/lease; an explicit SDK retry may recover.
+            raise BrowserTerminationError(BROWSER_EXIT_UNCONFIRMED)
         self._terminated = True
+        if cancelled:
+            raise asyncio.CancelledError
 
     def info(self) -> dict[str, Any]:
         """Return a serializable summary of this session."""
@@ -437,6 +529,13 @@ class BrowserSessionManager:
             )
             try:
                 await failed_session.terminate()
+            except BrowserTerminationError:
+                # Startup may have produced a browser before the SDK failed.
+                # Keep the lease fence and an explicit Close path until exit is
+                # confirmed; never turn an unconfirmed child into "not running".
+                failed_session.on_stopped = self.on_stopped
+                self.active_sessions.setdefault(profile_id, failed_session)
+                raise
             finally:
                 if cookie_directory is not None and pending_cookies is not None:
                     from .cookie_transfer import discard_pending_ack
@@ -466,10 +565,17 @@ class BrowserSessionManager:
         """Wire Playwright close/disconnect events to session cleanup."""
         loop = asyncio.get_running_loop()
 
+        def finished(task: asyncio.Task[None]) -> None:
+            self._exit_tasks.discard(task)
+            if not task.cancelled() and task.exception() is not None:
+                # Observe the exception even when no request awaits a natural
+                # close event. Failed sessions remain tracked for explicit Close.
+                logger.warning("Browser close callback did not complete; session remains tracked")
+
         def _on_close(*_: Any) -> None:
             task = loop.create_task(self._handle_exit(profile_id))
             self._exit_tasks.add(task)
-            task.add_done_callback(self._exit_tasks.discard)
+            task.add_done_callback(finished)
 
         for event in ("close", "disconnected"):
             try:
@@ -537,9 +643,15 @@ class BrowserSessionManager:
     async def close_all(self) -> int:
         """Close every active browser and return how many were closed."""
         count = 0
+        failed = False
         for profile_id in list(self.active_sessions.keys()):
-            if await self.close_and_release(profile_id):
-                count += 1
+            try:
+                if await self.close_and_release(profile_id):
+                    count += 1
+            except BrowserTerminationError:
+                failed = True
+        if failed:
+            raise BrowserTerminationError(BROWSER_EXITS_UNCONFIRMED)
         return count
 
     async def _monitor(self, profile_id: str, process_id: int) -> None:

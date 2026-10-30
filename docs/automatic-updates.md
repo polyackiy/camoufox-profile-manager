@@ -1,9 +1,5 @@
 # Verified automatic updates: proposed design
 
-For the separate, unreleased user-confirmed Ubuntu/Windows installer flow, see
-[native installer updates](native-installer-updates.md). The proposal below is
-the authenticated replacement/rollback design; its trust checks are unchanged.
-
 Status: proposal for [#63](https://github.com/polyackiy/camoufox-profile-manager/issues/63).
 This document specifies the complete target design. Recovery, trust verification
 and transaction primitives are now implemented as described in

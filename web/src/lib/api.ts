@@ -141,6 +141,16 @@ export class ApiRequestError extends Error {
   }
 }
 
+/** Translate only our fixed close-recovery messages; preserve other API failures. */
+export function browserCloseFailure(error: unknown, t: Translator): string | null {
+  if (!(error instanceof ApiRequestError) || error.status !== 500) return null
+  switch (error.message) {
+    case 'Browser exit could not be confirmed. Close remaining browsers, then retry Stop or restart the manager.': return t('Browser exit could not be confirmed. Close remaining browsers, then retry Stop or restart the manager.')
+    case 'Some browser exits could not be confirmed. Retry Stop for active profiles.': return t('Some browser exits could not be confirmed. Retry Stop for active profiles.')
+    default: return null
+  }
+}
+
 /** The profile was saved by someone else since this client last read it. */
 export function isStaleWrite(error: unknown): boolean {
   return error instanceof ApiRequestError && error.status === 409 && error.code === 'stale_write'
@@ -765,23 +775,7 @@ export const authAPI = {
   },
 }
 
-export interface NativeInstallerStatus {
-  supported: boolean
-  state: 'idle' | 'downloading' | 'preparing' | 'ready' | 'restarting' | 'error'
-  downloaded?: number
-  total?: number | null
-  error?: string | null
-}
-
 export const systemAPI = {
-  async installerStatus(): Promise<NativeInstallerStatus> {
-    const body = await request<{ data: NativeInstallerStatus }>(`${API_PREFIX}/system/updates/installer`)
-    return body.data
-  },
-  async installUpdate(version: string, preview = false): Promise<NativeInstallerStatus> {
-    const body = await request<{ data: NativeInstallerStatus }>(`${API_PREFIX}/system/updates/installer`, { method: 'POST', body: JSON.stringify({ version, channel: preview ? 'preview' : 'stable' }) })
-    return body.data
-  },
   async browser(): Promise<BrowserReadiness> {
     const body = await request<{ data: BrowserReadiness }>(`${API_PREFIX}/system/browser`)
     return body.data

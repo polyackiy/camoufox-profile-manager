@@ -106,10 +106,6 @@ jobs:
         working-directory: .
         run: uv run python web/tests/batch_operations_ui.py
 
-      - name: Native installer UI contracts
-        working-directory: .
-        run: uv run python web/tests/native_installer_ui.py
-
       - name: Batch proxy check UI contracts
         working-directory: .
         run: uv run python web/tests/proxy_batch_ui.py

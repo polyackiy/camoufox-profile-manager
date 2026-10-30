@@ -61,6 +61,21 @@ class ApiError(HTTPException):
         self.details = details
 
 
+class BrowserCloseError(ApiError):
+    """Only fixed process-close recovery text may cross role redaction."""
+
+    def __init__(self, *, all_profiles: bool = False) -> None:
+        from camoufox_pm.core.browser_session import (
+            BROWSER_EXIT_UNCONFIRMED,
+            BROWSER_EXITS_UNCONFIRMED,
+        )
+
+        self.public_message = (
+            BROWSER_EXITS_UNCONFIRMED if all_profiles else BROWSER_EXIT_UNCONFIRMED
+        )
+        super().__init__(500, self.public_message, code="browser_exit_unconfirmed")
+
+
 def _payload(code: str, message: str, details: Sequence[Any] | None = None) -> dict[str, Any]:
     return {
         "error": {"code": code, "message": message, "details": jsonable_encoder(details)},
@@ -78,7 +93,11 @@ def install_error_handlers(app: FastAPI) -> None:
         message = exc.detail if isinstance(exc.detail, str) else str(exc.detail)
         principal = getattr(request.state, "principal", None)
         if exc.status_code >= 500 and principal is not None and principal.role != "administrator":
-            message = "Operation failed. Ask an administrator to inspect the server log."
+            message = (
+                exc.public_message
+                if type(exc) is BrowserCloseError
+                else "Operation failed. Ask an administrator to inspect the server log."
+            )
             details = None
         return JSONResponse(
             status_code=exc.status_code,

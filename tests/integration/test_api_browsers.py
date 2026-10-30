@@ -23,9 +23,9 @@ class FakeCamoufox:
 def register(profile_id: str) -> FakeCamoufox:
     """Register a running browser for a profile."""
     camoufox = FakeCamoufox()
-    get_profile_manager().browser_sessions.active_sessions[profile_id] = BrowserSession(
-        profile_id, camoufox=camoufox, process_id=4242
-    )
+    session = BrowserSession(profile_id, camoufox=camoufox)
+    session.process_id = 4242  # Summary-only fixture; never adopt a real PID.
+    get_profile_manager().browser_sessions.active_sessions[profile_id] = session
     return camoufox
 
 

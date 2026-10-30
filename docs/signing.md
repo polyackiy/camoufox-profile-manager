@@ -48,7 +48,4 @@ This release policy does not change the disabled automatic replacement path or
 its cryptographic/publisher checks. The existing
 [updater contract](update-signing.md) requires a separate reviewed trust and
 acceptance decision before enablement. Unsigned stable releases continue to use
-the manual installer flow in released versions. The unreleased
-[native installer flow](native-installer-updates.md) adds explicit download,
-backup and OS-installer handoff for Ubuntu and Windows without changing the
-signed updater's trust checks or bypassing OS security policy.
+the manual installer flow.

@@ -93,10 +93,6 @@ def run_desktop(
     from camoufox_pm.config import bootstrap_desktop, get_settings
 
     bootstrap_desktop()
-    from camoufox_pm.core import native_installer
-
-    installer = native_installer.NativeInstaller()
-    native_installer.controller = installer
     settings = get_settings()
     with _instance_lock(Path(settings.db_path).resolve().parent):
         # Bind before starting uvicorn: port=0 chooses an available port, and an
@@ -144,9 +140,7 @@ def run_desktop(
                     from camoufox_pm.core.update_runtime import _record
 
                     while thread.is_alive():
-                        if installer.status()["state"] == "ready" or (_record() or {}).get(
-                            "action"
-                        ):
+                        if (_record() or {}).get("action"):
                             window.destroy()
                             return
                         time.sleep(0.5)
@@ -170,9 +164,7 @@ def run_desktop(
                     raise RuntimeError("The local server did not finish shutting down.")
                 from camoufox_pm.core.update_runtime import _record, spawn_helper
 
-                if installer.status()["state"] == "ready":
-                    installer.handoff()
-                elif (_record() or {}).get("action"):
+                if (_record() or {}).get("action"):
                     spawn_helper()
 
 
@@ -229,8 +221,7 @@ def _run_packaged_recovery() -> None:
             os.environ["CPM_DB_PATH"] = str(desktop_data_dir() / "profiles.db")
         get_settings.cache_clear()
         if "--desktop" not in sys.argv[1:] and not any(
-            flag in sys.argv[1:]
-            for flag in ("--update-helper", "--update-validate", "--native-installer-helper")
+            flag in sys.argv[1:] for flag in ("--update-helper", "--update-validate")
         ):
             sys.argv.insert(1, "--desktop")
         if sys.stdout is None or sys.stderr is None:
@@ -295,8 +286,7 @@ def _run_packaged_recovery() -> None:
 def main() -> None:
     """Double-click entry point; ordinary ``camoufox-pm`` keeps its CLI behavior."""
     if "update-recovery" in sys.argv[1:] or any(
-        flag in sys.argv[1:]
-        for flag in ("--update-helper", "--update-validate", "--native-installer-helper")
+        flag in sys.argv[1:] for flag in ("--update-helper", "--update-validate")
     ):
         _run_packaged_recovery()
         return

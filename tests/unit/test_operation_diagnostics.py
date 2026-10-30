@@ -167,3 +167,40 @@ def test_constructed_invalid_forwarded_model_does_not_escape_or_warn():
     result = operation_diagnostic(error, area="sync", stage="execute")
     assert result.site is None and result.category == "invalid_state"
     assert "private-" not in result.model_dump_json()
+
+
+@pytest.mark.parametrize("kind", ["spoofed", "subclass"])
+def test_untrusted_apply_wrapper_identity_cannot_forward(kind):
+    from camoufox_pm.core.operation_diagnostics import OperationDiagnostic
+    from camoufox_pm.sync.apply import ApplyError
+
+    wrapper = (
+        type("ApplyError", (RuntimeError,), {"__module__": "camoufox_pm.sync.apply"})
+        if kind == "spoofed"
+        else type("PrivateApplyError", (ApplyError,), {})
+    )
+    error = wrapper("private-message")
+    error._cpm_operation_diagnostic = OperationDiagnostic(
+        version=1, area="sync", stage="execute", category="disk_full", site="sync.control", line=10
+    )
+    evidence = operation_diagnostic(error, area="sync", stage="execute")
+    assert evidence.site is None and evidence.line is None and evidence.category != "disk_full"
+    assert "private" not in evidence.model_dump_json()
+
+
+def test_invalid_constructed_apply_evidence_cannot_escape():
+    from camoufox_pm.core.operation_diagnostics import OperationDiagnostic
+    from camoufox_pm.sync.apply import ApplyError
+
+    error = ApplyError()
+    error._cpm_operation_diagnostic = OperationDiagnostic.model_construct(
+        version=1,
+        area="sync",
+        stage="execute",
+        category="private-secret",
+        site="private-path",
+        line=1,
+    )
+    evidence = operation_diagnostic(error, area="sync", stage="execute")
+    assert evidence.category == "snapshot_activation" and evidence.site is None
+    assert "private" not in evidence.model_dump_json()
