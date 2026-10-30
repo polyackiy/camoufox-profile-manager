@@ -29,13 +29,36 @@ async def prepare_renderer(output_directory: Path) -> list[dict]:
     with tempfile.TemporaryDirectory(prefix="cpm-ci-native-renderer-") as temporary:
         with serve_local_sites() as sites:
             for number in range(1, 4):
+                from camoufox_pm.core.browser_session import _OwnedProcessTree, _resolve_process_id
+
+                owned = None
+
+                def observe_processes(playwright):
+                    nonlocal owned
+                    if owned is None:
+                        owned = _OwnedProcessTree(_resolve_process_id(playwright))
+                    else:
+                        owned.refresh()
+
                 # Fresh profile and native browser/driver each time: convergence
                 # must describe the host, not a warmed persistent test profile.
                 record, png = await asyncio.wait_for(
-                    capture_native_canvas(Path(temporary) / f"native-{number}", sites.first),
+                    capture_native_canvas(
+                        Path(temporary) / f"native-{number}",
+                        sites.first,
+                        observe_processes=observe_processes,
+                    ),
                     timeout=180,
                 )
                 record["phase"] = f"host-preflight-{number}"
+                try:
+                    record["owned_children_remaining"] = (
+                        min(8, sum(process.is_running() for process in owned.children))
+                        if owned is not None and owned.root is not None
+                        else None
+                    )
+                except Exception:
+                    record["owned_children_remaining"] = None
                 records.append(record)
                 save_canvas_diagnostic(output_directory, number, png, record)
                 hashes = [entry["pngHash"] for entry in records]
@@ -56,6 +79,9 @@ async def prepare_renderer(output_directory: Path) -> list[dict]:
                             "engineVersion": records[-1]["engineVersion"],
                             "maxLaunches": 3,
                             "requiredConsecutiveMatches": 2,
+                            "owned_children_remaining": [
+                                entry.get("owned_children_remaining") for entry in records
+                            ],
                         },
                         indent=2,
                     )

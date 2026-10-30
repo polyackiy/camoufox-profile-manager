@@ -750,6 +750,37 @@ def test_ambiguous_browser_observer_caps_candidates_and_does_not_signal(monkeypa
     assert "private" not in str(report)
 
 
+@pytest.mark.parametrize(
+    "engine", ["native_control", "paired_browser", "other", "inspection_unavailable"]
+)
+def test_browser_engine_probe_exports_only_fixed_labels(monkeypatch, engine):
+    from camoufox import multiversion, pkgman
+
+    native = "/private/native/firefox.exe"
+    paired = "/private/paired/firefox.exe"
+
+    def executable():
+        if engine == "inspection_unavailable":
+            raise PermissionError("private process data")
+        return {"native_control": native, "paired_browser": paired}.get(engine, "/private/other")
+
+    process = SimpleNamespace(
+        name=lambda: "firefox.exe",
+        cmdline=lambda: ["private URL and credentials"],
+        parents=lambda: [],
+        status=lambda: "private status",
+        exe=executable,
+    )
+    monkeypatch.setattr(multiversion, "get_active_path", lambda: Path("/private/paired"))
+    monkeypatch.setattr(pkgman, "launch_path", lambda _: paired)
+    monkeypatch.setattr(harness, "_PROCESSES", [])
+    monkeypatch.setattr(harness.psutil, "process_iter", lambda: iter([process]))
+    report = {}
+    harness.record_ambiguous_browser_checks(report, native_control=native)
+    assert report["browser_process_checks"][0]["engine"] == engine
+    assert "private" not in str(report)
+
+
 @pytest.mark.parametrize("denied", [False, True])
 def test_ambiguous_browser_observer_keeps_absence_and_denied_inspection_distinct(
     monkeypatch, denied

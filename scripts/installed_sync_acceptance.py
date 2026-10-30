@@ -150,12 +150,26 @@ def record_relay_refusals(app, report):
     app.add_exception_handler(StarletteHTTPException, refusal)
 
 
-def record_ambiguous_browser_checks(report):
+def record_ambiguous_browser_checks(report, *, native_control=None):
     """Post-refusal CI observation only; no PID/command/path exports or signals."""
     from camoufox_pm.sync import quiescence
 
     evidence = report.setdefault("browser_process_checks", [])
     try:
+        known_engines = {}
+        if native_control is not None:
+            known_engines["native_control"] = os.path.normcase(os.path.realpath(native_control))
+            try:
+                from camoufox.multiversion import get_active_path
+                from camoufox.pkgman import launch_path
+
+                active = get_active_path()
+                if active is not None:
+                    known_engines["paired_browser"] = os.path.normcase(
+                        os.path.realpath(launch_path(active))
+                    )
+            except Exception:
+                pass
         managers = []
         for owned in _PROCESSES:
             if owned.poll() is None:
@@ -189,6 +203,19 @@ def record_ambiguous_browser_checks(report):
                         "state": "zombie" if process.status() == psutil.STATUS_ZOMBIE else "other",
                     }
                 )
+                if native_control is not None:
+                    try:
+                        executable = os.path.normcase(os.path.realpath(process.exe()))
+                        evidence[-1]["engine"] = next(
+                            (
+                                name
+                                for name, expected in known_engines.items()
+                                if executable == expected
+                            ),
+                            "other",
+                        )
+                    except Exception:
+                        evidence[-1]["engine"] = "inspection_unavailable"
             except psutil.NoSuchProcess:
                 continue
         if not evidence:
@@ -1059,7 +1086,9 @@ def main():
                         result["passed"] = True
                     except InstalledAPIError as error:
                         if (error.diagnostic or {}).get("category") == "profile_not_quiescent":
-                            record_ambiguous_browser_checks(result)
+                            record_ambiguous_browser_checks(
+                                result, native_control=playwright.firefox.executable_path
+                            )
                         raise
                     finally:
                         # Execute every cleanup even when another one fails.

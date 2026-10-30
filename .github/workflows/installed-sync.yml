@@ -119,4 +119,5 @@ jobs:
           path: |
             installed-sync-file.json
             installed-sync-native.json
+            canvas-diagnostics/windows-renderer-preflight/summary.json
           if-no-files-found: warn
