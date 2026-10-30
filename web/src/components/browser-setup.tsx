@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useId, useState } from 'react'
 import { Check, Download, LoaderCircle, RefreshCw, X } from 'lucide-react'
 import { useI18n } from '@/components/i18n-provider'
 import { systemAPI, type BrowserReadiness } from '@/lib/api'
@@ -12,6 +12,8 @@ export function BrowserSetup({ firstProfile = false, onCreate }: { firstProfile?
   const [error, setError] = useState<string | null>(null)
   const [requesting, setRequesting] = useState(false)
   const [dismissed, setDismissed] = useState(false)
+  const [githubToken, setGithubToken] = useState('')
+  const tokenId = useId()
   const load = useCallback(async () => {
     try {
       setBrowser(await systemAPI.browser())
@@ -38,10 +40,12 @@ export function BrowserSetup({ firstProfile = false, onCreate }: { firstProfile?
   }, [browser?.state, load])
 
   async function install() {
+    const token = githubToken.trim()
+    setGithubToken('')
     setRequesting(true)
     setError(null)
     try {
-      setBrowser(await systemAPI.installBrowser())
+      setBrowser(await systemAPI.installBrowser(token || undefined))
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -83,6 +87,16 @@ export function BrowserSetup({ firstProfile = false, onCreate }: { firstProfile?
             <p className="break-words text-danger">{t(failure)}</p>
             <p className="mt-1 text-ink-dim">{t('Check your internet connection, free disk space and permission to write browser files, then retry installation. Setup stays available in Settings.')}</p>
           </div>}
+          {!ready && <details className="mt-3 text-ink-dim">
+            <summary className="cursor-pointer">{t('GitHub download authentication (optional)')}</summary>
+            <div className="mt-2 max-w-lg">
+              <p id={`${tokenId}-help`}>{t('If GitHub limits downloads, use a personal access token for this attempt. It is not saved and is sent only to the GitHub API.')}</p>
+              <a className="mt-1 inline-block text-signal underline" href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener noreferrer">{t('Create a GitHub token')}</a>
+              <p className="mt-1">{t('Public repository access is enough. Do not grant write access or access to private repositories.')}</p>
+              <label className="mt-2 block" htmlFor={tokenId}>{t('GitHub token')}</label>
+              <input id={tokenId} type="password" className="field mt-1" autoComplete="off" spellCheck={false} maxLength={255} disabled={downloading} value={githubToken} aria-describedby={`${tokenId}-help`} onChange={event => setGithubToken(event.target.value)} />
+            </div>
+          </details>}
           <div className="mt-3 flex flex-wrap gap-2">
             {!ready && <button className="btn btn-primary" disabled={downloading || (!browser && !error)} onClick={browser ? install : load}>
               {downloading ? t('Installing…') : !browser ? t('Check again') : failure ? t('Retry installation') : t('Install browser')}

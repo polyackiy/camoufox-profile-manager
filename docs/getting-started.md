@@ -61,6 +61,19 @@ permissions, then choose **Retry installation**. You can create a profile while
 the browser downloads, but launching requires a completed installation. Dismissing
 the setup banner does not remove **Settings → Browser setup**.
 
+If setup reports a GitHub request limit (HTTP 403/429), wait before retrying or
+expand **GitHub download authentication (optional)** in Browser setup. Create a
+personal access token with public repository access, paste it into **GitHub
+token**, then retry installation. No write or private repository access is
+needed. The manager uses the token only for that attempt's GitHub API release
+lookup; it is not saved or sent to archive, add-on or location-data downloads.
+The field clears when installation starts. A later retry needs the token again.
+An invalid/expired token, a permission refusal and a rate limit have separate
+messages; authentication cannot remove all GitHub or network restrictions.
+See [GitHub authentication](https://docs.github.com/en/rest/authentication/authenticating-to-the-rest-api)
+and [public release access](https://docs.github.com/en/rest/releases/releases#list-releases).
+Source installations can also use upstream's `GITHUB_TOKEN` environment variable.
+
 For a proxy, select its protocol and enter `host:port` in the Server field;
 enter its username and password in their own fields. SOCKS5 authentication is
 supported. HTTP CONNECT and TLS-to-proxy HTTPS are different protocols: use the

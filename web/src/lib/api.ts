@@ -780,8 +780,8 @@ export const systemAPI = {
     const body = await request<{ data: BrowserReadiness }>(`${API_PREFIX}/system/browser`)
     return body.data
   },
-  async installBrowser(): Promise<BrowserReadiness> {
-    const body = await request<{ data: BrowserReadiness }>(`${API_PREFIX}/system/browser/install`, { method: 'POST' })
+  async installBrowser(githubToken?: string): Promise<BrowserReadiness> {
+    const body = await request<{ data: BrowserReadiness }>(`${API_PREFIX}/system/browser/install`, { method: 'POST', ...(githubToken ? { body: JSON.stringify({ github_token: githubToken }) } : {}) })
     return body.data
   },
   async updates(preview = false): Promise<AppUpdate> {

@@ -155,9 +155,11 @@ def install_error_handlers(app: FastAPI) -> None:
                 "/api/v1/extensions",
                 "/api/workflows",
                 "/api/v1/workflows",
+                "/api/system/browser/install",
+                "/api/v1/system/browser/install",
             )
         ):
-            # Proxy lists and cookie files can contain account credentials.
+            # These request bodies can contain account credentials or download tokens.
             errors = [
                 {key: value for key, value in error.items() if key not in {"input", "ctx"}}
                 for error in errors

@@ -2,8 +2,8 @@
 
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from fastapi import APIRouter, Body, Depends, HTTPException
+from pydantic import BaseModel, Field, SecretStr, field_validator
 
 from camoufox_pm.api.access import require_admin
 from camoufox_pm.api.models.system import ApiResponse
@@ -18,9 +18,28 @@ async def browser_status():
     return ApiResponse(data=browser_installer.status())
 
 
+class BrowserInstallRequest(BaseModel):
+    github_token: SecretStr | None = Field(default=None, min_length=1, max_length=255)
+
+    @field_validator("github_token")
+    @classmethod
+    def valid_token(cls, value: SecretStr | None) -> SecretStr | None:
+        if value is not None:
+            token = value.get_secret_value()
+            if not token.isascii() or any(
+                not char.isprintable() or char.isspace() for char in token
+            ):
+                raise ValueError("Use a GitHub token without spaces or control characters.")
+        return value
+
+
 @router.post("/system/browser/install", response_model=ApiResponse[BrowserStatus])
-async def install_browser():
-    return ApiResponse(data=browser_installer.start())
+async def install_browser(request: BrowserInstallRequest | None = Body(default=None)):
+    if request is not None and request.github_token is not None:
+        status = browser_installer.start(github_token=request.github_token)
+    else:
+        status = browser_installer.start()
+    return ApiResponse(success=True, message="Browser setup started.", data=status)
 
 
 @router.get("/system/updates", response_model=ApiResponse[UpdateStatus])
