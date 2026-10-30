@@ -159,6 +159,12 @@ def record_ambiguous_browser_checks(report, *, native_control=None):
         known_engines = {}
         if native_control is not None:
             known_engines["native_control"] = os.path.normcase(os.path.realpath(native_control))
+            if os.environ.get("ProgramFiles"):
+                known_engines["system_browser"] = os.path.normcase(
+                    os.path.realpath(
+                        Path(os.environ["ProgramFiles"]) / "Mozilla Firefox" / "firefox.exe"
+                    )
+                )
             try:
                 from camoufox.multiversion import get_active_path
                 from camoufox.pkgman import launch_path
@@ -197,6 +203,10 @@ def record_ambiguous_browser_checks(report, *, native_control=None):
                         if any(p in managers for p in parents)
                         else "outside_current_ancestry",
                         "content_child": "-contentproc" in command,
+                        "background_task": any(
+                            arg.lower() in {"-backgroundtask", "--backgroundtask"}
+                            for arg in command
+                        ),
                         "browser_parent": bool(
                             parents and parents[0].name().lower() in quiescence._BROWSER_NAMES
                         ),

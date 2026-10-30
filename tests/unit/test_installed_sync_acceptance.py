@@ -726,6 +726,7 @@ def test_ambiguous_browser_observer_exports_only_closed_categories(monkeypatch, 
                 "result": "ambiguous",
                 "ancestry": "managed" if managed else "outside_current_ancestry",
                 "content_child": False,
+                "background_task": False,
                 "browser_parent": False,
                 "state": "other",
             }
@@ -751,7 +752,8 @@ def test_ambiguous_browser_observer_caps_candidates_and_does_not_signal(monkeypa
 
 
 @pytest.mark.parametrize(
-    "engine", ["native_control", "paired_browser", "other", "inspection_unavailable"]
+    "engine",
+    ["native_control", "paired_browser", "system_browser", "other", "inspection_unavailable"],
 )
 def test_browser_engine_probe_exports_only_fixed_labels(monkeypatch, engine):
     from camoufox import multiversion, pkgman
@@ -762,7 +764,11 @@ def test_browser_engine_probe_exports_only_fixed_labels(monkeypatch, engine):
     def executable():
         if engine == "inspection_unavailable":
             raise PermissionError("private process data")
-        return {"native_control": native, "paired_browser": paired}.get(engine, "/private/other")
+        return {
+            "native_control": native,
+            "paired_browser": paired,
+            "system_browser": "/private/system/Mozilla Firefox/firefox.exe",
+        }.get(engine, "/private/other")
 
     process = SimpleNamespace(
         name=lambda: "firefox.exe",
@@ -772,6 +778,7 @@ def test_browser_engine_probe_exports_only_fixed_labels(monkeypatch, engine):
         exe=executable,
     )
     monkeypatch.setattr(multiversion, "get_active_path", lambda: Path("/private/paired"))
+    monkeypatch.setenv("ProgramFiles", "/private/system")
     monkeypatch.setattr(pkgman, "launch_path", lambda _: paired)
     monkeypatch.setattr(harness, "_PROCESSES", [])
     monkeypatch.setattr(harness.psutil, "process_iter", lambda: iter([process]))
