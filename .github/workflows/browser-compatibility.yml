@@ -162,7 +162,7 @@ jobs:
           exit "$result"
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: browser-results-${{ matrix.os }}
           path: |
