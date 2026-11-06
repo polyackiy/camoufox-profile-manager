@@ -232,24 +232,40 @@ async def test_close_and_disconnected_together_tear_down_only_once(installed):
     assert camoufox.exits == 1
 
 
+@pytest.fixture
+def vanished_driver(monkeypatch):
+    pid = 4242
+
+    def missing_process(requested_pid):
+        assert requested_pid == pid
+        raise psutil.NoSuchProcess(requested_pid)
+
+    def pid_exists(requested_pid):
+        assert requested_pid == pid
+        return False
+
+    # Registration and the watchdog must agree about this synthetic PID.
+    monkeypatch.setattr(psutil, "Process", missing_process)
+    monkeypatch.setattr(psutil, "pid_exists", pid_exists)
+    return pid
+
+
 @pytest.mark.asyncio
-async def test_a_session_whose_process_vanished_is_still_listed(monkeypatch):
+async def test_a_session_whose_process_vanished_is_still_listed(vanished_driver):
     """Listing used to prune those sessions, which skipped terminate() and the
     exit handler and so leaked the Camoufox context. Listing is a pure read."""
-    monkeypatch.setattr(psutil, "pid_exists", lambda _pid: False)
     mgr = BrowserSessionManager()
-    mgr.active_sessions["p1"] = BrowserSession("p1", camoufox=None, process_id=4242)
+    mgr.active_sessions["p1"] = BrowserSession("p1", camoufox=None, process_id=vanished_driver)
 
     assert [s["profile_id"] for s in mgr.list_active()] == ["p1"]
     assert mgr.is_running("p1") is True
 
 
 @pytest.mark.asyncio
-async def test_the_watchdog_tears_down_when_the_process_disappears(monkeypatch):
-    monkeypatch.setattr(psutil, "pid_exists", lambda _pid: False)
+async def test_the_watchdog_tears_down_when_the_process_disappears(vanished_driver):
     mgr = BrowserSessionManager()
     camoufox = FakeCamoufox()
-    session = BrowserSession("p1", camoufox=camoufox, process_id=4242)
+    session = BrowserSession("p1", camoufox=camoufox, process_id=vanished_driver)
     closed = []
 
     async def on_exit(profile_id):
@@ -258,7 +274,7 @@ async def test_the_watchdog_tears_down_when_the_process_disappears(monkeypatch):
     session.on_exit = on_exit
     mgr.active_sessions["p1"] = session
 
-    await mgr._monitor("p1", 4242)
+    await mgr._monitor("p1", vanished_driver)
 
     assert closed == ["p1"]
     assert mgr.is_running("p1") is False
