@@ -322,7 +322,7 @@ requires-dist = [
     { name = "aiofiles", specifier = ">=24.1" },
     { name = "argon2-cffi", specifier = ">=23.1" },
     { name = "async-timeout", marker = "python_full_version < '3.11'", specifier = ">=5,<6" },
-    { name = "camoufox", extras = ["geoip"], specifier = ">=0.5.8,<0.6" },
+    { name = "camoufox", extras = ["geoip"], specifier = "==0.5.8" },
     { name = "cryptography", specifier = ">=44.0" },
     { name = "cryptography", marker = "extra == 'sync'", specifier = ">=50.0.2,<51" },
     { name = "fastapi", specifier = ">=0.115" },
