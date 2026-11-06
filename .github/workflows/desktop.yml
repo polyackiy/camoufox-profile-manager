@@ -112,6 +112,9 @@ jobs:
           echo "$APPLE_API_KEY_P8" | base64 --decode > "$RUNNER_TEMP/key.p8"
           xcrun notarytool submit dist/*.dmg --key "$RUNNER_TEMP/key.p8" --key-id "$APPLE_API_KEY_ID" --issuer "$APPLE_API_ISSUER_ID" --wait
           xcrun stapler staple dist/*.dmg
+      - name: Verify macOS disk image
+        if: runner.os == 'macOS'
+        run: hdiutil verify dist/*.dmg
       - name: Sign Windows installer
         if: runner.os == 'Windows' && env.WINDOWS_CERT_PFX != ''
         shell: pwsh

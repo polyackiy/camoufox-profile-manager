@@ -21,9 +21,8 @@ from it in January still looks like the same computer in June.
 > See [installation evidence and coverage limits](docs/desktop-acceptance.md).
 > Chrome migration remains experimental.
 >
-> Current `main` includes unreleased additions for the combined 0.7.0 release.
-> See [delivery status and priorities](docs/roadmap.md#delivery-status-after-060)
-> for the scope of the published 0.6.0 installers and the next release.
+> For changes in 0.7.0 and the next priorities, see the
+> [changelog](CHANGELOG.md#070---2026-11-06) and [roadmap](docs/roadmap.md).
 
 ![The profiles list](docs/assets/screenshot-profiles.png)
 
@@ -83,9 +82,7 @@ from it in January still looks like the same computer in June.
   [profile organization](docs/profile-organization.md).
 - **Bulk editing via Excel** — [docs/excel.md](docs/excel.md).
 - **REST API and web UI**, served on one port from one process.
-- **English and Simplified Chinese UI in the 0.6.0 installers.** Russian is
-  [merged on main for the combined 0.7.0 release](docs/localization.md).
-  Switch languages in the sidebar or on
+- **English, Russian and Simplified Chinese UI.** Switch languages in the sidebar or on
   the sign-in screen. Your choice is saved in this browser; the first visit
   follows its language preferences. Profile fingerprint languages stay separate.
 - **Optional Chrome migration** — import cookies and history from your own Chrome

@@ -677,14 +677,16 @@ async def test_close_drains_owned_browser_child_after_driver_disappears(
     import sys
     import threading
 
+    from camoufox_pm.sync import quiescence
     from camoufox_pm.sync.quiescence import browser_profile_lock
 
     profile = tmp_path / "profile"
     profile.mkdir()
     child_code = (
         "import os,sys,time; from pathlib import Path; "
-        "from camoufox_pm.sync.quiescence import browser_profile_lock; "
-        "guard=browser_profile_lock(Path(sys.argv[1])); guard.__enter__(); "
+        "from camoufox_pm.sync import quiescence as q; "
+        "q.assert_no_browser_process=lambda _: None; "
+        "guard=q.browser_profile_lock(Path(sys.argv[1])); guard.__enter__(); "
         "print(os.getpid(),flush=True); time.sleep(60)"
     )
     parent_code = (
@@ -764,8 +766,13 @@ async def test_close_drains_owned_browser_child_after_driver_disappears(
             await close
         else:
             await session.terminate()
-        with browser_profile_lock(profile):
-            pass
+        # The Python child holds the actual OS lock but is not a browser
+        # executable. Ignore unrelated host Firefox instances for this
+        # lock assertion; the process scanner is tested independently.
+        with monkeypatch.context() as isolated:
+            isolated.setattr(quiescence, "assert_no_browser_process", lambda _: None)
+            with browser_profile_lock(profile):
+                pass
         assert session._terminated
     finally:
         spawned.set()

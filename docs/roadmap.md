@@ -3,14 +3,11 @@
 This is a rough, non-binding plan. Priorities may change based on feedback.
 Track progress in [GitHub Issues](https://github.com/polyackiy/camoufox-profile-manager/issues).
 
-## Delivery status after 0.6.0
+## Delivery in 0.7.0
 
-The published stable installer release is [0.6.0](https://github.com/polyackiy/camoufox-profile-manager/releases/tag/v0.6.0).
-The following work is merged on `main` for the combined **0.7.0** release; it is
-not an instruction to expect these additions in the existing 0.6.0 installers.
-See [Unreleased changes](../CHANGELOG.md#unreleased) and the
-[current product tracker (#117)](https://github.com/polyackiy/camoufox-profile-manager/issues/117)
-for evidence and release acceptance. No per-feature installer releases are planned.
+The [0.7.0 changelog](../CHANGELOG.md#070---2026-11-06) covers the combined
+release. The [product tracker (#117)](https://github.com/polyackiy/camoufox-profile-manager/issues/117)
+links the acceptance evidence and records the next priorities.
 
 | Merged work | User/contributor guide | Tracking |
 | --- | --- | --- |
@@ -22,18 +19,15 @@ for evidence and release acceptance. No per-feature installer releases are plann
 | Declarative workflows with schedules, bounded execution and history | [Automation](automation.md) | [#122](https://github.com/polyackiy/camoufox-profile-manager/issues/122) |
 | Explicit SQLite/TCP resource ownership and closed operation evidence | [Safe diagnostics](operation-diagnostics.md) | [#131](https://github.com/polyackiy/camoufox-profile-manager/issues/131), [#139](https://github.com/polyackiy/camoufox-profile-manager/issues/139), [#140](https://github.com/polyackiy/camoufox-profile-manager/issues/140), [#142](https://github.com/polyackiy/camoufox-profile-manager/issues/142), [#144](https://github.com/polyackiy/camoufox-profile-manager/issues/144) |
 
-Before the combined release, review dependencies/security, run the actual
-installers through install → create a batch → assign proxies → launch/run →
-stop/recover, and retain data-preservation/recovery evidence and exact package
-checksums. Do not substitute a source test or an old installer report for release
-asset acceptance. Device synchronization remains experimental and explicitly
-opt-in; automatic application replacement remains disabled.
+Release acceptance uses the actual installers and retains data preservation
+reports and package checksums. Device synchronization remains experimental and
+explicitly opt-in; automatic application replacement remains disabled.
 
 ## Ordered next work
 
-1. Complete installed synchronization reliability in
-   [#143](https://github.com/polyackiy/camoufox-profile-manager/issues/143) and
-   [#145](https://github.com/polyackiy/camoufox-profile-manager/issues/145). Preserve
+1. Continue classifying the remaining Windows activation and shutdown incidents in
+   [#145](https://github.com/polyackiy/camoufox-profile-manager/issues/145). The
+   reproduced Windows ciphertext defect is fixed in [#143](https://github.com/polyackiy/camoufox-profile-manager/issues/143). Preserve
    original ciphertext and fail-closed profile protection; use fixed diagnostics
    and deterministic regressions before claiming an underlying cause. A passing
    rerun alone does not close an intermittent bug. Upload readback/recovery and
