@@ -418,6 +418,7 @@
   "Downloading Camoufox…": "正在下载 Camoufox…",
   "Unpacking the browser…": "正在解压浏览器…",
   "Preparing location data and the fingerprint model…": "正在准备地理位置数据和指纹模型…",
+  "The explicitly selected browser is missing or incompatible. Repair that selection with the Camoufox CLI, or select the paired build with camoufox set --release and retry.": "手动选择的浏览器版本缺失或不兼容。请使用 Camoufox 命令行修复该版本，或运行 camoufox set --release 选择配套版本后重试。",
   "The location database or fingerprint model could not be downloaded. Please retry.": "无法下载地理位置数据库或指纹模型。请重试。",
   "Proxy library": "代理库",
   "Search library proxies": "搜索代理库",

@@ -25,6 +25,11 @@ does not by itself establish that Firefox supports SOCKS username/password auth.
 No change to the Camoufox engine is needed for managed extensions, cookies or
 ordinary desktop tabs.
 
+With automatic location enabled and no proxy, SDK 0.5.9 also checks the host's
+public IPv6 when the location lookup uses IPv4. It uses that result to decide
+whether to keep IPv6 enabled in the browser. The SDK skips this direct IPv6
+lookup when a proxy is configured or automatic location is disabled.
+
 ## Installation and upgrades
 
 After updating a source checkout, run `uv sync --extra dev`, then use **Settings →

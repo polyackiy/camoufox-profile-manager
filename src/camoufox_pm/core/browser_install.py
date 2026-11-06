@@ -6,14 +6,19 @@ upstream package owns release selection and layout; no browser files are patched
 
 import hashlib
 import json
+import re
 import sys
 import threading
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Literal
+from tempfile import TemporaryDirectory
+from typing import TYPE_CHECKING, Any, Literal
 
 import httpx
 from pydantic import BaseModel, SecretStr
+
+if TYPE_CHECKING:
+    from camoufox.pkgman import CamoufoxFetcher
 
 GITHUB_RATE_LIMIT = (
     "GitHub's download request limit was reached. Wait and retry, or use a GitHub token below."
@@ -22,6 +27,14 @@ GITHUB_TOKEN_REJECTED = "GitHub rejected the token. Check that it is valid and h
 GITHUB_FORBIDDEN = "GitHub refused the request. Check token access or wait before retrying."
 GITHUB_UNAVAILABLE = "Could not read browser releases from GitHub. Check your connection and retry."
 SETUP_FAILED = "Could not finish installing the browser. Check your connection and retry."
+EXPLICIT_BROWSER_SETUP = (
+    "The explicitly selected browser is missing or incompatible. Repair that selection "
+    "with the Camoufox CLI, or select the paired build with camoufox set --release and retry."
+)
+
+
+class BrowserSelectionError(RuntimeError):
+    """Safe setup guidance for an explicitly selected upstream build."""
 
 
 class GitHubDownloadError(RuntimeError):
@@ -91,20 +104,30 @@ def installed_browser() -> tuple[bool, str | None]:
     """Inspect the active browser bundle without fetching or clearing old caches."""
     try:
         from camoufox.multiversion import get_active_path
-        from camoufox.pkgman import Version, installed_interface, interface_supported
 
         active = get_active_path()
         if active is None:
             return False, None
-        version = Version.from_path(active)
-        if not version.is_supported() or not interface_supported(installed_interface(active)):
-            return False, None
-        return _complete_bundle(active), version.full_string
-    except (ImportError, OSError, ValueError, RuntimeError):
-        return False, None
+        version = _compatible_version(active)
+        return version is not None and _complete_bundle(active), version
     except Exception:
         # Upstream uses its own exception types for unsupported/missing builds.
         return False, None
+
+
+def _compatible_version(build: Path) -> str | None:
+    from camoufox.pkgman import Version, installed_interface, interface_supported
+
+    try:
+        version_file = build / "version.json"
+        if not version_file.resolve(strict=True).is_relative_to(build.resolve(strict=True)):
+            return None
+        version = Version.from_path(build)
+        if version.is_supported() and interface_supported(installed_interface(build)):
+            return version.full_string
+    except (OSError, ValueError, KeyError, TypeError, AttributeError, RuntimeError):
+        pass
+    return None
 
 
 def _complete_bundle(build: Path) -> bool:
@@ -263,7 +286,8 @@ class BrowserInstaller:
                 progress=None,
                 message=SETUP_FAILED,
                 error=str(exc)
-                if github_token is None or isinstance(exc, GitHubDownloadError)
+                if github_token is None
+                or isinstance(exc, (GitHubDownloadError, BrowserSelectionError))
                 else SETUP_FAILED,
             )
 
@@ -300,20 +324,12 @@ class BrowserInstaller:
                 return file
 
         if not installed_browser()[0]:
-            fetcher = ProgressFetcher()
-            # Upstream skips an existing version.json even if the archive did
-            # not unpack fully. Repair only the exact incomplete target.
-            from camoufox.multiversion import BROWSERS_DIR, get_repo_name, version_folder_name
+            from camoufox.browser_pin import is_explicit_choice
+            from camoufox.multiversion import load_config
 
-            from .update_permissions import reject_reparse_paths
-
-            target = (
-                BROWSERS_DIR.resolve()
-                / get_repo_name(fetcher.github_repo)
-                / version_folder_name(fetcher.version, fetcher.build, fetcher.installed_sha8)
-            )
-            reject_reparse_paths(target)
-            fetcher.install(replace=target.exists() and not _complete_bundle(target))
+            if is_explicit_choice(load_config()):
+                raise BrowserSelectionError(EXPLICIT_BROWSER_SETUP)
+            _install_paired_bundle(ProgressFetcher())
         self._update(progress=97, message="Preparing location data and the fingerprint model…")
         ensure_fpgen_model()
         if not browser_resources_ready():
@@ -321,6 +337,44 @@ class BrowserInstaller:
         if not browser_resources_ready():
             raise RuntimeError(
                 "The location database or fingerprint model could not be downloaded. Please retry."
+            )
+
+
+def _install_paired_bundle(fetcher: "CamoufoxFetcher") -> None:
+    from camoufox.multiversion import BROWSERS_DIR, get_repo_name, version_folder_name
+
+    from .update_permissions import reject_reparse_paths
+
+    browsers = BROWSERS_DIR.resolve()
+    repo = browsers / get_repo_name(fetcher.github_repo)
+    version = version_folder_name(fetcher.version, fetcher.build)
+    target = repo / version_folder_name(fetcher.version, fetcher.build, fetcher.installed_sha8)
+    reject_reparse_paths(target)
+
+    def complete(candidate: Path) -> bool:
+        return _compatible_version(candidate) == version and _complete_bundle(candidate)
+
+    # Never let upstream unpack over files from an interrupted install. Its
+    # replace=True only removes a target which already contains version.json.
+    # Retire damaged caches outside browsers/ before the SDK can scan them.
+    browsers.mkdir(parents=True, exist_ok=True)
+    with TemporaryDirectory(prefix=".cpm-browser-repair-", dir=browsers.parent) as discarded:
+        if target.exists() and not complete(target):
+            target.rename(Path(discarded) / target.name)
+        # The SDK selects the first cached copy matching the pin, regardless of
+        # digest. Retire broken siblings of this exact release as well, keeping
+        # all healthy builds and profile data in place.
+        same_version = re.compile(rf"{re.escape(version)}(?:-[0-9a-fA-F]{{8}})?")
+        if repo.is_dir():
+            for candidate in repo.iterdir():
+                if candidate != target and same_version.fullmatch(candidate.name):
+                    reject_reparse_paths(candidate)
+                    if candidate.is_dir() and not complete(candidate):
+                        candidate.rename(Path(discarded) / candidate.name)
+        fetcher.install()
+        if not complete(target):
+            raise RuntimeError(
+                "The browser download finished but required browser files are missing. Try again."
             )
 
 

@@ -92,6 +92,17 @@ def _is_loopback(host: str) -> bool:
         return False
 
 
+@pytest.fixture(autouse=True)
+def synthetic_browser_ipv6(request, monkeypatch):
+    """Use a synthetic IPv4-only host for browser tests; keep the network guard."""
+    if request.node.get_closest_marker("browser") is not None:
+        from camoufox import utils
+
+        # 0.5.9 checks public IPv6 even with an explicit synthetic IPv4.
+        # Keep the real GeoIP database and browser policy, with no public probe.
+        monkeypatch.setattr(utils, "public_ipv6", lambda: None)
+
+
 @pytest.fixture
 async def storage(tmp_path):
     """A StorageManager backed by a throwaway SQLite database."""
