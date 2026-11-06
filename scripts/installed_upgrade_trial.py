@@ -208,6 +208,53 @@ class UpgradeDevice(Device):
         close_native_window(self.process.pid)
         assert self.process.wait(timeout=40) == 0
 
+    def recovery(self, report, *arguments):
+        log = Path(self.environment["CPM_DB_PATH"]).parent / "update-control/recovery-command.log"
+        offset = log.stat().st_size if log.is_file() else 0
+        result = subprocess.run(
+            [str(self.executable), "--desktop", "update-recovery", *arguments],
+            cwd=self.work,
+            env=self.environment,
+            capture_output=True,
+            timeout=420,
+            check=False,
+        )
+        output = result.stdout + result.stderr
+        if log.is_file():
+            with log.open("rb") as stream:
+                stream.seek(max(offset, log.stat().st_size - 65536))
+                output += stream.read(65536)
+        if result.returncode:
+            report["recovery_markers"] = [
+                marker.decode()
+                for marker in (
+                    b"PermissionProtectionError",
+                    b"MaintenanceBlocked",
+                    b"CheckpointError",
+                )
+                if marker in output
+            ]
+            raise RuntimeError("Frozen recovery command failed")
+        return output.decode("utf-8", errors="replace")
+
+
+def checkpoint_metadata(output):
+    decoder = json.JSONDecoder()
+    for index, character in enumerate(output):
+        if character != "{":
+            continue
+        try:
+            value, _ = decoder.raw_decode(output[index:])
+        except ValueError:
+            continue
+        if (
+            isinstance(value, dict)
+            and value.get("manager_version") == "0.6.0"
+            and {"checkpoint_id", "created_at"} <= value.keys()
+        ):
+            return value
+    raise RuntimeError("The old installed manager did not emit checkpoint metadata")
+
 
 def schema(data):
     with contextlib.closing(
@@ -292,7 +339,14 @@ def exercise(work, browser, installer, old, new, site, report):
         device.stop()
         assert schema(data) == 4
         checkpoint = work / "checkpoint"
-        shutil.copytree(data, checkpoint, symlinks=True)
+        windows_recovery = None
+        report["phase"] = "checkpoint"
+        if sys.platform == "win32":
+            windows_recovery = checkpoint_metadata(device.recovery(report, "checkpoint"))
+            report["checkpoint_mode"] = "packaged-recovery"
+        else:
+            shutil.copytree(data, checkpoint, symlinks=True)
+            report["checkpoint_mode"] = "cold-copy"
         key = (data / "secret.key").read_bytes()
         db = (data / "profiles.db").read_bytes()
 
@@ -317,11 +371,23 @@ def exercise(work, browser, installer, old, new, site, report):
         report["upgrade_passed"] = True
 
         report["phase"] = "manual-rollback"
-        # Existing profile rows carry absolute storage paths. Restore the
-        # matching checkpoint at that same root and retain the upgraded data.
-        data.rename(work / "post-upgrade")
-        shutil.copytree(checkpoint, data, symlinks=True)
         installer.install(old, rollback=True)
+        if windows_recovery is not None:
+            checkpoint_id = windows_recovery["checkpoint_id"]
+            device.recovery(
+                report,
+                "restore",
+                "--checkpoint-id",
+                checkpoint_id,
+                "--confirm-timestamp",
+                windows_recovery["created_at"],
+            )
+            assert (data / f"profiles.db.failed-{checkpoint_id}").is_file()
+        else:
+            # Existing profile rows carry absolute storage paths. Restore the
+            # matching checkpoint at that same root and retain the upgraded data.
+            data.rename(work / "post-upgrade")
+            shutil.copytree(checkpoint, data, symlinks=True)
         rollback = UpgradeDevice(work, browser, installer.executable, data)
         rollback.password = device.password
         rollback.start()
