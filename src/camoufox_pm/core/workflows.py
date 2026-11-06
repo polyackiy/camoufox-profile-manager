@@ -387,8 +387,12 @@ class WorkflowEngine:
                             # Give desktop Firefox an explicit neutral tab. No
                             # destination/authentication challenge belongs in
                             # startup, before Playwright's handlers are ready.
+                            # The driver's unmarked about:blank can win the
+                            # startup race, especially with headless Firefox.
                             launched = await self.profiles.launch_browser(
-                                profile_id, args=["-new-tab", startup_url]
+                                profile_id,
+                                args=["-new-tab", startup_url],
+                                ignore_default_args=["about:blank"],
                             )
                         if launched["status"] != "launched":
                             raise WorkflowConflict()
