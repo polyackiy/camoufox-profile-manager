@@ -174,7 +174,9 @@ async def test_without_camoufox_installed_the_error_says_how_to_install_it(monke
     monkeypatch.setattr(bs, "CAMOUFOX_AVAILABLE", False)
     mgr = BrowserSessionManager()
 
-    with pytest.raises(BrowserLaunchError, match="pip install"):
+    with pytest.raises(
+        BrowserLaunchError, match="Reinstall Camoufox Profile Manager with its dependencies"
+    ):
         await mgr.launch("p1", {})
 
 

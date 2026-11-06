@@ -477,7 +477,7 @@ class BrowserSessionManager:
         """Launch a Camoufox browser and register a monitored session."""
         if not CAMOUFOX_AVAILABLE:
             raise BrowserLaunchError(
-                "Camoufox is not installed. Install it with: pip install 'camoufox[geoip]'"
+                "Camoufox is not installed. Reinstall Camoufox Profile Manager with its dependencies."
             )
         if profile_id in self.active_sessions:
             return self.active_sessions[profile_id]
