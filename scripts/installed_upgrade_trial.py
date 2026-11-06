@@ -407,8 +407,8 @@ def exercise(work, browser, installer, old, new, site, report):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("previous", type=Path)
-    parser.add_argument("candidate", type=Path)
+    parser.add_argument("previous_directory", type=Path)
+    parser.add_argument("candidate_directory", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     if (
@@ -423,7 +423,16 @@ def main():
         "phase": "packages",
     }
     try:
-        old, new = args.previous.resolve(), args.candidate.resolve()
+        # The old manager's recovery guard inspects interpreter command lines.
+        # Resolve package names here so it cannot confuse this test driver with
+        # another manager based on the filenames present in our argv.
+        package = {
+            "win32": "camoufox-pm-windows-x86_64-setup.exe",
+            "linux": "camoufox-pm-linux-x86_64.deb",
+            "darwin": "camoufox-pm-macos-x86_64.dmg",
+        }[sys.platform]
+        old = (args.previous_directory / package).resolve()
+        new = (args.candidate_directory / package).resolve()
         report.update(previous_sha256=checked_digest(old), candidate_sha256=checked_digest(new))
         with (
             tempfile.TemporaryDirectory(prefix="cpm-upgrade-") as scratch,

@@ -253,15 +253,12 @@ jobs:
         if: runner.os == 'Linux'
         env:
           LIBGL_ALWAYS_SOFTWARE: '1'
-          CPM_PACKAGE: ${{ matrix.package }}
         run: |
-          xvfb-run -a bash -c 'openbox >/dev/null 2>&1 & exec uv run --no-sync python -m scripts.installed_upgrade_trial "previous/$CPM_PACKAGE" "candidate/$CPM_PACKAGE" --output installed-upgrade.json'
+          xvfb-run -a bash -c 'openbox >/dev/null 2>&1 & exec uv run --no-sync python -m scripts.installed_upgrade_trial previous candidate --output installed-upgrade.json'
       - name: Exercise real upgrade and offline fixture rollback
         if: runner.os != 'Linux'
         shell: bash
-        env:
-          CPM_PACKAGE: ${{ matrix.package }}
-        run: uv run --no-sync python -m scripts.installed_upgrade_trial "previous/$CPM_PACKAGE" "candidate/$CPM_PACKAGE" --output installed-upgrade.json
+        run: uv run --no-sync python -m scripts.installed_upgrade_trial previous candidate --output installed-upgrade.json
       - uses: actions/upload-artifact@v7
         if: always()
         with:
