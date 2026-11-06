@@ -30,6 +30,13 @@ public IPv6 when the location lookup uses IPv4. It uses that result to decide
 whether to keep IPv6 enabled in the browser. The SDK skips this direct IPv6
 lookup when a proxy is configured or automatic location is disabled.
 
+Firefox 158's baseline fingerprinting mode can vary Canvas reads on the same
+page. To preserve per-site, per-session randomization, the manager uses the
+keyed Firefox protection mode with the same three desktop targets as
+[baseline mode](https://searchfox.org/firefox-main/source/toolkit/components/resistfingerprinting/RFPTargetsDefaultBaseline.inc).
+Profiles that explicitly enable stable canvas keep that choice. This uses
+Firefox preferences and does not patch the browser.
+
 ## Installation and upgrades
 
 After updating a source checkout, run `uv sync --extra dev`, then use **Settings →

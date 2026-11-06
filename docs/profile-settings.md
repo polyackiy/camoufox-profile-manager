@@ -243,7 +243,7 @@ These are properties of Camoufox and Firefox, not of this manager:
   **The `stable_canvas` setting disables that randomisation.** Enabling it
   launches with `privacy.baselineFingerprintingProtection = false`. The profile
   retains its font list, while native browser/OS rendering supplies the pixels.
-  Camoufox 0.5.8 does not generate a canvas seed or glyph-spacing seed. Observed
+  The current Camoufox SDK does not generate a canvas seed or glyph-spacing seed. Observed
   behavior after host renderer initialization:
 
   | | Same site, relaunched | Different sites |
