@@ -14,7 +14,7 @@ on:
       upgrade_platform:
         description: "Platforms for the disposable upgrade trial"
         type: choice
-        options: [windows-linux, macos-intel]
+        options: [windows-linux, windows, macos-intel]
         default: windows-linux
   workflow_call:
     inputs:
@@ -213,6 +213,8 @@ jobs:
         include: >-
           ${{ fromJSON(inputs.upgrade_platform == 'macos-intel'
           && '[{"name":"macos-x86_64","os":"macos-15-intel","package":"camoufox-pm-macos-x86_64.dmg"}]'
+          || inputs.upgrade_platform == 'windows'
+          && '[{"name":"windows-x86_64","os":"windows-2022","package":"camoufox-pm-windows-x86_64-setup.exe"}]'
           || '[{"name":"windows-x86_64","os":"windows-2022","package":"camoufox-pm-windows-x86_64-setup.exe"},{"name":"linux-x86_64","os":"ubuntu-22.04","package":"camoufox-pm-linux-x86_64.deb"}]') }}
     steps:
       - uses: actions/checkout@v7

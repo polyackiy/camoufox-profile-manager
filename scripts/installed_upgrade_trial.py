@@ -20,6 +20,7 @@ from uuid import uuid4
 from playwright.sync_api import expect, sync_playwright
 from scripts.installed_sync_acceptance import (
     Device,
+    InstalledAPIError,
     Probe,
     prepare_profile_backup,
     terminate_tree,
@@ -220,7 +221,30 @@ def profile_state(device, profile_id, site, stage, report):
     report["profile_stage"] = stage
     backup = {}
     report.setdefault("backups", {})[stage] = backup
-    prepare_profile_backup(device, profile_id, backup)
+    log = Path(device.environment["CPM_DB_PATH"]).parent / "desktop.log"
+    offset = log.stat().st_size if log.is_file() else 0
+    try:
+        prepare_profile_backup(device, profile_id, backup)
+    except InstalledAPIError as error:
+        backup["http_status"] = error.status
+        # Only the new fixed markers from this disposable app may leave the
+        # worker. Never attach raw paths, exception text or the desktop log.
+        if log.is_file():
+            with log.open("rb") as stream:
+                stream.seek(max(offset, log.stat().st_size - 65536))
+                observed = stream.read(65536)
+            markers = {
+                "sqlite_locked": b"database is locked",
+                "sqlite_io": b"disk I/O error",
+                "sqlite_open": b"unable to open database file",
+                "profile_busy": b"ProfileLocked",
+                "private_acl": b"PermissionProtectionError",
+                "permission": b"PermissionError",
+                "sharing_violation": b"WinError 32",
+                "maintenance": b"MaintenanceBlocked",
+            }
+            backup["markers"] = [name for name, marker in markers.items() if marker in observed]
+        raise
     device.call(
         f"/profiles/{profile_id}/launch",
         {
