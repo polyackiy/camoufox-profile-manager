@@ -1,14 +1,13 @@
 # Camoufox compatibility and upstream changes
 
-Reviewed on 2026-10-13 against the official
+Reviewed against the official
 [browser releases](https://github.com/daijro/camoufox/releases) and
-[Python package](https://pypi.org/project/camoufox/0.5.8/).
+[Python package](https://pypi.org/project/camoufox/0.5.9/).
 
-The project lockfile uses **Camoufox 0.5.8**, **Playwright 1.62.0** and the
-wrapper's paired **156.0.1-beta.36** browser. Although the browser build name
-contains `beta`, GitHub marks this release as non-prerelease. The newer
-[0.5.9b1 / beta.37 pair](https://github.com/daijro/camoufox/releases/tag/v156.0.1-beta.37)
-is a preview, not the default production dependency.
+The project lockfile uses **Camoufox 0.5.9**, **Playwright 1.62.0** and the
+wrapper's paired [**158.0.1-beta.41** browser](https://github.com/daijro/camoufox/releases/tag/v158.0.1-beta.41).
+Upstream now ships uBlock Origin inside each browser archive. The manager checks
+the executable and bundled add-on manifest together before reporting readiness.
 
 ## What changed since our 0.5.4 / beta.29 integration
 
@@ -33,6 +32,7 @@ Install browser** or `uv run camoufox fetch`. The first launch remains gated on
 setup readiness; it must not silently fetch a browser or fingerprint model.
 
 If you previously selected a browser explicitly, upstream preserves that choice.
+An older build without bundled add-ons needs a compatible selection before launch.
 To use the browser paired with the current wrapper, run:
 
 ```bash

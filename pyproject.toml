@@ -26,8 +26,7 @@ dependencies = [
     "pydantic>=2.10",
     "pydantic-settings>=2.6",
     "sqlalchemy>=2.0",
-    # 0.5.9 moved default add-ons into the browser and changed the setup API.
-    "camoufox[geoip]==0.5.8",
+    "camoufox[geoip]==0.5.9",
     "playwright>=1.61,<1.63",
     "python-dotenv>=1.0",
     "python-multipart>=0.0.18",
