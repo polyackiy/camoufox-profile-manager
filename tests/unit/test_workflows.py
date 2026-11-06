@@ -44,6 +44,7 @@ async def runtime(profile_manager, monkeypatch):
     class Context:
         def __init__(self, profile_id):
             self.profile_id = profile_id
+            self.pages = []
 
         async def new_page(self):
             events.append(("page", self.profile_id))
@@ -187,12 +188,51 @@ async def test_ready_context_navigation_then_close_and_receipt_redaction(runtime
     done = await finished(runtime, run)
     assert done["state"] == "completed"
     assert [event[0] for event in runtime.events] == ["launch", "page", "navigate", "close"]
-    assert runtime.events[0][2]["args"] == ["-new-tab", "about:blank"]
+    assert runtime.events[0][2]["args"][0] == "-new-tab"
+    assert runtime.events[0][2]["args"][1].startswith("about:blank#")
+    assert runtime.events[0][2]["ignore_default_args"] == ["about:blank"]
     assert "example.test" not in json.dumps(done)
     assert "url" not in json.dumps(done)
     assert not runtime.manager.browser_sessions.active_sessions
     assert (await runtime.manager.storage.get_lease(request.targets[0].profile_id))[0] is None
     assert [step["state"] for step in done["targets"][0]["steps"]] == ["completed"] * 3
+
+
+@pytest.mark.parametrize("startup_available", [True, False])
+async def test_navigation_uses_only_the_marked_startup_tab(runtime, monkeypatch, startup_available):
+    original_launch = runtime.manager.browser_sessions.launch
+    visited = []
+
+    async def launch(profile_id, options, on_exit=None):
+        session = await original_launch(profile_id, options, on_exit)
+
+        async def visit(url, **kwargs):
+            visited.append(url)
+
+        async def wrong_tab(*args, **kwargs):
+            pytest.fail("The workflow navigated an unrelated tab")
+
+        session.context.pages = [
+            SimpleNamespace(url="about:blank", is_closed=lambda: False, goto=wrong_tab),
+            SimpleNamespace(url="https://restored.test/", is_closed=lambda: False, goto=wrong_tab),
+        ]
+        if startup_available:
+            session.context.pages.append(
+                SimpleNamespace(url=options["args"][1], is_closed=lambda: False, goto=visit)
+            )
+
+            async def timed_out():
+                raise asyncio.TimeoutError
+
+            session.context.new_page = timed_out
+        return session
+
+    monkeypatch.setattr(runtime.manager.browser_sessions, "launch", launch)
+    run, _ = await start(runtime, await definition(runtime))
+    result = await finished(runtime, run)
+    assert result["state"] == "completed"
+    assert bool(visited) == startup_available
+    assert ("page" in [event[0] for event in runtime.events]) != startup_available
 
 
 async def test_lost_response_idempotency_and_changed_intent_conflict(runtime):

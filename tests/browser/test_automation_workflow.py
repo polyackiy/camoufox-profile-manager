@@ -76,6 +76,12 @@ def startup_diagnostics(error):
 async def test_workflow_navigation_after_authenticated_launch_readiness(
     profile_manager, tmp_path, monkeypatch, protocol, headless
 ):
+    from playwright.async_api import BrowserContext
+
+    async def timed_out(*_args, **_kwargs):
+        raise asyncio.TimeoutError
+
+    monkeypatch.setattr(BrowserContext, "new_page", timed_out)
     certs = certificates(tmp_path, dns_names=DNS_NAMES)
     monkeypatch.setenv("SSL_CERT_FILE", str(certs[0]))
     manager = profile_manager
