@@ -190,6 +190,7 @@ async def test_ready_context_navigation_then_close_and_receipt_redaction(runtime
     assert [event[0] for event in runtime.events] == ["launch", "page", "navigate", "close"]
     assert runtime.events[0][2]["args"][0] == "-new-tab"
     assert runtime.events[0][2]["args"][1].startswith("about:blank#")
+    assert runtime.events[0][2]["ignore_default_args"] == ["about:blank"]
     assert "example.test" not in json.dumps(done)
     assert "url" not in json.dumps(done)
     assert not runtime.manager.browser_sessions.active_sessions
