@@ -95,6 +95,9 @@ jobs:
         run: uv run --no-sync python scripts/install_ci_browser.py
       - name: Record the wrapper/browser pair
         run: uv run --no-sync camoufox version
+      - name: Verify Intel workflows when opening a new tab times out
+        if: matrix.os == 'macos-15-intel'
+        run: uv run --no-sync pytest -q -m browser --no-network tests/browser/test_automation_workflow.py -k navigation_after_authenticated_launch_readiness
       - name: Install bundled-UI automation browser
         run: uv run --no-sync playwright install chromium
       - name: Build normal unsigned application and installer

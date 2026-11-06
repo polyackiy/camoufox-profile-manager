@@ -50,7 +50,7 @@ def browser_stub(client, monkeypatch):
             pass
 
         session = SimpleNamespace(
-            context=SimpleNamespace(new_page=new_page),
+            context=SimpleNamespace(new_page=new_page, pages=[]),
             process_id=None,
             terminate=terminate,
             on_exit=None,

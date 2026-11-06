@@ -355,6 +355,7 @@ class WorkflowEngine:
         owned = None
         page = None
         current = None
+        startup_url = f"about:blank#{uuid4().hex}"
         try:
             async with profile_admission(self.profiles, profile_id):
                 profile = await self.storage.get_profile(profile_id)
@@ -386,9 +387,11 @@ class WorkflowEngine:
                             # Give desktop Firefox an explicit neutral tab. No
                             # destination/authentication challenge belongs in
                             # startup, before Playwright's handlers are ready.
-                            await self.profiles.launch_browser(
-                                profile_id, args=["-new-tab", "about:blank"]
+                            launched = await self.profiles.launch_browser(
+                                profile_id, args=["-new-tab", startup_url]
                             )
+                        if launched["status"] != "launched":
+                            raise WorkflowConflict()
                         owned = self.profiles.browser_sessions.active_sessions[profile_id]
                     else:
                         # Never navigate/close a replacement or manually reopened
@@ -400,11 +403,29 @@ class WorkflowEngine:
                         ):
                             raise WorkflowConflict()
                         if step.action == "navigate":
+                            using_startup_tab = False
                             if page is None:
-                                page = await asyncio.wait_for(owned.context.new_page(), 15)
+                                # Only the tab marked for this run is ours to reuse.
+                                # Restored tabs, even about:blank, are left alone.
+                                startup_tabs = [
+                                    tab
+                                    for tab in owned.context.pages
+                                    if tab.url == startup_url and not tab.is_closed()
+                                ]
+                                if len(startup_tabs) == 1:
+                                    page = startup_tabs[0]
+                                    using_startup_tab = True
+                                else:
+                                    page = await asyncio.wait_for(owned.context.new_page(), 15)
                             assert page is not None
                             if not await self.authorized(owner, profile_id, session_hash):
                                 raise WorkflowDenied()
+                            if self.profiles.browser_sessions.active_sessions.get(
+                                profile_id
+                            ) is not owned or (
+                                using_startup_tab and (page.is_closed() or page.url != startup_url)
+                            ):
+                                raise WorkflowConflict()
                             response = await asyncio.wait_for(
                                 page.goto(step.url, wait_until="domcontentloaded", timeout=45000),
                                 50,
