@@ -110,6 +110,8 @@ with a newer Firefox engine.
   timeout diagnostics, without automatic protocol downgrade (#116).
 
 ### Security
+- Update the bundled TLS trust store and HTTP client dependencies to patched
+  versions of Certifi and urllib3.
 - Recheck workflow authority and sync admission at execution; hold profile
   admission across sequences and drain accepted work before update maintenance.
   Preserve request-ID tombstones after history pruning, redact validation inputs

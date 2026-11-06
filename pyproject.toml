@@ -40,6 +40,9 @@ dependencies = [
     "psutil>=6.1",
     # socks so a SOCKS5 proxy can be checked, not only HTTP ones.
     "httpx[socks]>=0.28",
+    # Secure TLS trust and proxy handling for HTTPX and Camoufox's requests client.
+    "certifi>=2026.10.19",
+    "urllib3>=2.8.0",
     # Public trace events own orphaned SOCKS streams; upgrade with lifecycle tests.
     "httpcore==1.0.9",
     "packaging>=24.1",
