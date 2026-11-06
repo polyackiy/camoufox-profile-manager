@@ -7,6 +7,10 @@ on:
         description: "Attach to an existing release tag (optional)"
         required: false
         type: string
+      upgrade_run:
+        description: "Desktop build run ID for a disposable 0.6.0 upgrade trial"
+        required: false
+        type: string
   workflow_call:
     inputs:
       release_draft:
@@ -23,6 +27,7 @@ permissions:
 
 jobs:
   build:
+    if: inputs.upgrade_run == ''
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
     strategy:
@@ -188,3 +193,71 @@ jobs:
           if [ "$RUNNER_OS" = "macOS" ] && [ -f "$RUNNER_TEMP/build.keychain-db" ]; then
             security delete-keychain "$RUNNER_TEMP/build.keychain"
           fi
+
+  upgrade:
+    if: github.event_name == 'workflow_dispatch' && inputs.upgrade_run != ''
+    name: Upgrade (${{ matrix.name }})
+    permissions:
+      actions: read
+      contents: read
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: windows-x86_64
+            os: windows-2022
+            package: camoufox-pm-windows-x86_64-setup.exe
+          - name: linux-x86_64
+            os: ubuntu-22.04
+            package: camoufox-pm-linux-x86_64.deb
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          python-version: '3.12'
+      - run: uv sync --locked --extra dev --extra sync
+      - name: Install Linux browser and window lifecycle dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo python3 scripts/configure_ci_apt.py --root /
+          uv run --no-sync playwright install-deps chromium firefox
+          sudo apt-get install -y xvfb openbox wmctrl
+      - name: Install UI automation browser
+        run: uv run --no-sync playwright install chromium
+      - name: Provision the unchanged upstream browser pair
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: uv run --no-sync python scripts/install_ci_browser.py
+      - name: Download published 0.6.0 and the exact candidate from Desktop builds
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CPM_UPGRADE_RUN: ${{ inputs.upgrade_run }}
+          CPM_PACKAGE: ${{ matrix.package }}
+          CPM_ARTIFACT: camoufox-pm-${{ matrix.name }}
+        run: |
+          [[ $CPM_UPGRADE_RUN =~ ^[0-9]+$ ]]
+          gh release download v0.6.0 --pattern "$CPM_PACKAGE*" --dir previous
+          gh run download "$CPM_UPGRADE_RUN" --name "$CPM_ARTIFACT" --dir candidate
+      - name: Exercise real upgrade and offline fixture rollback (Linux)
+        if: runner.os == 'Linux'
+        env:
+          LIBGL_ALWAYS_SOFTWARE: '1'
+          CPM_PACKAGE: ${{ matrix.package }}
+        run: |
+          xvfb-run -a bash -c 'openbox >/dev/null 2>&1 & exec uv run --no-sync python -m scripts.installed_upgrade_trial "previous/$CPM_PACKAGE" "candidate/$CPM_PACKAGE" --output installed-upgrade.json'
+      - name: Exercise real upgrade and offline fixture rollback (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        env:
+          CPM_PACKAGE: ${{ matrix.package }}
+        run: uv run --no-sync python -m scripts.installed_upgrade_trial "previous/$CPM_PACKAGE" "candidate/$CPM_PACKAGE" --output installed-upgrade.json
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: installed-upgrade-${{ matrix.name }}
+          path: installed-upgrade.json
+          if-no-files-found: warn
