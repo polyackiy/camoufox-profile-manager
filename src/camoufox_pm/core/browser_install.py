@@ -345,7 +345,10 @@ def _install_paired_bundle(fetcher: "CamoufoxFetcher") -> None:
 
     from .update_permissions import reject_reparse_paths
 
-    browsers = BROWSERS_DIR.resolve()
+    # Resolve system aliases above the SDK cache, never the SDK cache itself:
+    # quarantine must not delete through a substituted cache root.
+    cache = BROWSERS_DIR.parent
+    browsers = cache.parent.resolve() / cache.name / BROWSERS_DIR.name
     repo = browsers / get_repo_name(fetcher.github_repo)
     version = version_folder_name(fetcher.version, fetcher.build)
     target = repo / version_folder_name(fetcher.version, fetcher.build, fetcher.installed_sha8)

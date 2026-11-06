@@ -336,6 +336,41 @@ def test_retry_reinstalls_partial_archive_without_touching_other_builds(
     assert config["active_version"] == f"browsers/test/{target.name}"
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="creating symlinks needs Windows privileges")
+@pytest.mark.parametrize("linked_part", ["camoufox", "browsers"])
+def test_install_does_not_write_through_a_linked_cache(tmp_path, monkeypatch, linked_part):
+    from camoufox import multiversion
+
+    cache = tmp_path / "camoufox"
+    browsers = cache / "browsers"
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    if linked_part == "camoufox":
+        cache.symlink_to(outside, target_is_directory=True)
+    else:
+        cache.mkdir()
+        browsers.symlink_to(outside, target_is_directory=True)
+    monkeypatch.setattr(multiversion, "BROWSERS_DIR", browsers)
+    monkeypatch.setattr(multiversion, "get_repo_name", lambda _: "official")
+    target = browsers / "official" / "158.0.1-beta.41-abcd1234"
+    target.mkdir(parents=True)
+    protected = target / "must-survive.txt"
+    protected.write_text("outside cache")
+    fetcher = SimpleNamespace(
+        github_repo="owner/browser",
+        version="158.0.1",
+        build="beta.41",
+        installed_sha8="abcd1234",
+        install=Mock(),
+    )
+    from camoufox_pm.core.update_permissions import PermissionProtectionError
+
+    with pytest.raises(PermissionProtectionError):
+        browser_install._install_paired_bundle(fetcher)
+    fetcher.install.assert_not_called()
+    assert protected.read_text() == "outside cache"
+
+
 def test_setup_does_not_override_an_explicit_incompatible_choice(upstream_cache, monkeypatch):
     from camoufox import browser_pin
 
