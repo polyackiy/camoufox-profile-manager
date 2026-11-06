@@ -216,8 +216,11 @@ def schema(data):
         return connection.execute("PRAGMA user_version").fetchone()[0]
 
 
-def profile_state(device, profile_id, site, stage):
-    prepare_profile_backup(device, profile_id)
+def profile_state(device, profile_id, site, stage, report):
+    report["profile_stage"] = stage
+    backup = {}
+    report.setdefault("backups", {})[stage] = backup
+    prepare_profile_backup(device, profile_id, backup)
     device.call(
         f"/profiles/{profile_id}/launch",
         {
@@ -259,7 +262,7 @@ def exercise(work, browser, installer, old, new, site, report):
                 "browser_settings": {"stable_canvas": True},
             },
         )["id"]
-        before = profile_state(device, profile_id, site, "first")
+        before = profile_state(device, profile_id, site, "first", report)
         fingerprint = device.call(f"/profiles/{profile_id}")["fingerprint"]
         assert fingerprint
         device.stop()
@@ -280,25 +283,28 @@ def exercise(work, browser, installer, old, new, site, report):
         assert schema(data) == 5 and (data / "secret.key").read_bytes() == key
         assert device.call("/sync/status") == {"phase": "not_enrolled"}
         assert device.call(f"/profiles/{profile_id}")["fingerprint"] == fingerprint
-        after = profile_state(device, profile_id, site, "return")
+        after = profile_state(device, profile_id, site, "return", report)
         assert (
             after["state"] == before["state"] == "first" and after["identity"] == before["identity"]
         )
         # Canvas runtime stability is a separate physical Windows acceptance gate.
         report["canvas_match"] = before["canvas"] == after["canvas"]
         device.stop()
+        report["upgrade_passed"] = True
 
         report["phase"] = "manual-rollback"
-        restored = work / "restored"
-        shutil.copytree(checkpoint, restored, symlinks=True)
+        # Existing profile rows carry absolute storage paths. Restore the
+        # matching checkpoint at that same root and retain the upgraded data.
+        data.rename(work / "post-upgrade")
+        shutil.copytree(checkpoint, data, symlinks=True)
         installer.install(old, rollback=True)
-        rollback = UpgradeDevice(work, browser, installer.executable, restored)
+        rollback = UpgradeDevice(work, browser, installer.executable, data)
         rollback.password = device.password
         rollback.start()
         rollback.login()
         rollback.check_version("0.6.0")
-        assert schema(restored) == 4 and (restored / "secret.key").read_bytes() == key
-        original = profile_state(rollback, profile_id, site, "restored")
+        assert schema(data) == 4 and (data / "secret.key").read_bytes() == key
+        original = profile_state(rollback, profile_id, site, "restored", report)
         assert original["state"] == "first" and original["identity"] == before["identity"]
         assert rollback.call(f"/profiles/{profile_id}")["fingerprint"] == fingerprint
         rollback.stop()
