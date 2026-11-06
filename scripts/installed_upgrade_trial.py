@@ -63,6 +63,10 @@ class Installer:
             ):
                 raise RuntimeError("The Linux runner already has a manager installation")
             self.executable = Path("/usr/bin/camoufox-pm")
+        elif sys.platform == "darwin":
+            self.target.mkdir()
+            self.bundle = self.target / "Camoufox Profile Manager.app"
+            self.executable = self.bundle / "Contents" / "MacOS" / "camoufox-pm"
         else:
             raise RuntimeError("Unsupported runner for this trial")
 
@@ -71,6 +75,25 @@ class Installer:
             # NSIS requires the absolute /D switch to remain last and unquoted.
             command = subprocess.list2cmdline([str(package), "/S"]) + f" /D={self.target}"
             subprocess.run(command, capture_output=True, check=True, timeout=180)
+        elif sys.platform == "darwin":
+            mount = self.target / "mount"
+            checked_run(
+                [
+                    "hdiutil",
+                    "attach",
+                    "-readonly",
+                    "-nobrowse",
+                    "-mountpoint",
+                    str(mount),
+                    str(package),
+                ]
+            )
+            try:
+                if self.bundle.exists():
+                    shutil.rmtree(self.bundle)
+                checked_run(["ditto", str(mount / self.bundle.name), str(self.bundle)])
+            finally:
+                checked_run(["hdiutil", "detach", str(mount)], timeout=60)
         else:
             command = ["sudo", "-n", "apt-get", "install", "-y"]
             if rollback:
@@ -96,11 +119,21 @@ class Installer:
                     capture_output=True,
                     timeout=180,
                 )
-        elif self.executable.is_file():
+        elif sys.platform.startswith("linux") and self.executable.is_file():
             checked_run(["sudo", "-n", "apt-get", "purge", "-y", "camoufox-pm"])
 
 
 def close_native_window(pid):
+    if sys.platform == "darwin":
+        script = """
+ObjC.import("AppKit");
+function run(args) {
+    const app = $.NSRunningApplication.runningApplicationWithProcessIdentifier(Number(args[0]));
+    if (!app.terminate) throw Error("The exact desktop process refused Quit");
+}
+"""
+        checked_run(["osascript", "-l", "JavaScript", "-e", script, str(pid)], timeout=15)
+        return
     if sys.platform != "win32":
 
         def window():

@@ -11,6 +11,11 @@ on:
         description: "Desktop build run ID for a disposable 0.6.0 upgrade trial"
         required: false
         type: string
+      upgrade_platform:
+        description: "Platforms for the disposable upgrade trial"
+        type: choice
+        options: [windows-linux, macos-intel]
+        default: windows-linux
   workflow_call:
     inputs:
       release_draft:
@@ -205,15 +210,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - name: windows-x86_64
-            os: windows-2022
-            package: camoufox-pm-windows-x86_64-setup.exe
-          - name: linux-x86_64
-            os: ubuntu-22.04
-            package: camoufox-pm-linux-x86_64.deb
+        include: >-
+          ${{ fromJSON(inputs.upgrade_platform == 'macos-intel'
+          && '[{"name":"macos-x86_64","os":"macos-15-intel","package":"camoufox-pm-macos-x86_64.dmg"}]'
+          || '[{"name":"windows-x86_64","os":"windows-2022","package":"camoufox-pm-windows-x86_64-setup.exe"},{"name":"linux-x86_64","os":"ubuntu-22.04","package":"camoufox-pm-linux-x86_64.deb"}]') }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
@@ -239,7 +243,8 @@ jobs:
           CPM_PACKAGE: ${{ matrix.package }}
           CPM_ARTIFACT: camoufox-pm-${{ matrix.name }}
         run: |
-          [[ $CPM_UPGRADE_RUN =~ ^[0-9]+$ ]]
+          [[ $CPM_UPGRADE_RUN == 42216747404 ]]
+          test "$(gh run view "$CPM_UPGRADE_RUN" --json headSha,event,conclusion --jq '[.headSha,.event,.conclusion] | join(":")')" = "c958070e11d403b359416acf1840db54d1de2daf:workflow_dispatch:success"
           gh release download v0.6.0 --pattern "$CPM_PACKAGE*" --dir previous
           gh run download "$CPM_UPGRADE_RUN" --name "$CPM_ARTIFACT" --dir candidate
       - name: Exercise real upgrade and offline fixture rollback (Linux)
@@ -249,8 +254,8 @@ jobs:
           CPM_PACKAGE: ${{ matrix.package }}
         run: |
           xvfb-run -a bash -c 'openbox >/dev/null 2>&1 & exec uv run --no-sync python -m scripts.installed_upgrade_trial "previous/$CPM_PACKAGE" "candidate/$CPM_PACKAGE" --output installed-upgrade.json'
-      - name: Exercise real upgrade and offline fixture rollback (Windows)
-        if: runner.os == 'Windows'
+      - name: Exercise real upgrade and offline fixture rollback
+        if: runner.os != 'Linux'
         shell: bash
         env:
           CPM_PACKAGE: ${{ matrix.package }}
