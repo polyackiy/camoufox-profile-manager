@@ -1014,7 +1014,8 @@ First public release after a comprehensive revamp.
   Camoufox owns fingerprint generation for consistency.
 - Committed profile data, leaked proxy credentials, and duplicate/backup files.
 
-[Unreleased]: https://github.com/polyackiy/camoufox-profile-manager/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/polyackiy/camoufox-profile-manager/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/polyackiy/camoufox-profile-manager/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/polyackiy/camoufox-profile-manager/compare/v0.5.0...v0.6.0
 [0.6.0-rc.8]: https://github.com/polyackiy/camoufox-profile-manager/compare/v0.6.0-rc.7...v0.6.0-rc.8
 [0.6.0-rc.3]: https://github.com/polyackiy/camoufox-profile-manager/compare/v0.6.0-rc.2...v0.6.0-rc.3
