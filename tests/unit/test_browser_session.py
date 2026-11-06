@@ -684,8 +684,9 @@ async def test_close_drains_owned_browser_child_after_driver_disappears(
     profile.mkdir()
     child_code = (
         "import os,sys,time; from pathlib import Path; "
-        "from camoufox_pm.sync.quiescence import browser_profile_lock; "
-        "guard=browser_profile_lock(Path(sys.argv[1])); guard.__enter__(); "
+        "from camoufox_pm.sync import quiescence as q; "
+        "q.assert_no_browser_process=lambda _: None; "
+        "guard=q.browser_profile_lock(Path(sys.argv[1])); guard.__enter__(); "
         "print(os.getpid(),flush=True); time.sleep(60)"
     )
     parent_code = (

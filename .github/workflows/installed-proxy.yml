@@ -5,6 +5,8 @@ on:
     paths:
       - '.github/workflows/installed-proxy.yml'
       - 'scripts/configure_ci_apt.py'
+      - 'scripts/build_desktop.py'
+      - 'scripts/macos_dmg.py'
       - 'tests/unit/test_ci_apt.py'
       - 'scripts/installed_proxy_acceptance.py'
       - 'scripts/installed_sync_acceptance.py'

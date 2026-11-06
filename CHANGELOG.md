@@ -49,6 +49,7 @@ with a newer Firefox engine.
   incomplete operations (#119). Interactive queues do not replay after reload.
 
 ### Fixed
+- Retry a transient macOS disk image build failure without publishing partial output.
 - Reuse the neutral tab opened for a workflow, avoiding the separate tab
   creation that could time out on Intel Macs (#158).
 - Support Camoufox 0.5.9 and its paired Firefox 158 build. Browser setup checks

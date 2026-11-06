@@ -33,13 +33,15 @@ def package_desktop() -> list[Path]:
     """Produce installers without requiring signing credentials."""
     arch = architecture()
     if sys.platform == "darwin":
+        from macos_dmg import create_dmg
+
         stage = ROOT / "build" / "dmg"
         shutil.rmtree(stage, ignore_errors=True)
         stage.mkdir(parents=True)
         shutil.copytree(DIST / "Camoufox Profile Manager.app", stage / "Camoufox Profile Manager.app", symlinks=True)
         (stage / "Applications").symlink_to("/Applications")
         output = DIST / f"camoufox-pm-macos-{arch}.dmg"
-        subprocess.run(["hdiutil", "create", "-volname", "Camoufox Profile Manager", "-srcfolder", str(stage), "-ov", "-format", "UDZO", str(output)], check=True)
+        create_dmg(stage, output)
         return [output]
     if sys.platform == "win32":
         makensis = shutil.which("makensis") or str(Path("C:/Program Files (x86)/NSIS/makensis.exe"))
