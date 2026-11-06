@@ -6,6 +6,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-11-06
+
+This release combines batch profile and proxy tools, declarative workflows, and
+Russian onboarding with installer and recovery fixes. Device synchronization
+remains experimental and requires explicit opt-in. Installers remain unsigned;
+automatic application replacement remains disabled.
+
+Before upgrading, close the manager and its browsers and back up the data
+directory. Install the new manager in the same location, then use **Settings →
+Install browser** to download the paired Camoufox build. A downgrade requires a
+matching data backup because 0.7.0 advances the database schema and opens profiles
+with a newer Firefox engine.
+
 ### Added
 - Check selected proxies or the current proxy-library search results in batches,
   with bounded concurrency, progress, cancellation of waiting checks and saved
@@ -21,7 +34,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Add Russian interface translations with grammatical count forms alongside
   English and Simplified Chinese. First-run setup explains the install → create
   → run/stop path and keeps interface language separate from profile fingerprints
-  (#123; included in the upcoming combined 0.7.0 release).
+  (#123).
 - Check and use SOCKS4 with remote DNS through a session-owned SOCKS4a relay;
   accept canonicalized `socks4a`/`socks5h` import aliases and document protocol,
   authentication, DNS and acceptance boundaries (#116).
@@ -36,9 +49,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   incomplete operations (#119). Interactive queues do not replay after reload.
 
 ### Fixed
+- Reuse the neutral tab opened for a workflow, avoiding the separate tab
+  creation that could time out on Intel Macs (#158).
 - Support Camoufox 0.5.9 and its paired Firefox 158 build. Browser setup checks
   bundled add-ons in the selected browser and repairs incomplete downloads
-  without replacing older builds.
+  without replacing older builds (#159).
 - Discover late browser descendants from already pinned child processes after
   the SDK driver exits, so Stop drains their native profile locks before
   acknowledging closure or releasing the profile lease (#145).

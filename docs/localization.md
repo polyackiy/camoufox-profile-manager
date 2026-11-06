@@ -2,7 +2,7 @@
 
 English source messages, Russian (`ru`) and Simplified Chinese (`zh-CN`) share
 the existing `useI18n` provider. Russian and the revised first-run checklist are
-unreleased changes for the combined 0.7.0 work block, not a separate release.
+included in 0.7.0.
 
 ## Translation contract
 
