@@ -1,4 +1,4 @@
-"""CI setup uses upstream auth and fails closed without launching a browser."""
+"""CI setup uses the real installer and rejects an incomplete or wrong pair."""
 
 import importlib.util
 import io
@@ -19,51 +19,43 @@ TOKEN = "synthetic-ci-token"
 
 @pytest.fixture
 def setup(monkeypatch):
-    from camoufox import __main__, browser_pin
+    from camoufox import browser_pin
 
     from camoufox_pm.core import browser_install
 
-    events = []
-    fetch = Mock(side_effect=lambda **kwargs: events.append("fetch"))
-    ready = Mock(side_effect=lambda: events.append("readiness"))
-    monkeypatch.setattr(__main__.cli, "main", fetch)
-    monkeypatch.setattr(browser_install, "ensure_browser_ready", ready)
-    monkeypatch.setattr(browser_install, "installed_browser", lambda: (True, "156.0.1-beta.36"))
-    monkeypatch.setattr(browser_pin, "load_pin", lambda: SimpleNamespace(spec="156.0.1-beta.36"))
-    return SimpleNamespace(fetch=fetch, ready=ready, events=events, install=browser_install)
+    installer = Mock()
+    installer.status.return_value = browser_install.BrowserStatus(
+        installed=True, state="ready", version="158.0.1-beta.41"
+    )
+    monkeypatch.setattr(browser_install, "BrowserInstaller", lambda: installer)
+    monkeypatch.setattr(browser_pin, "load_pin", lambda: SimpleNamespace(spec="158.0.1-beta.41"))
+    return installer
 
 
-def test_helper_checks_readiness_after_upstream_returns_zero(setup, capsys):
+def test_helper_checks_readiness_after_manager_install(setup, capsys):
     assert helper.main() == 0
-    setup.fetch.assert_called_once_with(args=["fetch"], prog_name="camoufox", standalone_mode=False)
-    assert setup.events == ["fetch", "readiness"]
-    assert "156.0.1-beta.36" in capsys.readouterr().out
+    assert [call[0] for call in setup.mock_calls] == ["_run", "status"]
+    assert "158.0.1-beta.41" in capsys.readouterr().out
 
 
-def test_upstream_false_success_and_sensitive_exception_fail_ci_without_logging_token(
-    setup, capsys
-):
-    setup.ready.side_effect = RuntimeError(f"missing browser; Authorization: Bearer {TOKEN}")
+def test_sensitive_exception_fails_ci_without_logging_token(setup, capsys):
+    setup._run.side_effect = RuntimeError(f"missing browser; Authorization: Bearer {TOKEN}")
     assert helper.main() == 1
-    setup.fetch.assert_called_once()
     captured = capsys.readouterr()
     assert "setup failed" in captured.err
     assert TOKEN not in captured.out + captured.err
 
 
 @pytest.mark.parametrize("installed,version", [(False, None), (True, "152.0.4-beta.29")])
-def test_wrong_or_missing_browser_never_passes_pair_verification(
-    setup, monkeypatch, installed, version
-):
-    monkeypatch.setattr(setup.install, "installed_browser", lambda: (installed, version))
+def test_wrong_or_missing_browser_never_passes_pair_verification(setup, installed, version):
+    setup.status.return_value.installed = installed
+    setup.status.return_value.version = version
     assert helper.main() == 1
 
 
-def test_explicit_fetch_failure_does_not_pass_on_an_existing_cache(setup):
-    setup.fetch.side_effect = None
-    setup.fetch.return_value = 1
+def test_failed_install_does_not_pass_on_an_existing_cache(setup):
+    setup.status.return_value.state = "error"
     assert helper.main() == 1
-    setup.ready.assert_not_called()
 
 
 class RecordingAdapter(BaseAdapter):

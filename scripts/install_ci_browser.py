@@ -1,32 +1,25 @@
 #!/usr/bin/env python3
-"""Install Camoufox's paired browser/resources and reject upstream false success.
+"""Exercise the manager's normal installation on a fresh CI browser cache.
 
-CI provides its read-only GITHUB_TOKEN before starting this process. Camoufox's
-existing token hook authenticates the default GitHub release API requests; its
-ordinary browser, model, add-on and GeoIP downloads remain unauthenticated.
-This helper is for fresh CI caches with the default upstream configuration.
+CI supplies a read-only GITHUB_TOKEN for release discovery. The normal installer
+verifies readiness and the exact upstream browser pair before acceptance starts.
 """
 
 import sys
 
 
 def install_browser() -> str:
-    from camoufox.__main__ import cli
     from camoufox.browser_pin import load_pin
 
-    from camoufox_pm.core.browser_install import ensure_browser_ready, installed_browser
+    from camoufox_pm.core.browser_install import BrowserInstaller
 
-    result = cli.main(args=["fetch"], prog_name="camoufox", standalone_mode=False)
-    if result not in (None, 0):
-        raise RuntimeError("The upstream browser setup command failed")
-    # Upstream fetch can print a release-API error and return zero. Required
-    # files, model hashes and interface compatibility remain the authority.
-    ensure_browser_ready()
+    installer = BrowserInstaller()
+    installer._run()
+    status = installer.status()
     pin = load_pin()
-    installed, version = installed_browser()
-    if pin is None or not installed or version != pin.spec:
+    if pin is None or status.state != "ready" or not status.installed or status.version != pin.spec:
         raise RuntimeError("CI browser setup did not install the wrapper's paired build")
-    return version
+    return pin.spec
 
 
 def main() -> int:
@@ -35,7 +28,7 @@ def main() -> int:
     except Exception:
         # Do not render arbitrary exception data/request headers into CI logs.
         print(
-            "Camoufox CI setup failed; inspect the upstream fetch output and retry.",
+            "Camoufox CI setup failed; inspect the installation environment and retry.",
             file=sys.stderr,
         )
         return 1

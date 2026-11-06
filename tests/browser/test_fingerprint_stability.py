@@ -470,7 +470,6 @@ async def test_a_randomised_canvas_profile_still_drifts(tmp_path, local_sites):
         browser_settings=BrowserSettings(os="windows", stable_canvas=False),
     )
     options = profile.to_camoufox_launch_options()
-    assert "firefox_user_prefs" not in options
 
     profile.fingerprint = fingerprint_store.resolve(options)
     first = await read_canvas(pinned_options(profile), tmp_path / "b", local_sites.first)

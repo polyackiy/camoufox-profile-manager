@@ -36,9 +36,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   incomplete operations (#119). Interactive queues do not replay after reload.
 
 ### Fixed
-- Pin the Camoufox Python dependency to the tested 0.5.8 release so new Python
-  installations can set up the paired browser while the 0.5.9 integration is
-  updated for bundled add-ons.
+- Support Camoufox 0.5.9 and its paired Firefox 158 build. Browser setup checks
+  bundled add-ons in the selected browser and repairs incomplete downloads
+  without replacing older builds.
 - Discover late browser descendants from already pinned child processes after
   the SDK driver exits, so Stop drains their native profile locks before
   acknowledging closure or releasing the profile lease (#145).

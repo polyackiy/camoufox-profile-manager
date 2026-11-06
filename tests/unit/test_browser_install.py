@@ -3,9 +3,11 @@
 import hashlib
 import io
 import json
+import sys
 from contextlib import nullcontext
 from types import SimpleNamespace
 from unittest.mock import Mock
+from zipfile import ZipFile
 
 import httpx
 import pytest
@@ -24,8 +26,10 @@ def upstream_cache(tmp_path, monkeypatch):
     browser.mkdir()
     executable = browser / "browser-executable"
     executable.write_bytes(b"fake browser")
+    (browser / "version.json").write_text("{}")
     version = SimpleNamespace(is_supported=lambda: True, full_string="135.0-beta.1")
     monkeypatch.setattr(multiversion, "get_active_path", lambda: browser)
+    monkeypatch.setattr(multiversion, "load_config", lambda: {})
     monkeypatch.setattr(pkgman.Version, "from_path", lambda path: version)
     monkeypatch.setattr(pkgman, "launch_path", lambda path: str(executable))
     monkeypatch.setattr(pkgman, "installed_interface", lambda path: 1)
@@ -35,7 +39,6 @@ def upstream_cache(tmp_path, monkeypatch):
     monkeypatch.setattr(
         pkgman, "camoufox_path", Mock(side_effect=AssertionError("implicit download"))
     )
-    monkeypatch.setattr(addons, "get_addon_path", lambda name: str(tmp_path / "addons" / name))
     monkeypatch.setattr(geolocation, "MMDB_DIR", tmp_path / "mmdb")
     monkeypatch.setattr(
         geolocation,
@@ -57,7 +60,7 @@ def upstream_cache(tmp_path, monkeypatch):
 
 def write_resources(cache):
     for addon in cache.addons.DefaultAddons:
-        directory = cache.root / "addons" / addon.name
+        directory = cache.executable.parent / "addons" / addon.name
         directory.mkdir(parents=True, exist_ok=True)
         (directory / "manifest.json").write_text(json.dumps({"manifest_version": 2}))
     cache.geolocation.MMDB_DIR.mkdir(exist_ok=True)
@@ -69,11 +72,8 @@ def test_readiness_inspects_files_without_triggering_download(upstream_cache, mo
     monkeypatch.setattr(
         cache.geolocation, "download_mmdb", Mock(side_effect=AssertionError("download"))
     )
-    monkeypatch.setattr(
-        cache.addons, "maybe_download_addons", Mock(side_effect=AssertionError("download"))
-    )
     installer = browser_install.BrowserInstaller()
-    assert browser_install.installed_browser() == (True, "135.0-beta.1")
+    assert browser_install.installed_browser() == (False, "135.0-beta.1")
     assert installer.status().installed is False  # binary alone is insufficient
     write_resources(cache)
     status = installer.status()
@@ -98,8 +98,8 @@ def test_invalid_addon_manifest_blocks_launch_without_fetching(upstream_cache):
     cache = upstream_cache
     write_resources(cache)
     addon = next(iter(cache.addons.DefaultAddons))
-    (cache.root / "addons" / addon.name / "manifest.json").write_text("broken json")
-    assert not browser_install.browser_resources_ready()
+    (cache.executable.parent / "addons" / addon.name / "manifest.json").write_text("broken json")
+    assert not browser_install.installed_browser()[0]
     with pytest.raises(BrowserLaunchError, match="Settings"):
         browser_install.ensure_browser_ready()
     cache.pkgman.camoufox_path.assert_not_called()
@@ -141,7 +141,9 @@ def test_explicit_setup_prepares_the_pinned_model(upstream_cache, monkeypatch):
     write_resources(upstream_cache)
     model = Mock()
     monkeypatch.setattr(fpgen_model, "ensure_fpgen_model", model)
-    monkeypatch.setattr(upstream_cache.addons, "maybe_download_addons", lambda addons: None)
+    monkeypatch.setattr(
+        upstream_cache.pkgman.CamoufoxFetcher, "__init__", Mock(side_effect=AssertionError("fetch"))
+    )
     browser_install.BrowserInstaller()._install()
     model.assert_called_once_with()
 
@@ -184,35 +186,16 @@ def test_install_failure_is_visible_and_can_be_retried(upstream_cache, monkeypat
     assert ready.progress == 100 and ready.error is None
 
 
-def test_swallowed_upstream_addon_failure_is_not_reported_as_success(upstream_cache, monkeypatch):
+def test_incomplete_location_download_is_not_reported_as_success(upstream_cache, monkeypatch):
     cache = upstream_cache
+    write_resources(cache)
+    (cache.geolocation.MMDB_DIR / "example-combined.mmdb").unlink()
     monkeypatch.setattr(cache.geolocation, "download_mmdb", lambda: None)
-    monkeypatch.setattr(cache.addons, "maybe_download_addons", lambda addons: None)
     installer = browser_install.BrowserInstaller()
     monkeypatch.setattr(browser_install, "installation_lock", nullcontext)
     installer._run()
     assert installer.status().state == "error"
     assert "could not be downloaded" in installer.status().error
-
-
-@pytest.mark.parametrize("manifest", [None, "broken json"])
-def test_incomplete_addon_cache_is_preserved_then_retried(upstream_cache, monkeypatch, manifest):
-    cache = upstream_cache
-    addon = next(iter(cache.addons.DefaultAddons))
-    incomplete = cache.root / "addons" / addon.name
-    incomplete.mkdir(parents=True)
-    (incomplete / "partial-file").write_text("diagnostic")
-    if manifest is not None:
-        (incomplete / "manifest.json").write_text(manifest)
-    monkeypatch.setattr(cache.geolocation, "download_mmdb", lambda: None)
-    monkeypatch.setattr(
-        cache.addons, "maybe_download_addons", lambda addons: write_resources(cache)
-    )
-    browser_install.BrowserInstaller()._install()
-    assert (
-        incomplete.with_name(incomplete.name + ".incomplete") / "partial-file"
-    ).read_text() == "diagnostic"
-    assert browser_install.browser_resources_ready()
 
 
 def fake_fetcher(cache, monkeypatch, *, checksum=None, payload=b"downloaded archive"):
@@ -234,6 +217,21 @@ def fake_fetcher(cache, monkeypatch, *, checksum=None, payload=b"downloaded arch
         output = io.BytesIO()
         fetcher.download_file(output, fetcher._url)
         result["download"] = output.read()
+        target = (
+            cache.multiversion.BROWSERS_DIR
+            / "test"
+            / cache.multiversion.version_folder_name(
+                fetcher.version, fetcher.build, fetcher.installed_sha8
+            )
+        )
+        target.mkdir(parents=True, exist_ok=True)
+        (target / "version.json").write_text("{}")
+        executable = target / "camoufox"
+        executable.touch()
+        for addon in cache.addons.DefaultAddons:
+            manifest = target / "addons" / addon.name / "manifest.json"
+            manifest.parent.mkdir(parents=True)
+            manifest.write_text('{"manifest_version":2}')
 
     class Response:
         headers = {"content-length": str(len(payload))}
@@ -251,14 +249,13 @@ def fake_fetcher(cache, monkeypatch, *, checksum=None, payload=b"downloaded arch
             yield payload[:5]
             yield payload[5:]
 
+    monkeypatch.setattr(cache.pkgman, "launch_path", lambda path: str(path / "camoufox"))
     monkeypatch.setattr(cache.pkgman.CamoufoxFetcher, "__init__", initialize)
     monkeypatch.setattr(cache.pkgman.CamoufoxFetcher, "install", install)
     monkeypatch.setattr(cache.multiversion, "get_repo_name", lambda repo: "test")
-    monkeypatch.setattr(cache.multiversion, "version_folder_name", lambda *args: "target")
     monkeypatch.setattr(browser_install.httpx, "stream", lambda *args, **kwargs: Response())
     monkeypatch.setattr(browser_install, "installed_browser", lambda: (False, None))
     monkeypatch.setattr(browser_install, "browser_resources_ready", lambda: True)
-    monkeypatch.setattr(cache.addons, "maybe_download_addons", lambda addons: None)
     return result
 
 
@@ -281,18 +278,124 @@ def test_hash_mismatch_fails_before_installer_accepts_archive(upstream_cache, mo
     assert "download" not in result
 
 
-def test_retry_replaces_only_target_with_missing_executable(upstream_cache, monkeypatch):
+@pytest.mark.parametrize(
+    "metadata", [None, "{", '{"version":"135.0","build":"beta.1","interface":999}']
+)
+def test_retry_reinstalls_partial_archive_without_touching_other_builds(
+    upstream_cache, monkeypatch, metadata
+):
     cache = upstream_cache
-    result = fake_fetcher(cache, monkeypatch)
-    target = cache.multiversion.BROWSERS_DIR / "test" / "target"
-    target.mkdir(parents=True)
-    (target / "version.json").write_text("{}")
+    multi = cache.multiversion
+    config = {}
+    base = "135.0-beta.1"
+    repo = multi.BROWSERS_DIR / "test"
+    payload = io.BytesIO()
+    addon = next(iter(cache.addons.DefaultAddons))
+    manifest_path = f"addons/{addon.name}/manifest.json"
+    with ZipFile(payload, "w") as archive:
+        archive.writestr("camoufox", "new executable")
+        archive.writestr(manifest_path, '{"manifest_version": 2}')
+    checksum = hashlib.sha256(payload.getvalue()).hexdigest()
+    real_install = cache.pkgman.CamoufoxFetcher.install
+    # Restore the SDK installer while retaining the isolated release and stream.
+    fake_fetcher(cache, monkeypatch, checksum=checksum, payload=payload.getvalue())
+    monkeypatch.setattr(cache.pkgman.CamoufoxFetcher, "install", real_install)
+    monkeypatch.setattr(cache.pkgman, "ensure_browser_profile_dir", lambda: None)
+    monkeypatch.setattr(multi, "COMPAT_FLAG", cache.root / "compat")
+    monkeypatch.setattr(multi, "set_active", lambda path: config.update(active_version=path))
+    monkeypatch.setattr(cache.pkgman, "launch_path", lambda build: str(build / "camoufox"))
     monkeypatch.setattr(
-        cache.pkgman, "launch_path", Mock(side_effect=FileNotFoundError("missing binary"))
+        cache.pkgman,
+        "installed_interface",
+        lambda path: json.loads((path / "version.json").read_text()).get("interface", 1),
     )
+    target = repo / f"{base}-{checksum[:8]}"
+    target.mkdir(parents=True)
+    shadow = repo / f"{base}-deadbeef"
+    shadow.mkdir()
+    (shadow / "version.json").write_text('{"version":"135.0","build":"beta.1"}')
+    previous = repo / "older-build"
+    previous.mkdir()
+    (previous / "camoufox").write_text("previous executable")
+    (target / "camoufox").write_text("incomplete old executable")
+    (target / manifest_path).parent.mkdir(parents=True)
+    outside = cache.root / "outside"
+    outside.write_text("leave unchanged")
+    if metadata is None and sys.platform != "win32":
+        (target / manifest_path).symlink_to(outside)
+    else:
+        (target / manifest_path).write_text('{"manifest_version":2}')
+    if metadata is not None:
+        (target / "version.json").write_text(metadata)
     browser_install.BrowserInstaller()._install()
-    assert result["replace"] is True
-    assert (target / "version.json").exists()  # Our code delegates replacement to upstream.
+    assert (target / "camoufox").read_text() == "new executable"
+    assert json.loads((target / "version.json").read_text())["interface"] == 1
+    assert not shadow.exists()
+    assert outside.read_text() == "leave unchanged"
+    assert (previous / "camoufox").read_text() == "previous executable"
+    assert config["active_version"] == f"browsers/test/{target.name}"
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="creating symlinks needs Windows privileges")
+@pytest.mark.parametrize("linked_part", ["camoufox", "browsers"])
+def test_install_does_not_write_through_a_linked_cache(tmp_path, monkeypatch, linked_part):
+    from camoufox import multiversion
+
+    cache = tmp_path / "camoufox"
+    browsers = cache / "browsers"
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    if linked_part == "camoufox":
+        cache.symlink_to(outside, target_is_directory=True)
+    else:
+        cache.mkdir()
+        browsers.symlink_to(outside, target_is_directory=True)
+    monkeypatch.setattr(multiversion, "BROWSERS_DIR", browsers)
+    monkeypatch.setattr(multiversion, "get_repo_name", lambda _: "official")
+    target = browsers / "official" / "158.0.1-beta.41-abcd1234"
+    target.mkdir(parents=True)
+    protected = target / "must-survive.txt"
+    protected.write_text("outside cache")
+    fetcher = SimpleNamespace(
+        github_repo="owner/browser",
+        version="158.0.1",
+        build="beta.41",
+        installed_sha8="abcd1234",
+        install=Mock(),
+    )
+    from camoufox_pm.core.update_permissions import PermissionProtectionError
+
+    with pytest.raises(PermissionProtectionError):
+        browser_install._install_paired_bundle(fetcher)
+    fetcher.install.assert_not_called()
+    assert protected.read_text() == "outside cache"
+
+
+def test_setup_does_not_override_an_explicit_incompatible_choice(upstream_cache, monkeypatch):
+    from camoufox import browser_pin
+
+    config = {"pinned": "official/135.0-beta.1", "active_version": "browsers/official/old"}
+    monkeypatch.setattr(upstream_cache.multiversion, "load_config", lambda: config)
+    monkeypatch.setattr(browser_pin, "is_explicit_choice", lambda config: True)
+    fetcher = Mock(side_effect=AssertionError("must preserve the user's explicit selection"))
+    monkeypatch.setattr(upstream_cache.pkgman.CamoufoxFetcher, "__init__", fetcher)
+    with pytest.raises(RuntimeError, match="explicitly selected"):
+        browser_install.BrowserInstaller()._install()
+    fetcher.assert_not_called()
+
+
+def test_addon_link_outside_the_bundle_does_not_pass_readiness(upstream_cache):
+    cache = upstream_cache
+    write_resources(cache)
+    addon = next(iter(cache.addons.DefaultAddons))
+    path = cache.executable.parent / "addons" / addon.name
+    outside = cache.root / "outside"
+    path.rename(outside)
+    try:
+        path.symlink_to(outside, target_is_directory=True)
+    except OSError:
+        pytest.skip("This account cannot create directory symbolic links")
+    assert not browser_install.installed_browser()[0]
 
 
 def github_transport(monkeypatch, handler):
@@ -432,6 +535,7 @@ def test_progress_fetcher_uses_per_attempt_auth_only_for_release_discovery(
         original_initialize(fetcher)
         fetcher._get_releases("owner/browser")
 
+    monkeypatch.setattr(cache.pkgman, "launch_path", lambda path: str(path / "camoufox"))
     monkeypatch.setattr(cache.pkgman.CamoufoxFetcher, "__init__", initialize)
     stream = browser_install.httpx.stream
     requests = []
@@ -490,8 +594,10 @@ def test_authenticated_real_fetcher_keeps_wrapper_browser_pin_and_checksum(
         selected.append((fetcher.version, fetcher.build, fetcher._url, fetcher.installed_sha256))
 
     monkeypatch.setattr(cache.pkgman.CamoufoxFetcher, "install", install)
+    monkeypatch.setattr(
+        browser_install, "_install_paired_bundle", lambda fetcher: fetcher.install()
+    )
     monkeypatch.setattr(browser_install, "installed_browser", lambda: (False, None))
     monkeypatch.setattr(browser_install, "browser_resources_ready", lambda: True)
-    monkeypatch.setattr(cache.addons, "maybe_download_addons", lambda addons: None)
     browser_install.BrowserInstaller()._install(SecretStr("test_token"))
     assert selected == [(pin.version, pin.build, paired_url, digest)]

@@ -1,14 +1,13 @@
 # Camoufox compatibility and upstream changes
 
-Reviewed on 2026-10-13 against the official
+Reviewed against the official
 [browser releases](https://github.com/daijro/camoufox/releases) and
-[Python package](https://pypi.org/project/camoufox/0.5.8/).
+[Python package](https://pypi.org/project/camoufox/0.5.9/).
 
-The project lockfile uses **Camoufox 0.5.8**, **Playwright 1.62.0** and the
-wrapper's paired **156.0.1-beta.36** browser. Although the browser build name
-contains `beta`, GitHub marks this release as non-prerelease. The newer
-[0.5.9b1 / beta.37 pair](https://github.com/daijro/camoufox/releases/tag/v156.0.1-beta.37)
-is a preview, not the default production dependency.
+The project lockfile uses **Camoufox 0.5.9**, **Playwright 1.62.0** and the
+wrapper's paired [**158.0.1-beta.41** browser](https://github.com/daijro/camoufox/releases/tag/v158.0.1-beta.41).
+Upstream now ships uBlock Origin inside each browser archive. The manager checks
+the executable and bundled add-on manifest together before reporting readiness.
 
 ## What changed since our 0.5.4 / beta.29 integration
 
@@ -26,6 +25,18 @@ does not by itself establish that Firefox supports SOCKS username/password auth.
 No change to the Camoufox engine is needed for managed extensions, cookies or
 ordinary desktop tabs.
 
+With automatic location enabled and no proxy, SDK 0.5.9 also checks the host's
+public IPv6 when the location lookup uses IPv4. It uses that result to decide
+whether to keep IPv6 enabled in the browser. The SDK skips this direct IPv6
+lookup when a proxy is configured or automatic location is disabled.
+
+Firefox 158's baseline fingerprinting mode can vary Canvas reads on the same
+page. To preserve per-site, per-session randomization, the manager uses the
+keyed Firefox protection mode with the same three desktop targets as
+[baseline mode](https://searchfox.org/firefox-main/source/toolkit/components/resistfingerprinting/RFPTargetsDefaultBaseline.inc).
+Profiles that explicitly enable stable canvas keep that choice. This uses
+Firefox preferences and does not patch the browser.
+
 ## Installation and upgrades
 
 After updating a source checkout, run `uv sync --extra dev`, then use **Settings →
@@ -33,6 +44,7 @@ Install browser** or `uv run camoufox fetch`. The first launch remains gated on
 setup readiness; it must not silently fetch a browser or fingerprint model.
 
 If you previously selected a browser explicitly, upstream preserves that choice.
+An older build without bundled add-ons needs a compatible selection before launch.
 To use the browser paired with the current wrapper, run:
 
 ```bash

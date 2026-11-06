@@ -6,15 +6,19 @@ upstream package owns release selection and layout; no browser files are patched
 
 import hashlib
 import json
-import shutil
+import re
 import sys
 import threading
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Literal
+from tempfile import TemporaryDirectory
+from typing import TYPE_CHECKING, Any, Literal
 
 import httpx
 from pydantic import BaseModel, SecretStr
+
+if TYPE_CHECKING:
+    from camoufox.pkgman import CamoufoxFetcher
 
 GITHUB_RATE_LIMIT = (
     "GitHub's download request limit was reached. Wait and retry, or use a GitHub token below."
@@ -23,6 +27,14 @@ GITHUB_TOKEN_REJECTED = "GitHub rejected the token. Check that it is valid and h
 GITHUB_FORBIDDEN = "GitHub refused the request. Check token access or wait before retrying."
 GITHUB_UNAVAILABLE = "Could not read browser releases from GitHub. Check your connection and retry."
 SETUP_FAILED = "Could not finish installing the browser. Check your connection and retry."
+EXPLICIT_BROWSER_SETUP = (
+    "The explicitly selected browser is missing or incompatible. Repair that selection "
+    "with the Camoufox CLI, or select the paired build with camoufox set --release and retry."
+)
+
+
+class BrowserSelectionError(RuntimeError):
+    """Safe setup guidance for an explicitly selected upstream build."""
 
 
 class GitHubDownloadError(RuntimeError):
@@ -89,45 +101,63 @@ class BrowserStatus(BaseModel):
 
 
 def installed_browser() -> tuple[bool, str | None]:
-    """Inspect the active executable without fetching or clearing old caches."""
+    """Inspect the active browser bundle without fetching or clearing old caches."""
     try:
         from camoufox.multiversion import get_active_path
-        from camoufox.pkgman import Version, installed_interface, interface_supported, launch_path
 
         active = get_active_path()
         if active is None:
             return False, None
-        version = Version.from_path(active)
-        if not version.is_supported() or not interface_supported(installed_interface(active)):
-            return False, None
-        executable = launch_path(active)
-        return Path(executable).is_file(), version.full_string
-    except (ImportError, OSError, ValueError, RuntimeError):
-        return False, None
+        version = _compatible_version(active)
+        return version is not None and _complete_bundle(active), version
     except Exception:
         # Upstream uses its own exception types for unsupported/missing builds.
         return False, None
 
 
-def valid_addon(path: Path) -> bool:
-    """A failed extraction can leave a missing or truncated manifest behind."""
+def _compatible_version(build: Path) -> str | None:
+    from camoufox.pkgman import Version, installed_interface, interface_supported
+
     try:
-        manifest = json.loads((path / "manifest.json").read_text())
-        return isinstance(manifest, dict) and manifest.get("manifest_version") in (2, 3)
-    except (OSError, ValueError):
+        version_file = build / "version.json"
+        if not version_file.resolve(strict=True).is_relative_to(build.resolve(strict=True)):
+            return None
+        version = Version.from_path(build)
+        if version.is_supported() and interface_supported(installed_interface(build)):
+            return version.full_string
+    except (OSError, ValueError, KeyError, TypeError, AttributeError, RuntimeError):
+        pass
+    return None
+
+
+def _complete_bundle(build: Path) -> bool:
+    """Check the executable and add-ons from this version's own archive."""
+    from camoufox.addons import DefaultAddons, get_addon_path
+    from camoufox.pkgman import launch_path
+
+    try:
+        root = build.resolve(strict=True)
+        executable = Path(launch_path(build))
+        if not executable.is_file() or not executable.resolve(strict=True).is_relative_to(root):
+            return False
+        for addon in DefaultAddons:
+            path = Path(get_addon_path(addon.name, executable)) / "manifest.json"
+            if not path.is_file() or not path.resolve(strict=True).is_relative_to(root):
+                return False
+            manifest = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(manifest, dict) or manifest.get("manifest_version") not in (2, 3):
+                return False
+        return True
+    except (OSError, ValueError, RuntimeError):
         return False
 
 
 def browser_resources_ready() -> bool:
     """The files a normal launch otherwise downloads without a progress UI."""
     try:
-        from camoufox.addons import DefaultAddons, get_addon_path
         from camoufox.fpgen_model import is_pinned
         from camoufox.geolocation import MMDB_DIR, load_geoip_config
 
-        for addon in DefaultAddons:
-            if not valid_addon(Path(get_addon_path(addon.name))):
-                return False
         config = load_geoip_config()
         return is_pinned() and all(
             (MMDB_DIR / f"{config['name'].lower()}-{kind}.mmdb").is_file()
@@ -256,12 +286,12 @@ class BrowserInstaller:
                 progress=None,
                 message=SETUP_FAILED,
                 error=str(exc)
-                if github_token is None or isinstance(exc, GitHubDownloadError)
+                if github_token is None
+                or isinstance(exc, (GitHubDownloadError, BrowserSelectionError))
                 else SETUP_FAILED,
             )
 
     def _install(self, github_token: SecretStr | None = None) -> None:
-        from camoufox.addons import DefaultAddons, get_addon_path, maybe_download_addons
         from camoufox.fpgen_model import ensure_fpgen_model
         from camoufox.geolocation import download_mmdb
         from camoufox.pkgman import CamoufoxFetcher
@@ -294,45 +324,60 @@ class BrowserInstaller:
                 return file
 
         if not installed_browser()[0]:
-            fetcher = ProgressFetcher()
-            # Upstream skips a target carrying version.json even if its executable
-            # is missing. Retry only an incomplete target, never a healthy build.
-            from camoufox.multiversion import BROWSERS_DIR, get_repo_name, version_folder_name
-            from camoufox.pkgman import launch_path
+            from camoufox.browser_pin import is_explicit_choice
+            from camoufox.multiversion import load_config
 
-            target = (
-                BROWSERS_DIR
-                / get_repo_name(fetcher.github_repo)
-                / version_folder_name(fetcher.version, fetcher.build, fetcher.installed_sha8)
-            )
-            replace = False
-            if target.exists():
-                try:
-                    launch_path(target)
-                except Exception:
-                    replace = True
-            fetcher.install(replace=replace)
-        self._update(progress=97, message="Preparing location data and browser add-ons…")
+            if is_explicit_choice(load_config()):
+                raise BrowserSelectionError(EXPLICIT_BROWSER_SETUP)
+            _install_paired_bundle(ProgressFetcher())
+        self._update(progress=97, message="Preparing location data and the fingerprint model…")
         ensure_fpgen_model()
         if not browser_resources_ready():
             download_mmdb()
-        # Upstream treats an existing empty directory as a successful install.
-        # Preserve incomplete contents for diagnosis and let it retry cleanly.
-        for addon in DefaultAddons:
-            addon_path = Path(get_addon_path(addon.name))
-            if addon_path.exists() and not valid_addon(addon_path):
-                if addon_path.is_symlink():
-                    raise RuntimeError(
-                        "Browser add-on cache is a symlink; repair it manually before retrying."
-                    )
-                failed = addon_path.with_name(f"{addon_path.name}.incomplete")
-                if failed.exists():
-                    shutil.rmtree(failed)
-                addon_path.rename(failed)
-        maybe_download_addons(list(DefaultAddons))
         if not browser_resources_ready():
             raise RuntimeError(
-                "A browser add-on or location database could not be downloaded. Please retry."
+                "The location database or fingerprint model could not be downloaded. Please retry."
+            )
+
+
+def _install_paired_bundle(fetcher: "CamoufoxFetcher") -> None:
+    from camoufox.multiversion import BROWSERS_DIR, get_repo_name, version_folder_name
+
+    from .update_permissions import reject_reparse_paths
+
+    # Resolve system aliases above the SDK cache, never the SDK cache itself:
+    # quarantine must not delete through a substituted cache root.
+    cache = BROWSERS_DIR.parent
+    browsers = cache.parent.resolve() / cache.name / BROWSERS_DIR.name
+    repo = browsers / get_repo_name(fetcher.github_repo)
+    version = version_folder_name(fetcher.version, fetcher.build)
+    target = repo / version_folder_name(fetcher.version, fetcher.build, fetcher.installed_sha8)
+    reject_reparse_paths(target)
+
+    def complete(candidate: Path) -> bool:
+        return _compatible_version(candidate) == version and _complete_bundle(candidate)
+
+    # Never let upstream unpack over files from an interrupted install. Its
+    # replace=True only removes a target which already contains version.json.
+    # Retire damaged caches outside browsers/ before the SDK can scan them.
+    browsers.mkdir(parents=True, exist_ok=True)
+    with TemporaryDirectory(prefix=".cpm-browser-repair-", dir=browsers.parent) as discarded:
+        if target.exists() and not complete(target):
+            target.rename(Path(discarded) / target.name)
+        # The SDK selects the first cached copy matching the pin, regardless of
+        # digest. Retire broken siblings of this exact release as well, keeping
+        # all healthy builds and profile data in place.
+        same_version = re.compile(rf"{re.escape(version)}(?:-[0-9a-fA-F]{{8}})?")
+        if repo.is_dir():
+            for candidate in repo.iterdir():
+                if candidate != target and same_version.fullmatch(candidate.name):
+                    reject_reparse_paths(candidate)
+                    if candidate.is_dir() and not complete(candidate):
+                        candidate.rename(Path(discarded) / candidate.name)
+        fetcher.install()
+        if not complete(target):
+            raise RuntimeError(
+                "The browser download finished but required browser files are missing. Try again."
             )
 
 

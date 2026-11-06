@@ -30,16 +30,13 @@ def offline_launch(options: dict[str, Any]) -> dict[str, Any]:
     cached, so with no internet every launch retries and fails, and the answer
     differs by machine anyway.
 
-    Naming an address keeps the whole path. Camoufox gates only the HTTP lookup
-    on `geoip is True`; everything after it — geolocation, timezone, locale, the
-    WebRTC candidate and the IPv6 pref that goes with it — runs the same either
-    way, against the database on disk. `geoip=False` would take a different
-    branch and change what the browser does, which is why it is not used here.
+    Naming an address keeps the GeoIP database, timezone and WebRTC code in
+    the test. The browser test fixture supplies a synthetic IPv4-only host
+    for the SDK's separate public IPv6 check.
 
-    Left alone when a test set geoip itself; profiles with coordinates turn it
-    off, and that is the behaviour under test. Note it also short-circuits the
-    lookup Camoufox makes *through a proxy* — no browser test launches with one
-    today, and one that did would want its own answer here.
+    Leave explicit geoip settings alone so profiles with coordinates can test
+    that automatic location is disabled. This also substitutes the IPv4 answer
+    for the lookup that would normally go through a configured proxy.
     """
     launch = dict(options)
     if launch.get("geoip") is True:

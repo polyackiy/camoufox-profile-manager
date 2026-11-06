@@ -335,17 +335,22 @@ class Profile(BaseModel):
         if bs.webrtc_mode == WebRTCMode.NONE:
             options["block_webrtc"] = True
         if bs.stable_canvas:
-            # Firefox's baseline fingerprinting protection randomises canvas image
-            # export (toDataURL/toBlob, 2D and WebGL) per site and per session.
-            # Turning it off makes the canvas reproducible, which is what a
-            # long-lived profile needs, together with the pinned font list.
-            # Camoufox 0.5.8 no longer emits canvas or glyph-spacing noise seeds.
-            #
-            # The cost is deliberate: the canvas is then identical across sites,
-            # exactly as real hardware behaves, so it can be correlated between
-            # them. That is why this is per profile and off by default.
+            # Reproducible canvas is an explicit profile choice. Turning off
+            # the baseline randomization makes draws linkable between sites.
             options["firefox_user_prefs"] = {
                 "privacy.baselineFingerprintingProtection": False,
+            }
+        else:
+            # Firefox 158's baseline mode can produce a fresh canvas value
+            # for each read. Use its keyed protection path with the same
+            # desktop targets as baseline mode, so each site's output stays
+            # stable within the session without linking different sites.
+            options["firefox_user_prefs"] = {
+                "privacy.fingerprintingProtection": True,
+                "privacy.fingerprintingProtection.overrides": (
+                    "-AllTargets,+EfficientCanvasRandomization,"
+                    "+ScreenAvailToResolution,+MaxTouchPointsCollapse"
+                ),
             }
         if bs.window_width and bs.window_height:
             options["window"] = (bs.window_width, bs.window_height)
