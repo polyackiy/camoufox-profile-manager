@@ -535,6 +535,8 @@ def workflow_case(device, certs, report):
             {"name": "Disposable installed workflow", "steps": steps, "concurrency": 1},
         )
         profile = device.call(f"/profiles/{profile_id}")
+        desktop_log = device.work / "data" / "desktop.log"
+        log_offset = desktop_log.stat().st_size if desktop_log.is_file() else 0
         run = device.call(
             f"/workflows/{workflow['id']}/runs",
             {
@@ -575,6 +577,39 @@ def workflow_case(device, certs, report):
                 "relay_cleanup": True,
             }
         finally:
+            evidence = report["workflow_transport"] = {}
+            with contextlib.suppress(RuntimeError, TimeoutError, OSError):
+                events, tls_failures = service.snapshot()
+                evidence["tls_failure_seen"] = tls_failures > 0
+                evidence["authentication_challenge_seen"] = any(
+                    event[0] == "rejected" for event in events
+                )
+                for scheme, port, path in zip(
+                    ("http", "https"), (fixture.http_port, fixture.https_port), paths, strict=True
+                ):
+                    connect = f"CONNECT cpm-origin.invalid:{port} ".encode("ascii")
+                    request = f" {scheme}://cpm-origin.invalid:{port}{path} ".encode("ascii")
+                    evidence[scheme] = {
+                        "proxy_accepted": any(
+                            event[0] == "request"
+                            and (event[1].startswith(connect) or request in event[1])
+                            for event in events
+                        ),
+                        "origin_received": has_path(events, path),
+                        "page_receipt": has_path(events, path.replace("/proof/", "/receipt/")),
+                    }
+                if desktop_log.is_file():
+                    with desktop_log.open("rb") as stream:
+                        stream.seek(max(log_offset, desktop_log.stat().st_size - 65536))
+                        recent = stream.read(65536)
+                    evidence["timeout_stage"] = next(
+                        (
+                            stage
+                            for stage in ("page_open", "page_goto")
+                            if f"CPM_WORKFLOW_NAVIGATION_DIAGNOSTIC {stage}".encode() in recent
+                        ),
+                        None,
+                    )
             device.call(f"/workflows/{workflow['id']}/runs/{run['id']}/cancel", {})
             device.call("/browsers/close-all", {})
 
@@ -633,6 +668,7 @@ def main():
     arguments = parser.parse_args()
     if os.environ.get("GITHUB_ACTIONS") != "true":
         parser.error("Run only on disposable GitHub Actions workers")
+    workflow_only = os.environ.get("CPM_CI_WORKFLOW_ONLY") == "1"
     result = {
         "platform": sys.platform,
         "architecture": platform.machine(),
@@ -646,6 +682,8 @@ def main():
         "cases": [],
         "scope": "TCP-health-browser-TLS-refusal-manager-close-and-restart",
     }
+    if workflow_only:
+        result["scope"] = "authenticated-HTTPS-proxy-workflow-only"
     phase = "setup"
     device = None
     try:
@@ -682,7 +720,7 @@ def main():
                     assert diagnostic["stage"] == "profile_lookup"
                     assert diagnostic["category"] == "missing_profile"
                     result["diagnostic_check"] = diagnostic
-                    for protocol, auth in CASES:
+                    for protocol, auth in () if workflow_only else CASES:
                         phase = protocol + ("-password" if auth else "-none")
                         print(f"Installed proxy acceptance: {phase}", flush=True)
                         result["cases"].append(
@@ -695,7 +733,7 @@ def main():
                                 report=result,
                             )
                         )
-                    for protocol in ("http", "https"):
+                    for protocol in () if workflow_only else ("http", "https"):
                         phase = protocol + "-untrusted"
                         result["cases"].append(
                             untrusted_case(device, protocol, other_certs, certs, report=result)

@@ -27,12 +27,16 @@ on:
         type: choice
         options: [all, ubuntu-22.04, windows-2022, macos-15, macos-15-intel]
         default: all
+      workflow_only:
+        description: Run only the isolated workflow navigation control
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
 concurrency:
-  group: installed-proxy-${{ github.ref }}-${{ inputs.platform || 'all' }}
+  group: installed-proxy-${{ github.ref }}-${{ inputs.platform || 'all' }}-${{ inputs.workflow_only }}
   cancel-in-progress: true
 
 jobs:
@@ -103,9 +107,12 @@ jobs:
         if: runner.os == 'Linux'
         env:
           LIBGL_ALWAYS_SOFTWARE: '1'
+          CPM_CI_WORKFLOW_ONLY: ${{ inputs.workflow_only && '1' || '0' }}
         run: xvfb-run -a uv run --no-sync python -m scripts.installed_proxy_acceptance --output installed-proxy.json
       - name: Exercise installed proxy protocols
         if: runner.os != 'Linux'
+        env:
+          CPM_CI_WORKFLOW_ONLY: ${{ inputs.workflow_only && '1' || '0' }}
         run: uv run --no-sync python -m scripts.installed_proxy_acceptance --output installed-proxy.json
       - name: Upload sanitized acceptance report only
         if: always()

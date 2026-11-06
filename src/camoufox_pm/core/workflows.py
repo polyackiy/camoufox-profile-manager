@@ -355,6 +355,7 @@ class WorkflowEngine:
         owned = None
         page = None
         current = None
+        navigation_stage = None
         try:
             async with profile_admission(self.profiles, profile_id):
                 profile = await self.storage.get_profile(profile_id)
@@ -372,6 +373,7 @@ class WorkflowEngine:
                     return
                 row["state"] = "running"
                 for index, step in enumerate(definition.steps):
+                    navigation_stage = None
                     if cancel.is_set():
                         row["state"] = "cancelled"
                         break
@@ -401,14 +403,18 @@ class WorkflowEngine:
                             raise WorkflowConflict()
                         if step.action == "navigate":
                             if page is None:
+                                navigation_stage = "page_open"
                                 page = await asyncio.wait_for(owned.context.new_page(), 15)
+                                navigation_stage = None
                             assert page is not None
                             if not await self.authorized(owner, profile_id, session_hash):
                                 raise WorkflowDenied()
+                            navigation_stage = "page_goto"
                             response = await asyncio.wait_for(
                                 page.goto(step.url, wait_until="domcontentloaded", timeout=45000),
                                 50,
                             )
+                            navigation_stage = None
                             if response is not None and response.status >= 400:
                                 raise WorkflowConflict()
                         elif step.action == "wait":
@@ -439,6 +445,8 @@ class WorkflowEngine:
         except Exception as error:
             # Browser exceptions often contain URLs and proxy credentials. No
             # exception text, response bodies, page content or parameters in logs.
+            if navigation_stage and isinstance(error, asyncio.TimeoutError):
+                logger.warning("CPM_WORKFLOW_NAVIGATION_DIAGNOSTIC {}", navigation_stage)
             row.update(
                 state="failed",
                 error_code=safe_failure_code(error),
