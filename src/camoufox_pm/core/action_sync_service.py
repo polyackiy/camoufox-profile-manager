@@ -115,6 +115,11 @@ class CaptureLaunch:
     async def options(self, normal: dict[str, Any]) -> dict[str, Any]:
         from camoufox.utils import launch_options
 
+        # Playwright wire logging can print the whole launch request including
+        # the native environment. Fail before handing out a key in that mode.
+        debug = os.environ.get("DEBUG", "")
+        if "DEBUGP" in os.environ or "pw:" in debug or "*" in debug:
+            raise ActionSyncUnavailable()
         if not await self._authority.is_authenticated() or self._maintenance.blocked:
             raise ActionSyncUnavailable()
         public = {
@@ -130,7 +135,9 @@ class CaptureLaunch:
         # Build the public options first and give the launch capability solely
         # to the final persistent Playwright context via SDK from_options.
         public.setdefault("pin_cpu_cores", False)
-        prepared = await asyncio.to_thread(launch_options, **public)
+        prepared = await _drain_cleanup(
+            asyncio.create_task(asyncio.to_thread(launch_options, **public))
+        )
         if not await self._authority.is_authenticated() or self._maintenance.blocked:
             raise ActionSyncUnavailable()
         env = dict(prepared.get("env") or os.environ)
@@ -203,6 +210,7 @@ class PreparedActionLeader:
                 return (
                     await bound.authorize(current)
                     and not self._maintenance.blocked
+                    and self._channel.is_open()
                     and all(tab.is_current() for tab in reviewed)
                 )
 

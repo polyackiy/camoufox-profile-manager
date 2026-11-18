@@ -99,3 +99,23 @@ def test_prepared_playback_is_restricted_to_canonical_loopback_origins(origin):
     with pytest.raises(ActionSyncUnavailable):
         _reviewed_origin(origin)
     assert _reviewed_origin("http://127.0.0.1:8080") == "http://127.0.0.1:8080"
+
+
+@pytest.mark.parametrize(
+    "variable,value", [("DEBUGP", ""), ("DEBUG", "pw:protocol"), ("DEBUG", "*")]
+)
+async def test_prepared_launch_refuses_protocol_logging(monkeypatch, tmp_path, variable, value):
+    monkeypatch.setenv(variable, value)
+    authority = SimpleNamespace(is_authenticated=AsyncMock(return_value=True))
+    capture = CaptureLaunch(
+        authority,
+        SimpleNamespace(blocked=False),
+        SimpleNamespace(),
+        tmp_path / "browser",
+        "native-extension",
+        tmp_path / "addon",
+        tmp_path / "host",
+    )
+    with pytest.raises(ActionSyncUnavailable):
+        await capture.options({"persistent_context": True, "headless": False})
+    authority.is_authenticated.assert_not_awaited()

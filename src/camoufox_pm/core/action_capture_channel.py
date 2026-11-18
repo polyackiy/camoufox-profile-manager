@@ -556,6 +556,13 @@ class CaptureChannel:
                 self._pending = None
                 self._accepted = None
 
+    def is_open(self) -> bool:
+        """Fence dispatch even when the expiry timer is behind another ready task."""
+        self._require_loop()
+        if not self._stopped and self._loop.time() >= self._expiry.when():
+            self.stop()
+        return not self._stopped
+
     def on_stop(self, callback: Callable[[], None]) -> None:
         """Notify the owning run synchronously when its generation is revoked."""
         self._require_loop()

@@ -321,3 +321,21 @@ async def test_unix_endpoint_is_private_and_removed_on_stop(tmp_path):
     finally:
         channel.stop()
     assert not endpoint.parent.exists()
+
+
+@pytest.mark.asyncio
+async def test_dispatch_clock_fence_revokes_before_due_timer_has_run(tmp_path):
+    channel = action_capture_channel.CaptureChannel(tmp_path / "profile", EXECUTABLE)
+    stopped = asyncio.Event()
+    channel.on_stop(stopped.set)
+    loop = asyncio.get_running_loop()
+    channel._expiry.cancel()
+    channel._expiry = loop.call_at(loop.time() - 1, channel.stop)
+    try:
+        # No event-loop yield since scheduling the due callback. A last
+        # authorization check must still revoke rather than dispatch.
+        assert not stopped.is_set()
+        assert not channel.is_open()
+        assert stopped.is_set()
+    finally:
+        await channel.close()
