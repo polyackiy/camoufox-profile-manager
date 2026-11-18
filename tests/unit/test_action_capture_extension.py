@@ -9,6 +9,8 @@ from types import SimpleNamespace
 import pytest
 from scripts.action_sync_probe import prepare_addon
 
+from camoufox_pm.core.update_permissions import PermissionProtectionError
+
 
 def test_launch_credential_never_enters_addon_or_extension_storage(tmp_path):
     broker = SimpleNamespace(origin="https://site.test:12345", generation="g", key=b"private key")
@@ -67,7 +69,9 @@ def test_registration_removes_only_its_owned_manifest(tmp_path, monkeypatch):
     assert not manifest.exists()
     assert existing.read_text() == "other installation"
     manifest.write_text("new owner")
-    with pytest.raises(FileExistsError):
+    # Windows' private-file helper reports the exclusive-create rejection as
+    # a permission protection error. The manifest must survive either way.
+    with pytest.raises((FileExistsError, PermissionProtectionError)):
         with action_sync_probe.native_registration(
             root, "cpm.temporary", "addon@cpm", root / "host"
         ):

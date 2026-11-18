@@ -56,16 +56,21 @@ raise SystemExit(1)
 """
 ADDON = "synthetic@camoufox-pm.local"
 ORIGIN = "https://example.invalid"
-EXECUTABLE = Path(sys.executable)
+# Pin the image reported by the OS, just as the manager does for Camoufox.
+# The venv's executable can be a redirector or a framework launcher, with
+# a different on-disk path and an extra process in the ancestry.
+EXECUTABLE = Path(psutil.Process().exe())
 
 
 @asynccontextmanager
 async def native_host(channel, profile, *, script=NATIVE_HOST):
     env = dict(
-        os.environ, CPM_ACTION_CAPTURE_PROBE=channel.environment(ADDON, host_executable=EXECUTABLE)
+        os.environ,
+        CPM_ACTION_CAPTURE_PROBE=channel.environment(ADDON, host_executable=EXECUTABLE),
+        PYTHONPATH=os.pathsep.join(sys.path),
     )
     process = await asyncio.create_subprocess_exec(
-        sys.executable,
+        str(EXECUTABLE),
         "-c",
         ROOT,
         BROWSER,
@@ -74,7 +79,6 @@ async def native_host(channel, profile, *, script=NATIVE_HOST):
         ADDON,
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.DEVNULL,
         env=env,
     )
     assert process.stdin is not None and process.stdout is not None
