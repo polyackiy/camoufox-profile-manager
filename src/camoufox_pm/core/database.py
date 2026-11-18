@@ -40,6 +40,18 @@ def _deserialize_proxy(data: dict) -> ProxyConfig:
     return ProxyConfig(**data)
 
 
+def _timestamp_is_live(value: object, now: datetime, separator: str) -> bool:
+    if not isinstance(value, str):
+        return False
+    try:
+        expires = datetime.fromisoformat(value)
+    except ValueError:
+        return False
+    # Require a complete timestamp in the format written by the corresponding
+    # storage method. In particular, fromisoformat also accepts bare dates.
+    return expires.tzinfo is None and expires.isoformat(separator) == value and expires > now
+
+
 class StaleWriteError(Exception):
     """A save built on an older version of the row than the one stored.
 
@@ -903,6 +915,35 @@ class DatabaseManager:
         row = cursor.fetchone()
         return dict(row) if row else None
 
+    async def action_sync_administrator(
+        self, token_hash: str, username: str, holder: str, profile_ids: tuple[str, ...]
+    ) -> str | None:
+        """Read the live administrator and the entire requested lease cohort together."""
+        placeholders = ",".join("?" for _ in profile_ids) or "NULL"
+        rows = self._connection.execute(
+            f"""
+            SELECT s.user_id, s.expires_at, p.lock_expires
+            FROM sessions s JOIN users u ON u.id = s.user_id
+            LEFT JOIN profiles p ON p.id IN ({placeholders})
+              AND p.locked_by = ? AND p.deleted_at IS NULL
+            WHERE s.token_hash = ? AND u.username COLLATE BINARY = ? AND u.role = 'administrator'
+            """,
+            (*profile_ids, holder, token_hash, username),
+        ).fetchall()
+        if len(rows) != max(1, len(profile_ids)):
+            return None
+        # Sessions use local wall time, while leases are persisted in UTC.
+        now = datetime.now(timezone.utc)
+        local_now = now.astimezone().replace(tzinfo=None)
+        if not _timestamp_is_live(rows[0]["expires_at"], local_now, "T"):
+            return None
+        utc_now = now.replace(tzinfo=None)
+        if profile_ids and not all(
+            _timestamp_is_live(row["lock_expires"], utc_now, " ") for row in rows
+        ):
+            return None
+        return rows[0]["user_id"]
+
     async def delete_session(self, token_hash: str) -> bool:
         cursor = self._connection.execute(
             "DELETE FROM sessions WHERE token_hash = ?", (token_hash,)
@@ -1377,6 +1418,11 @@ class StorageManager:
 
     async def get_session(self, token_hash: str) -> dict | None:
         return await self.db.get_session(token_hash)
+
+    async def action_sync_administrator(
+        self, token_hash: str, username: str, holder: str, profile_ids: tuple[str, ...]
+    ) -> str | None:
+        return await self.db.action_sync_administrator(token_hash, username, holder, profile_ids)
 
     async def delete_session(self, token_hash: str) -> bool:
         return await self.db.delete_session(token_hash)

@@ -172,3 +172,36 @@ admission; explicit controller and tab mapping; native/security acceptance. If t
 privileged channel cannot satisfy the first two gates without a browser fork,
 keep capture disabled and revise this design rather than substituting an
 untrusted page bridge.
+
+### Manager lifecycle implementation
+
+The first #162 block reserves one cohort per manager and keeps an ordered queue
+for each reviewed follower. Stop revokes the capture gate and discards waiting
+clicks immediately. The reservation remains held until startup authorization,
+preflight and already submitted commands return. An expired wait reports that the
+cohort is still draining. Browser close keeps the tracked session and lease until
+the drain is confirmed. Group close starts the cohort's transports closing
+together, and deferred exit callbacks are bound to the exact browser instance.
+
+An internal adapter separates read-only asynchronous preflight from submission.
+The manager rechecks authority, exact session identity and the action deadline
+after preflight, before invoking the reviewed send callable. That callable must
+begin submission on invocation and settle only when it can send no further input.
+Production native transport and this settlement contract, current administrator
+cookie and lease checks, scoped close-all and maintenance coordination, reviewed
+tab geometry and unit-aware wheel playback remain part of #162 acceptance.
+
+The internal manager path now takes an authenticated cookie session and pins the
+immutable user ID. It checks current administrator authority and every live
+profile lease from one database snapshot. The prepared leader has one owner-only
+socket or named pipe. The host proves its PID and ancestry against the actual
+manager-owned browser process and profile, and the extension binds arm to the
+foreground document's private nonce. A channel close revokes the run immediately;
+an idle native host also notices closure and disconnects its extension port.
+
+The first playback adapter is limited to loopback test pages. It runs a guarded
+synthetic click in the pinned document. Its final checks cover the document, exact
+URL, origin, view size and hit target together. A privileged adapter and manual
+pointer and wheel acceptance are required before using arbitrary sites. Closed
+admission remains held if an already submitted command has not settled. A bounded
+operator recovery flow that proves the owned transport stopped remains open.

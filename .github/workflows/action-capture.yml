@@ -4,8 +4,10 @@ on:
   pull_request:
     paths:
       - 'src/camoufox_pm/core/action_capture*.py'
+      - 'src/camoufox_pm/core/action_sync*.py'
+      - 'tests/unit/test_action_sync*.py'
       - 'scripts/action_*'
-      - 'scripts/action_capture_extension/**'
+      - 'src/camoufox_pm/core/action_capture_extension/**'
       - 'tests/unit/test_action_capture*.py'
       - 'tests/unit/action_capture_extension_test.cjs'
       - 'tests/browser/test_action_capture.py'
@@ -23,7 +25,7 @@ jobs:
   capture:
     name: Capture (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 25
+    timeout-minutes: 35
     env:
       CPM_ACTION_CAPTURE_ACCEPTANCE: "1"
       # Emit only coroutine locations, never frame arguments or captured input.
@@ -44,7 +46,7 @@ jobs:
       - name: Install locked development and host-build dependencies
         run: uv sync --locked --extra dev --extra build --extra sync
       - name: Validate protocol and host rejection
-        run: uv run --no-sync pytest tests/unit/test_action_capture.py tests/unit/test_action_capture_host.py tests/unit/test_action_capture_extension.py -q -W error::ResourceWarning -W error::pytest.PytestUnraisableExceptionWarning
+        run: uv run --no-sync pytest tests/unit/test_action_capture.py tests/unit/test_action_capture_host.py tests/unit/test_action_capture_extension.py tests/unit/test_action_capture_channel.py tests/unit/test_action_sync_authority.py tests/unit/test_action_sync_tabs.py -q -W error::ResourceWarning -W error::pytest.PytestUnraisableExceptionWarning
       - name: Install Linux browser libraries
         if: runner.os == 'Linux'
         run: |

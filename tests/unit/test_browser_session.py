@@ -130,12 +130,12 @@ async def test_handle_exit_notifies_once_and_prunes():
     session.on_exit = on_exit
     mgr.active_sessions["p1"] = session
 
-    await mgr._handle_exit("p1")
+    await mgr._handle_exit(session)
     assert calls == ["p1"]
     assert mgr.is_running("p1") is False
 
     # Fallback monitor firing after the close event must be a no-op.
-    await mgr._handle_exit("p1")
+    await mgr._handle_exit(session)
     assert calls == ["p1"]
 
 
@@ -276,7 +276,7 @@ async def test_the_watchdog_tears_down_when_the_process_disappears(vanished_driv
     session.on_exit = on_exit
     mgr.active_sessions["p1"] = session
 
-    await mgr._monitor("p1", vanished_driver)
+    await mgr._monitor(session, vanished_driver)
 
     assert closed == ["p1"]
     assert mgr.is_running("p1") is False
@@ -622,7 +622,7 @@ async def test_monitor_can_initiate_shared_cleanup_without_deadlock(monkeypatch)
     camoufox = FakeCamoufox()
     session = BrowserSession("p", camoufox)
     manager.active_sessions["p"] = session
-    session.monitor_task = asyncio.create_task(manager._monitor("p", 123))
+    session.monitor_task = asyncio.create_task(manager._monitor(session, 123))
     await asyncio.wait_for(asyncio.gather(session.monitor_task, return_exceptions=True), 1)
     assert camoufox.exits == 1 and not manager.is_live("p")
 

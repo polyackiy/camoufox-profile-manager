@@ -51,7 +51,7 @@ def test_host_uses_framing_and_bound_launch_key_without_echo(monkeypatch):
     write_message(incoming, {"kind": "ready"})
     incoming.seek(0)
     output = io.BytesIO()
-    monkeypatch.setattr(sys, "stdin", SimpleNamespace(buffer=incoming))
+    monkeypatch.setattr(action_capture_host, "_NativeInput", lambda _peer: incoming)
     monkeypatch.setattr(sys, "stdout", SimpleNamespace(buffer=output))
     sent = []
     responses = iter([{"challenge": "challenge"}, {"ok": True}, {"arm": True}])

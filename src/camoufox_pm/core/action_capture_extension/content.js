@@ -1,6 +1,9 @@
 /* Developer capture gate. No page bridge, DOM selectors, text or stored state. */
 (() => {
   if (window.top !== window) return;
+  // The nonce resides only in this content script's isolated document realm.
+  const documentId = Array.from(crypto.getRandomValues(new Uint8Array(16)),
+    (value) => value.toString(16).padStart(2, '0')).join('');
   let generation = null;
   let stopped = false;
   const sensitive = (event) => event.composedPath().some((node) => {
@@ -21,7 +24,7 @@
         Math.abs(event.deltaX) > limit || Math.abs(event.deltaY) > limit)) return;
     const x = Math.floor(event.clientX), y = Math.floor(event.clientY);
     if (x < 0 || y < 0 || x >= innerWidth || y >= innerHeight) return;
-    const value = {kind, generation, width: innerWidth, height: innerHeight, x, y};
+    const value = {kind, generation, document: documentId, width: innerWidth, height: innerHeight, x, y};
     if (kind === 'scroll') Object.assign(value, {
       delta_x: Math.trunc(event.deltaX), delta_y: Math.trunc(event.deltaY), delta_mode: mode,
     });
@@ -36,15 +39,18 @@
     document.removeEventListener('wheel', wheel, true);
   }
   browser.runtime.onMessage.addListener((message) => {
-    if (message.kind === 'arm' && !stopped && generation === null) {
+    if (message.kind === 'arm' && message.document === documentId && !stopped && generation === null) {
       generation = message.generation;
       document.addEventListener('click', click, true);
       document.addEventListener('wheel', wheel, {capture: true, passive: true});
+      return Promise.resolve({armed: true});
     } else stop();
   });
   addEventListener('pagehide', () => {
     stop();
-    browser.runtime.sendMessage({kind: 'invalidated'}).catch(() => {});
+    browser.runtime.sendMessage({kind: 'invalidated', document: documentId}).catch(() => {});
   }, {once: true});
-  browser.runtime.sendMessage({kind: 'ready', width: innerWidth, height: innerHeight}).catch(stop);
+  browser.runtime.sendMessage({
+    kind: 'ready', document: documentId, width: innerWidth, height: innerHeight,
+  }).catch(stop);
 })();

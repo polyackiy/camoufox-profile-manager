@@ -14,7 +14,7 @@ import math
 import struct
 import time
 from collections.abc import Callable
-from typing import BinaryIO
+from typing import BinaryIO, Protocol
 
 MAX_MESSAGE_BYTES = 4096
 
@@ -69,7 +69,11 @@ def encode_message(value: dict) -> bytes:
         raise CaptureRejected() from None
 
 
-def _read(stream: BinaryIO, length: int) -> bytes:
+class _ByteReader(Protocol):
+    def read(self, size: int, /) -> bytes: ...
+
+
+def _read(stream: _ByteReader, length: int) -> bytes:
     result = bytearray()
     while len(result) < length:
         chunk = stream.read(length - len(result))
@@ -79,7 +83,7 @@ def _read(stream: BinaryIO, length: int) -> bytes:
     return bytes(result)
 
 
-def read_message(stream: BinaryIO) -> dict:
+def read_message(stream: _ByteReader) -> dict:
     length = struct.unpack("=I", _read(stream, 4))[0]
     if not 0 < length <= MAX_MESSAGE_BYTES:
         raise CaptureRejected()

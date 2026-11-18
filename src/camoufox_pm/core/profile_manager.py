@@ -2,16 +2,17 @@
 
 import asyncio
 import shutil
+from contextlib import AbstractAsyncContextManager
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
 from camoufox_pm.config import get_settings
 
 from . import fingerprint_store, profile_archive, proxy_check
-from .browser_session import BrowserSessionManager
+from .browser_session import BrowserLaunchError, BrowserSessionManager
 from .database import StaleWriteError, StorageManager
 from .extension_library import managed_default_exclusions, resolve_profile_addons
 from .fingerprint_generator import FingerprintGenerator
@@ -27,6 +28,11 @@ from .models import (
 )
 from .profile_operations import profile_data_path, profile_operation, run_file_operation
 from .sync_guard import guard_profile, sync_mutation, sync_mutation_guard
+
+if TYPE_CHECKING:
+    from camoufox_pm.api.principal import Principal
+
+    from .action_sync_service import CaptureLaunch, PreparedActionLeader
 
 
 class ProfileManager:
@@ -884,6 +890,22 @@ class ProfileManager:
 
     # -- Browser control (delegated to BrowserSessionManager) ---------------
 
+    def prepare_action_capture(
+        self,
+        principal: "Principal | None",
+        session_hash: str | None,
+        *,
+        profile_id: str,
+        origin: str,
+        headless: bool = False,
+    ) -> "AbstractAsyncContextManager[PreparedActionLeader]":
+        """Internal preparation for the reviewed local controller."""
+        from .action_sync_service import prepare_action_leader
+
+        return prepare_action_leader(
+            self, principal, session_hash, profile_id=profile_id, origin=origin, headless=headless
+        )
+
     async def launch_browser(
         self,
         profile_id: str,
@@ -896,14 +918,16 @@ class ProfileManager:
         # Serialize launches with workflows, edits and sync admission across
         # cooperating instances; the live browser retains its existing lease.
         async with profile_admission(self, profile_id):
-            return await self._launch_browser(profile_id, headless, window_size, **kwargs)
+            return await self._launch_browser(profile_id, headless, window_size, overrides=kwargs)
 
     async def _launch_browser(
         self,
         profile_id: str,
         headless: bool = False,
         window_size: str | None = None,
-        **kwargs: Any,
+        *,
+        overrides: dict[str, Any] | None = None,
+        capture_launch: "CaptureLaunch | None" = None,
     ) -> dict[str, Any]:
         """Launch a Camoufox browser for a profile.
 
@@ -967,7 +991,7 @@ class ProfileManager:
                     options["window"] = (width, height)
                 except ValueError:
                     logger.warning(f"Ignoring invalid window_size {window_size!r} (expected WxH)")
-            options.update(kwargs)
+            options.update(overrides or {})
 
             if profile.extensions:
                 options["addons"] = await run_file_operation(
@@ -1026,11 +1050,24 @@ class ProfileManager:
             await proxy_check.prepare_proxy_geoip(profile.proxy, options)
             await proxy_check.fill_what_geoip_would_have(profile.proxy, options)
 
-            session = await self.browser_sessions.launch(
-                profile_id,
-                options,
-                on_exit=self._on_browser_exit,
-            )
+            if capture_launch is not None:
+                # The native capability goes only to the explicit browser
+                # launch. Keep it out of fingerprint generation and receipts.
+                try:
+                    session = await self.browser_sessions.launch(
+                        profile_id,
+                        options,
+                        on_exit=self._on_browser_exit,
+                        capture_launch=capture_launch,
+                    )
+                except BrowserLaunchError:
+                    raise BrowserLaunchError(
+                        "Could not start the prepared capture browser"
+                    ) from None
+            else:
+                session = await self.browser_sessions.launch(
+                    profile_id, options, on_exit=self._on_browser_exit
+                )
         except (Exception, asyncio.CancelledError):
             # CancelledError is a BaseException, not an Exception: an HTTP client
             # that disconnects mid-launch cancels this coroutine, and a lease must
