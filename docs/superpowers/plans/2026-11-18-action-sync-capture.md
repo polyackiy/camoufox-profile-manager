@@ -73,4 +73,5 @@ The broker, admission and lifecycle must recheck administrator cookie authority,
   handle inferred as `None` despite `create_window` returning `Window | None`.
   The handle now declares its optional type through a checking-only import.
   All 122 manager modules and the eight existing recovery bridge tests pass;
-  the Linux native gate also checks types with the locked desktop build extras.
+  Python 3.12 backend CI also checks types with the locked desktop build extras
+  on every PR, including changes outside the capture gate's paths.
