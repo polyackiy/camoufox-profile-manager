@@ -80,6 +80,9 @@ def _console_host(root: Path) -> tuple[Path, Path]:
         return executable, executable
     if sys.platform == "win32":
         raise ActionSyncUnavailable()
+    # A framework's launcher can exec a different binary after startup.
+    # Bind the native peer to the real interpreter image of this manager.
+    image = Path(psutil.Process().exe())
     launcher = root / "native-host"
     launcher.write_text(
         "#!/bin/sh\nexec "
@@ -88,7 +91,7 @@ def _console_host(root: Path) -> tuple[Path, Path]:
         encoding="utf-8",
     )
     launcher.chmod(0o700)
-    return launcher, interpreter
+    return launcher, image
 
 
 class CaptureLaunch:

@@ -1,5 +1,6 @@
 """Keep the prepared launch callback internal and out of browser receipts."""
 
+import sys
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -7,6 +8,21 @@ import pytest
 
 from camoufox_pm.api.principal import Principal
 from camoufox_pm.core.action_sync_service import ActionSyncUnavailable, CaptureLaunch
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows requires the bundled console host")
+def test_source_console_host_keeps_launch_path_but_binds_os_process_image(tmp_path, monkeypatch):
+    from camoufox_pm.core import action_sync_service
+
+    interpreter = tmp_path / "test venv" / "python"
+    image = tmp_path / "Python.app" / "Python"
+    monkeypatch.setattr(action_sync_service.sys, "executable", str(interpreter))
+    monkeypatch.setattr(
+        action_sync_service.psutil, "Process", lambda: SimpleNamespace(exe=lambda: str(image))
+    )
+    launcher, expected_image = action_sync_service._console_host(tmp_path)
+    assert f"'{interpreter}' -I -m camoufox_pm.core.action_capture_host" in launcher.read_text()
+    assert expected_image == image
 
 
 @pytest.mark.parametrize("kind", ["legacy_api_key", "anonymous_local", "system", "session"])
