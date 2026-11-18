@@ -693,9 +693,9 @@ class BrowserSessionManager:
         """Close every active browser and return how many were closed."""
         count = 0
         failed = False
-        sessions = tuple(self.active_sessions.values())
+        sessions = tuple(self.active_sessions.items())
         cohort: dict[str, BrowserSession] = {}
-        for session in sessions:
+        for _, session in sessions:
             run = self.action_sync.for_browser(session)
             if run is not None:
                 cohort.update((member.profile_id, member) for member in run.sessions)
@@ -723,8 +723,7 @@ class BrowserSessionManager:
                     raise result
                 elif result:
                     count += 1
-        for session in sessions:
-            profile_id = session.profile_id
+        for profile_id, _ in sessions:
             if profile_id in cohort:
                 continue
             try:
