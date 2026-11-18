@@ -127,6 +127,7 @@ class ProbeBroker:
                 peer.send_bytes(encode_message({"ok": True}))
                 self.phase = "waiting-tab"
                 ready, _ = self._receive(peer)
+                self.phase = "tab-validation"
                 if (
                     set(ready) != {"kind", "tab", "generation", "origin", "width", "height"}
                     or ready["kind"] != "ready"
@@ -140,6 +141,7 @@ class ProbeBroker:
                     or ready["height"] != 700
                 ):
                     raise CaptureRejected()
+                self.phase = "arming"
                 self.gate = CaptureGate(
                     self.key,
                     self.generation,

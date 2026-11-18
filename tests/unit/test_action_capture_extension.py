@@ -47,3 +47,29 @@ def test_native_host_preparation_failure_does_not_leave_a_broker(tmp_path, monke
         with action_sync_probe.capture_probe("https://site.test"):
             pytest.fail("Invalid preparation yielded a capture session")
     broker.assert_not_called()
+
+
+def test_registration_removes_only_its_owned_manifest(tmp_path, monkeypatch):
+    from scripts import action_sync_probe
+
+    home = tmp_path / "home"
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
+    monkeypatch.setattr(action_sync_probe.sys, "platform", "linux")
+    directory = home / ".mozilla/native-messaging-hosts"
+    directory.mkdir(parents=True)
+    existing = directory / "unrelated.json"
+    existing.write_text("other installation")
+    root = tmp_path / "scratch"
+    root.mkdir()
+    with action_sync_probe.native_registration(root, "cpm.temporary", "addon@cpm", root / "host"):
+        manifest = directory / "cpm.temporary.json"
+        assert manifest.is_file()
+    assert not manifest.exists()
+    assert existing.read_text() == "other installation"
+    manifest.write_text("new owner")
+    with pytest.raises(FileExistsError):
+        with action_sync_probe.native_registration(
+            root, "cpm.temporary", "addon@cpm", root / "host"
+        ):
+            pytest.fail("Existing host was overwritten")
+    assert manifest.read_text() == "new owner"

@@ -49,18 +49,32 @@ async def test_native_capture_routes_only_selected_trusted_input(local_sites, tm
             }"""
             await source.evaluate(script)
             await target.evaluate(script)
-            # Hostile page cannot reach extension messaging through ordinary JS.
             await source.evaluate("""() => {
+                const host=document.createElement('div');
+                host.id='shadow'; host.style='position:absolute;left:200px;top:100px;width:150px;height:50px';
+                const input=document.createElement('input'); input.type='password';
+                host.attachShadow({mode:'closed'}).appendChild(input);
+                document.body.appendChild(host);
+            }""")
+            # Hostile page cannot reach extension messaging through ordinary JS.
+            await source.add_script_tag(
+                content="""(() => {
                 window.postMessage({kind:'click',sequence:1,x:10,y:10}, '*');
                 document.querySelector('#go').dispatchEvent(new MouseEvent('click',{bubbles:true}));
                 document.dispatchEvent(new WheelEvent('wheel',{deltaY:100,bubbles:true}));
-            }""")
+            })();"""
+            )
             await asyncio.sleep(0.2)
             assert broker.events.empty()
             await source.locator("#password").click()
             await source.locator("#password").fill("not-captured")
             await asyncio.sleep(0.2)
             assert broker.events.empty()
+            await source.mouse.click(240, 110)
+            await source.mouse.wheel(0, 50)
+            await asyncio.sleep(0.2)
+            assert broker.events.empty(), "Closed shadow input was captured"
+            await source.evaluate("scrollTo(0,0)")
             await source.locator("#go").click()
             value = await asyncio.to_thread(broker.events.get, True, 10)
             assert value["kind"] == "click"
@@ -98,6 +112,13 @@ async def test_native_capture_routes_only_selected_trusted_input(local_sites, tm
             # No launch capability or capture payload was written in the profile.
             key = launch_key.hex().encode()
             assert all(key not in p.read_bytes() for p in (root / "addon").glob("*"))
+        # Closed browser data is the input to backup/export/snapshot code.
+        # Neither the native credential nor raw event payloads may live there.
+        for path in (root / "leader").rglob("*"):
+            if path.is_file() and not path.is_symlink():
+                payload = path.read_bytes()
+                if launch_key in payload or launch_key.hex().encode() in payload:
+                    pytest.fail("A capture credential entered closed-profile storage")
 
 
 @pytest.mark.browser
