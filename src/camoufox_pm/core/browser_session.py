@@ -25,6 +25,7 @@ import psutil
 from loguru import logger
 
 from ..config import get_settings
+from .action_sync import ActionSync
 from .socks_relay import SocksRelay
 
 if TYPE_CHECKING:
@@ -41,6 +42,7 @@ except ImportError:  # pragma: no cover - exercised only without camoufox instal
     CAMOUFOX_AVAILABLE = False
 
 ExitHandler = Callable[[str], Awaitable[None]]
+ACTION_SYNC_DRAIN_SECONDS = 5
 
 
 class BrowserLaunchError(RuntimeError):
@@ -304,6 +306,7 @@ class BrowserSession:
         self.monitor_task: asyncio.Task | None = None
         self.on_exit: ExitHandler | None = None
         self.on_stopped: ExitHandler | None = None
+        self._exit_observed = False
         self._terminated = False
         self.socks_relay = socks_relay
         self._termination_task: asyncio.Task[None] | None = None
@@ -387,6 +390,17 @@ class BrowserSessionManager:
         self._holder = holder
         self.on_stopped: ExitHandler | None = None
         self._heartbeat_task: asyncio.Task[None] | None = None
+        self.action_sync = ActionSync(self._action_browser_is_current)
+
+    def _action_browser_is_current(self, session: BrowserSession) -> bool:
+        profile_id = session.profile_id
+        return (
+            self.active_sessions.get(profile_id) is session
+            and profile_id not in self._closing
+            and profile_id not in self._starting
+            and not session._exit_observed
+            and not session._terminated
+        )
 
     def start_heartbeat(self, interval: float = 30.0) -> None:
         """Begin renewing this process's leases in the background.
@@ -564,15 +578,15 @@ class BrowserSessionManager:
                 self._starting.pop(profile_id, None)
 
         # Primary signal: the browser/context closing (e.g. the user closes the window).
-        self._register_close_handler(browser, profile_id)
+        self._register_close_handler(browser, session)
         # Fallback: poll the driver pid, only if we could resolve one.
         if process_id:
-            session.monitor_task = asyncio.create_task(self._monitor(profile_id, process_id))
+            session.monitor_task = asyncio.create_task(self._monitor(session, process_id))
 
         logger.info(f"Browser launched for profile {profile_id} (pid={process_id})")
         return session
 
-    def _register_close_handler(self, browser: Any, profile_id: str) -> None:
+    def _register_close_handler(self, browser: Any, session: BrowserSession) -> None:
         """Wire Playwright close/disconnect events to session cleanup."""
         loop = asyncio.get_running_loop()
 
@@ -584,7 +598,13 @@ class BrowserSessionManager:
                 logger.warning("Browser close callback did not complete; session remains tracked")
 
         def _on_close(*_: Any) -> None:
-            task = loop.create_task(self._handle_exit(profile_id))
+            if (
+                session._exit_observed
+                or self.active_sessions.get(session.profile_id) is not session
+            ):
+                return
+            self._note_exit(session)
+            task = loop.create_task(self._handle_exit(session))
             self._exit_tasks.add(task)
             task.add_done_callback(finished)
 
@@ -594,9 +614,17 @@ class BrowserSessionManager:
             except Exception:  # noqa: BLE001 - Browser vs BrowserContext expose different events
                 continue
 
-    async def _handle_exit(self, profile_id: str) -> None:
+    def _note_exit(self, session: BrowserSession) -> None:
+        session._exit_observed = True
+        action_run = self.action_sync.for_browser(session)
+        if action_run is not None:
+            action_run.stop_accepting("browser_closed")
+
+    async def _handle_exit(self, session: BrowserSession) -> None:
         """Tear down a session exactly once and notify the exit handler."""
-        await self._close_session(profile_id, release_lease=True, notify=True)
+        if self.active_sessions.get(session.profile_id) is session:
+            self._note_exit(session)
+            await self._close_session(session.profile_id, release_lease=True, notify=True)
 
     async def _close_session(
         self, profile_id: str, *, release_lease: bool, notify: bool = False
@@ -610,9 +638,19 @@ class BrowserSessionManager:
                 self._release_after_close.discard(profile_id)
                 return False
 
+            action_run = self.action_sync.for_browser(session)
+            if action_run is not None:
+                action_run.stop_accepting("browser_closed")
+
             async def finish() -> bool:
                 try:
                     await session.terminate()
+                    if action_run is not None and not await action_run.stop(
+                        timeout=ACTION_SYNC_DRAIN_SECONDS
+                    ):
+                        # Closing the transport allows hung commands to settle.
+                        # If they have not, keep the tracked session and its lease.
+                        raise BrowserTerminationError("Action synchronization is still draining")
                     stopped = getattr(session, "on_stopped", self.on_stopped)
                     if stopped is not None:
                         await stopped(profile_id)
@@ -655,7 +693,40 @@ class BrowserSessionManager:
         """Close every active browser and return how many were closed."""
         count = 0
         failed = False
-        for profile_id in list(self.active_sessions.keys()):
+        sessions = tuple(self.active_sessions.values())
+        cohort: dict[str, BrowserSession] = {}
+        for session in sessions:
+            run = self.action_sync.for_browser(session)
+            if run is not None:
+                cohort.update((member.profile_id, member) for member in run.sessions)
+                run.stop_accepting("browser_closed")
+                break
+        if cohort:
+            # A command can settle when its own follower transport closes. Start
+            # every member's teardown before waiting for any member's drain.
+            async def close_member(member: BrowserSession) -> bool:
+                profile_id = member.profile_id
+                if self.active_sessions.get(profile_id) is not member:
+                    return False
+                return await self.close_and_release(profile_id)
+
+            async def close_cohort() -> list[bool | BaseException]:
+                return await asyncio.gather(
+                    *(close_member(member) for member in cohort.values()),
+                    return_exceptions=True,
+                )
+
+            for result in await _drain_cleanup(asyncio.create_task(close_cohort())):
+                if isinstance(result, BrowserTerminationError):
+                    failed = True
+                elif isinstance(result, BaseException):
+                    raise result
+                elif result:
+                    count += 1
+        for session in sessions:
+            profile_id = session.profile_id
+            if profile_id in cohort:
+                continue
             try:
                 if await self.close_and_release(profile_id):
                     count += 1
@@ -665,8 +736,8 @@ class BrowserSessionManager:
             raise BrowserTerminationError(BROWSER_EXITS_UNCONFIRMED)
         return count
 
-    async def _monitor(self, profile_id: str, process_id: int) -> None:
+    async def _monitor(self, session: BrowserSession, process_id: int) -> None:
         """Fallback watchdog: clean up if the driver process disappears."""
         while psutil.pid_exists(process_id):
             await asyncio.sleep(10)
-        await self._handle_exit(profile_id)
+        await self._handle_exit(session)
