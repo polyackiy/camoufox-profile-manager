@@ -55,3 +55,11 @@ The broker, admission and lifecycle must recheck administrator cookie authority,
   that local control. Full backend verification passes: 2526 passed, 19 skipped; resource and unraisable warnings are errors.
 - Capture preserves wheel units. The native wheel-capture test does
   not implement a general manual-device playback adapter; this remains explicit in #162.
+- All 14 native capture cases pass on the pinned SDK 0.5.9 / Firefox
+  158.0.1-beta.41 pair across four targets, including source controls on POSIX
+  and frozen helpers everywhere. The broader Windows suite exposed #165 in an
+  unchanged extension-import test. A Windows 2025 baseline control reproduced
+  its immediate missing marker and then observed the correct 2.0 marker. The
+  fixture now waits for presence with a deadline, retaining the exact version
+  assertions and closing the browser on failure. This is test readiness, not a
+  claim that production archive/extension code was repaired.
