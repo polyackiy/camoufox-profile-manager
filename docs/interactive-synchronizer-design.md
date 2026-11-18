@@ -1,11 +1,12 @@
 # Interactive profile action synchronization — proposed architecture
 
-Status: design only, not a shipped feature. This follows the completed declarative
+Status: disabled developer capture gate; not a shipped feature. This follows the completed declarative
 [workflows](automation.md) in [#117](https://github.com/polyackiy/camoufox-profile-manager/issues/117).
 It is separate from experimental encrypted device snapshot synchronization.
-No capture agent, endpoint, browser permission or automatic start is introduced
-by this document. Native feasibility and security evidence are required before
-implementation is enabled.
+Normal launches gain no capture agent, endpoint, browser permission or automatic
+start. The opt-in disposable [capture feasibility tests](action-capture-feasibility.md)
+implement the first boundary below; production admission and controller gates
+remain required before the feature can be enabled.
 
 ## Product scope
 

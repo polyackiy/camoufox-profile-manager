@@ -2,6 +2,7 @@
 
 import asyncio
 import os
+import queue
 from pathlib import Path
 
 import pytest
@@ -76,7 +77,14 @@ async def test_native_capture_routes_only_selected_trusted_input(local_sites, tm
             assert broker.events.empty(), "Closed shadow input was captured"
             await source.evaluate("scrollTo(0,0)")
             await source.locator("#go").click()
-            value = await asyncio.to_thread(broker.events.get, True, 10)
+            try:
+                value = await asyncio.to_thread(broker.events.get, True, 10)
+            except queue.Empty:
+                pytest.fail(
+                    "No captured click: "
+                    + broker.phase
+                    + (" closed" if broker.closed.is_set() else " open")
+                )
             assert value["kind"] == "click"
             assert set(value) == {
                 "generation",
@@ -99,11 +107,23 @@ async def test_native_capture_routes_only_selected_trusted_input(local_sites, tm
             await asyncio.sleep(0.2)
             assert broker.events.empty(), "Follower feedback entered the leader stream"
             await source.mouse.move(400, 300)
-            await source.mouse.wheel(0, 250)
-            wheel = await asyncio.to_thread(broker.events.get, True, 10)
-            assert wheel["kind"] == "scroll" and wheel["delta_y"] == 250
+            await source.mouse.wheel(0, 100)
+            try:
+                wheel = await asyncio.to_thread(broker.events.get, True, 10)
+            except queue.Empty:
+                pytest.fail("No captured wheel: " + broker.phase)
+            assert wheel["kind"] == "scroll" and wheel["delta_y"] > 0
+            assert wheel["delta_mode"] in (0, 1)
             await target.mouse.move(wheel["x"], wheel["y"])
-            await target.mouse.wheel(wheel["delta_x"], wheel["delta_y"])
+            # Controlled upstream fixture only: 100 Playwright units create one
+            # native notch (three lines). This is NOT a general unit conversion
+            # for arbitrary manual wheel/trackpad input; broker admission must
+            # implement and gate its own unit-aware playback adapter.
+            if wheel["delta_mode"] == 1:
+                assert wheel["delta_y"] == 3 and wheel["delta_x"] == 0
+                await target.mouse.wheel(0, 100)
+            else:
+                await target.mouse.wheel(wheel["delta_x"], wheel["delta_y"])
             await target.wait_for_function("scrollY > 0")
             # Page navigation ends this generation; it must never silently rearm.
             await source.goto(local_sites.second)

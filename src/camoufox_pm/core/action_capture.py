@@ -146,9 +146,13 @@ class CaptureGate:
             }
             kind = value.get("kind")
             if kind == "scroll":
-                common |= {"delta_x", "delta_y"}
+                common |= {"delta_x", "delta_y", "delta_mode"}
+                mode = value.get("delta_mode")
+                if type(mode) is not int or mode not in (0, 1):
+                    raise CaptureRejected()
+                limit = 2000 if mode == 0 else 60
                 for name in ("delta_x", "delta_y"):
-                    if type(value.get(name)) is not int or not -2000 <= value[name] <= 2000:
+                    if type(value.get(name)) is not int or not -limit <= value[name] <= limit:
                         raise CaptureRejected()
             elif kind != "click":
                 raise CaptureRejected()

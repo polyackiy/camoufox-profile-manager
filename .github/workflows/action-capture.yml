@@ -7,6 +7,7 @@ on:
       - 'scripts/action_*'
       - 'scripts/action_capture_extension/**'
       - 'tests/unit/test_action_capture*.py'
+      - 'tests/unit/action_capture_extension_test.cjs'
       - 'tests/browser/test_action_capture.py'
       - '.github/workflows/action-capture.yml'
   workflow_dispatch:

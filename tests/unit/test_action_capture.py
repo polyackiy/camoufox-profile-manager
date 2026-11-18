@@ -108,7 +108,7 @@ def test_wrong_key_expiry_and_stop_are_not_resumable():
 
 
 def test_scroll_does_not_carry_text_or_dom():
-    value = {**event(), "kind": "scroll", "delta_x": 0, "delta_y": -250}
+    value = {**event(), "kind": "scroll", "delta_x": 0, "delta_y": -250, "delta_mode": 0}
     assert gate().accept(value, signed(value)) == value
 
 
@@ -131,3 +131,16 @@ def test_message_frames_are_bounded_before_reading_the_body():
     write_message(stream, {"ok": True})
     stream.seek(0)
     assert read_message(stream) == {"ok": True}
+
+
+@pytest.mark.parametrize("mode,delta", [(0, 250), (1, 3)])
+def test_scroll_preserves_units_instead_of_treating_lines_as_pixels(mode, delta):
+    value = {**event(), "kind": "scroll", "delta_x": 0, "delta_y": delta, "delta_mode": mode}
+    assert gate().accept(value, signed(value)) == value
+
+
+@pytest.mark.parametrize("mode,delta", [(2, 1), (True, 3), (1, 61), (0, 2001)])
+def test_scroll_rejects_unknown_units_and_unit_specific_overflow(mode, delta):
+    value = {**event(), "kind": "scroll", "delta_x": 0, "delta_y": delta, "delta_mode": mode}
+    with pytest.raises(CaptureRejected):
+        gate().accept(value, signed(value))

@@ -1,6 +1,7 @@
 """Disposable native-messaging gate, never a controller for real user profiles.
 
-This harness creates its own browser home, add-on and native-host registration.
+This harness creates disposable profiles, an add-on and an owned temporary
+per-user native-host registration, preserving unrelated registrations.
 All captured input stays in memory; output is allowlisted pass/fail metadata.
 """
 
@@ -92,8 +93,8 @@ class ProbeBroker:
             }
         )
 
-    def _receive(self, peer):
-        deadline = time.monotonic() + 15
+    def _receive(self, peer, timeout=15):
+        deadline = time.monotonic() + timeout
         while not peer.poll(0.1):
             if self.stop_requested.is_set() or time.monotonic() >= deadline:
                 raise CaptureRejected()
@@ -156,11 +157,13 @@ class ProbeBroker:
                 self.armed.set()
                 self.phase = "capture"
                 while not self.stop_requested.is_set():
-                    value, proof = self._receive(peer)
+                    value, proof = self._receive(peer, timeout=120)
+                    self.phase = "event-validation"
                     if browser_ancestor(hello["pid"], self.profile, self.executable) != identity:
                         raise CaptureRejected()
                     accepted = self.gate.accept(value, proof)
                     self.events.put_nowait(accepted)
+                    self.phase = "capture"
                     peer.send_bytes(encode_message({"accepted": True}))
         except (OSError, ValueError, EOFError, queue.Full):
             pass
