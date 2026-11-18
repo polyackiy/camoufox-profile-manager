@@ -31,3 +31,26 @@ assert.equal(stopped,true);
 receive({kind:'click',generation:'g'},sender);
 assert.equal(nativeMessages.length,3);
 console.log('background acknowledgement, origin, sender/frame and stop contracts passed');
+
+// Opaque shadow hosts can hide editable descendants from composedPath().
+const shadowRoots = new WeakMap(), listeners = new Map(), contentMessages = [];
+class Element { constructor(tag='div') { this.tag=tag; this.isContentEditable=false; } matches(){return ['input','textarea','iframe'].includes(this.tag)} }
+class HTMLLabelElement extends Element {}
+const doc={addEventListener(type,fn){listeners.set(type,fn)},removeEventListener(type){listeners.delete(type)}};
+const win={}; win.top=win;
+const contentBrowser={dom:{openOrClosedShadowRoot(node){return shadowRoots.get(node)||null}},runtime:{onMessage:event(),sendMessage(v){contentMessages.push(v);return Promise.resolve()}}};
+vm.runInNewContext(fs.readFileSync(path.join(root,'content.js'),'utf8'),{browser:contentBrowser,document:doc,window:win,innerWidth:900,innerHeight:700,Element,HTMLLabelElement,addEventListener(){}});
+contentBrowser.runtime.onMessage.listeners[0]({kind:'arm',generation:'g'});
+const opaque=new Element(); shadowRoots.set(opaque, {mode:'closed'});
+const input=new Element('input'), normal=new Element('button');
+const click=(target, trusted=true)=>({isTrusted:trusted,button:0,detail:1,clientX:10,clientY:20,composedPath(){return [target]}});
+const baseline=contentMessages.length;
+listeners.get('click')(click(opaque));
+listeners.get('click')(click(input));
+listeners.get('click')(click(normal,false));
+assert.equal(contentMessages.length,baseline,'Sensitive/closed-shadow/synthetic input must not be captured');
+listeners.get('click')(click(normal));
+assert.equal(contentMessages.length,baseline+1);
+contentBrowser.runtime.onMessage.listeners[0]({kind:'stop'});
+assert.equal(listeners.size,0,'Stop must detach listeners');
+console.log('closed shadow, sensitive/synthetic input and listener cleanup contracts passed');

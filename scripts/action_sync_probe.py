@@ -30,7 +30,7 @@ from camoufox_pm.core.action_capture import (
     encode_message,
     message_proof,
 )
-from camoufox_pm.core.update_permissions import create_private_directory
+from camoufox_pm.core.update_permissions import create_private_directory, reject_reparse_paths
 
 EXTENSION_FILES = Path(__file__).with_name("action_capture_extension")
 
@@ -188,12 +188,23 @@ class ProbeBroker:
 @contextmanager
 def native_registration(root: Path, host: str, addon_id: str, executable: Path):
     """Register only a new random host; never replace another install's manifest."""
-    home = root / "home"
+    # Firefox on macOS resolves its real per-user native-host directory even
+    # when HOME is overridden. Register one random name there explicitly, and
+    # remove only our own identical manifest. Browser profiles remain disposable.
+    home = Path.home().resolve()
     if sys.platform == "darwin":
         directory = home / "Library/Application Support/Mozilla/NativeMessagingHosts"
+    elif sys.platform == "win32":
+        directory = root / "native-manifests"
     else:
         directory = home / ".mozilla/native-messaging-hosts"
-    directory.mkdir(parents=True)
+    reject_reparse_paths(directory)
+    created = []
+    missing = directory
+    while not missing.exists():
+        created.append(missing)
+        missing = missing.parent
+    directory.mkdir(parents=True, exist_ok=True)
     manifest = directory / (host + ".json")
     payload = json.dumps(
         {
@@ -231,6 +242,11 @@ def native_registration(root: Path, host: str, addon_id: str, executable: Path):
             winreg.DeleteKey(winreg.HKEY_CURRENT_USER, registry_path)
         if manifest.exists() and manifest.read_text() == payload:
             manifest.unlink()
+        for path in created:
+            try:
+                path.rmdir()
+            except OSError:
+                break
 
 
 def prepare_addon(root: Path, broker: ProbeBroker, host: str, addon_id: str) -> Path:
@@ -293,10 +309,10 @@ def capture_probe(origin: str, *, frozen_host: Path | None = None):
         root = Path(temporary).resolve() / "r"
         create_private_directory(root)
         profile = root / "leader"
-        broker = ProbeBroker(root, profile, Path(launch_path(active)), origin)
         host = "cpm.capture." + secrets.token_hex(8)
         addon_id = "capture-" + secrets.token_hex(8) + "@camoufox-pm.local"
         executable = frozen_host or source_host(root)
+        broker = ProbeBroker(root, profile, Path(launch_path(active)), origin)
         try:
             with native_registration(root, host, addon_id, executable) as home:
                 addon = prepare_addon(root, broker, host, addon_id)

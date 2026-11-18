@@ -28,3 +28,22 @@ def test_background_does_not_accept_page_frame_or_stale_input():
         pytest.skip("Node is required for the extension contract; native workflow installs it")
     script = Path(__file__).with_name("action_capture_extension_test.cjs")
     subprocess.run([node, str(script)], check=True, capture_output=True, text=True, timeout=15)
+
+
+def test_native_host_preparation_failure_does_not_leave_a_broker(tmp_path, monkeypatch):
+    from unittest.mock import Mock
+
+    from camoufox import multiversion, pkgman
+    from scripts import action_sync_probe
+
+    monkeypatch.setattr(multiversion, "get_active_path", lambda: tmp_path)
+    monkeypatch.setattr(pkgman, "launch_path", lambda active: str(tmp_path / "camoufox"))
+    broker = Mock()
+    monkeypatch.setattr(action_sync_probe, "ProbeBroker", broker)
+    monkeypatch.setattr(
+        action_sync_probe, "source_host", Mock(side_effect=OSError("host setup failed"))
+    )
+    with pytest.raises(OSError, match="host setup failed"):
+        with action_sync_probe.capture_probe("https://site.test"):
+            pytest.fail("Invalid preparation yielded a capture session")
+    broker.assert_not_called()

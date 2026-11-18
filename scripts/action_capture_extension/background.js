@@ -1,13 +1,15 @@
 /* Only this privileged background talks to native messaging. No external listener. */
 const config = CPM_CAPTURE_CONFIG;
-const native = browser.runtime.connectNative(config.host);
+let native = null;
 let bound = null, sequence = 0, stopped = false;
 function stop() {
   if (stopped) return;
   stopped = true;
   if (bound !== null) browser.tabs.sendMessage(bound, {kind: 'stop'}).catch(() => {});
-  native.disconnect();
+  if (native) native.disconnect();
 }
+function connect() {
+  native = browser.runtime.connectNative(config.host);
 native.onDisconnect.addListener(stop);
 native.onMessage.addListener((message) => {
   if (message.accepted === true && !stopped) return;
@@ -15,6 +17,7 @@ native.onMessage.addListener((message) => {
     browser.tabs.sendMessage(bound, {kind: 'arm', generation: config.generation}).catch(stop);
   } else stop();
 });
+}
 browser.runtime.onMessage.addListener((value, sender) => {
   if (stopped || sender.id !== browser.runtime.id || !sender.tab || sender.frameId !== 0) return;
   let origin;
@@ -22,6 +25,7 @@ browser.runtime.onMessage.addListener((value, sender) => {
   if (origin !== config.origin) { stop(); return; }
   if (value.kind === 'ready' && bound === null) {
     bound = sender.tab.id;
+    connect();
     native.postMessage({kind: 'ready', tab: bound, generation: config.generation,
       origin, width: value.width, height: value.height});
   } else if (sender.tab.id !== bound || value.kind === 'ready' || value.kind === 'invalidated') {

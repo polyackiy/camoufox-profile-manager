@@ -5,7 +5,9 @@
   let stopped = false;
   const sensitive = (event) => event.composedPath().some((node) => {
     if (!(node instanceof Element)) return false;
-    return node.matches('input,textarea,select,option,iframe,frame,object,embed') ||
+    // Extension-only API also sees closed roots; do not inspect their values.
+    return browser.dom.openOrClosedShadowRoot(node) !== null ||
+      node.matches('input,textarea,select,option,iframe,frame,object,embed') ||
       node.isContentEditable || (node instanceof HTMLLabelElement && node.control);
   });
   const send = (event, kind) => {
