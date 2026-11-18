@@ -1,0 +1,82 @@
+name: Interactive capture feasibility
+
+on:
+  pull_request:
+    paths:
+      - 'src/camoufox_pm/core/action_capture*.py'
+      - 'scripts/action_*'
+      - 'scripts/action_capture_extension/**'
+      - 'tests/unit/test_action_capture*.py'
+      - 'tests/unit/action_capture_extension_test.cjs'
+      - 'tests/browser/test_action_capture.py'
+      - '.github/workflows/action-capture.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: action-capture-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  capture:
+    name: Capture (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    env:
+      CPM_ACTION_CAPTURE_ACCEPTANCE: "1"
+      # Emit only coroutine locations, never frame arguments or captured input.
+      CPM_BROWSER_WATCHDOG_SECONDS: "120"
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2022, macos-15, macos-15-intel]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          python-version: '3.12'
+      - name: Install locked development and host-build dependencies
+        run: uv sync --locked --extra dev --extra build --extra sync
+      - name: Validate protocol and host rejection
+        run: uv run --no-sync pytest tests/unit/test_action_capture.py tests/unit/test_action_capture_host.py tests/unit/test_action_capture_extension.py -q -W error::ResourceWarning -W error::pytest.PytestUnraisableExceptionWarning
+      - name: Install Linux browser libraries
+        if: runner.os == 'Linux'
+        run: |
+          uv run --no-sync playwright install-deps firefox
+          sudo apt-get install -y xvfb libgl1-mesa-dri libegl1
+      - name: Prepare the upstream paired browser and resources
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: uv run --no-sync python scripts/install_ci_browser.py
+      - name: Build a console native-message host from this source
+        run: uv run --no-sync pyinstaller --noconfirm --clean --onedir --console --paths src --name cpm-capture-host scripts/action_capture_probe_entry.py
+      - name: Source native capture (macOS)
+        if: runner.os == 'macOS'
+        # Intel cold setup alone took 126s + 33s opening the two tabs. Its
+        # complete successful case took 174s; leave bounded bootstrap margin.
+        # Native authentication/arming and the 120s capture lifetime are separate.
+        run: uv run --no-sync pytest tests/browser/test_action_capture.py -q -m browser --no-network -o faulthandler_timeout=${{ matrix.os == 'macos-15-intel' && 300 || 180 }} -o faulthandler_exit_on_timeout=true
+      - name: Source native capture (Linux)
+        if: runner.os == 'Linux'
+        run: xvfb-run -a uv run --no-sync pytest tests/browser/test_action_capture.py -q -m browser --no-network -o faulthandler_timeout=180 -o faulthandler_exit_on_timeout=true
+      - name: Frozen native host capture (macOS)
+        if: runner.os == 'macOS'
+        env:
+          CPM_CAPTURE_FROZEN_HOST: ${{ github.workspace }}/dist/cpm-capture-host/cpm-capture-host
+        run: uv run --no-sync pytest tests/browser/test_action_capture.py -q -m browser --no-network -o faulthandler_timeout=${{ matrix.os == 'macos-15-intel' && 300 || 180 }} -o faulthandler_exit_on_timeout=true
+      - name: Frozen native host capture (Linux)
+        if: runner.os == 'Linux'
+        env:
+          CPM_CAPTURE_FROZEN_HOST: ${{ github.workspace }}/dist/cpm-capture-host/cpm-capture-host
+        run: xvfb-run -a uv run --no-sync pytest tests/browser/test_action_capture.py -q -m browser --no-network -o faulthandler_timeout=180 -o faulthandler_exit_on_timeout=true
+      - name: Frozen native host capture (Windows)
+        if: runner.os == 'Windows'
+        env:
+          CPM_CAPTURE_FROZEN_HOST: ${{ github.workspace }}/dist/cpm-capture-host/cpm-capture-host.exe
+        run: uv run --no-sync pytest tests/browser/test_action_capture.py -q -m browser --no-network -o faulthandler_timeout=180 -o faulthandler_exit_on_timeout=true

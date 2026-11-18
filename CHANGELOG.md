@@ -6,6 +6,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Development
+- Add a disabled, disposable native-messaging capture gate for interactive action
+  synchronization (#117, #161). It checks leader profile binding, bounded ordered
+  clicks and unit-tagged wheel input, sensitive-field exclusion and teardown.
+  Normal profile launches and the interface do not enable action synchronization.
+- Check manager types with desktop build dependencies, including the optional
+  recovery-window handle, in addition to the ordinary backend environment.
+
 ## [0.7.0] - 2026-11-06
 
 This release combines batch profile and proxy tools, declarative workflows, and

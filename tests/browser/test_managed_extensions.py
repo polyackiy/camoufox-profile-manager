@@ -19,20 +19,28 @@ async def test_managed_extension_load_remove_upgrade_and_archive(
     second = await library.upload(xpi("2.0", addon_id="uBlock0@raymondhill.net"))
     profile = await profile_manager.create_profile("Browser extension", generate_fingerprint=False)
 
-    async def observe(profile_id):
+    async def observe(profile_id, *, extension_expected=True):
         await profile_manager.launch_browser(profile_id, headless=True, geoip=GEOIP_ADDRESS)
-        session = profile_manager.browser_sessions.active_sessions[profile_id]
-        page = await session.camoufox.browser.new_page()
-        await page.goto(local_sites.first)
-        value = await page.get_attribute("html", "data-extension-proof")
-        await profile_manager.close_browser(profile_id)
-        return value
+        try:
+            session = profile_manager.browser_sessions.active_sessions[profile_id]
+            page = await session.camoufox.browser.new_page()
+            await page.goto(local_sites.first)
+            if extension_expected:
+                # Page load and extension startup complete independently. Wait
+                # for execution, then retain the exact version assertion below;
+                # a wrong version must not be retried until it becomes right.
+                await page.locator("html[data-extension-proof]").wait_for(
+                    state="attached", timeout=10_000
+                )
+            return await page.get_attribute("html", "data-extension-proof")
+        finally:
+            await profile_manager.close_browser(profile_id)
 
     await library.assign(profile.id, [first["id"]], 0)
     assert await observe(profile.id) == "1.0"
     current = await profile_manager.get_profile(profile.id)
     await library.assign(profile.id, [], current.row_version)
-    assert await observe(profile.id) is None
+    assert await observe(profile.id, extension_expected=False) is None
     current = await profile_manager.get_profile(profile.id)
     await library.assign(profile.id, [second["id"]], current.row_version)
     assert await observe(profile.id) == "2.0"
