@@ -69,3 +69,8 @@ The broker, admission and lifecycle must recheck administrator cookie authority,
   Intel's outer per-test budget is 300s with a 120s diagnostic watchdog. Native
   handshake/arming, generation expiry and all semantic assertions keep their own
   bounds. This addresses test bootstrap margin, not OS/SDK startup reliability.
+- Full local typing with the build extra exposed a pre-existing recovery bridge
+  handle inferred as `None` despite `create_window` returning `Window | None`.
+  The handle now declares its optional type through a checking-only import.
+  All 122 manager modules and the eight existing recovery bridge tests pass;
+  the Linux native gate also checks types with the locked desktop build extras.

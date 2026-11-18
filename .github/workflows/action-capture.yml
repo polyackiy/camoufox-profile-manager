@@ -45,6 +45,10 @@ jobs:
         run: uv sync --locked --extra dev --extra build --extra sync
       - name: Validate protocol and host rejection
         run: uv run --no-sync pytest tests/unit/test_action_capture.py tests/unit/test_action_capture_host.py tests/unit/test_action_capture_extension.py -q -W error::ResourceWarning -W error::pytest.PytestUnraisableExceptionWarning
+      - name: Check types with the locked desktop build dependencies
+        if: runner.os == 'Linux'
+        # Ordinary backend CI omits GUI extras and cannot see their real types.
+        run: uv run --no-sync mypy src/camoufox_pm
       - name: Install Linux browser libraries
         if: runner.os == 'Linux'
         run: |
