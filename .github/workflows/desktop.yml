@@ -99,7 +99,7 @@ jobs:
           $cert = "$env:RUNNER_TEMP\cert.pfx"
           [IO.File]::WriteAllBytes($cert, [Convert]::FromBase64String($env:WINDOWS_CERT_PFX))
           $signtool = (Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe" | Select-Object -Last 1).FullName
-          & $signtool sign /f $cert /p $env:WINDOWS_CERT_PASSWORD /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 "dist\camoufox-pm\camoufox-pm.exe"
+          & $signtool sign /f $cert /p $env:WINDOWS_CERT_PASSWORD /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 "dist\camoufox-pm\camoufox-pm.exe" "dist\camoufox-pm\cpm-capture-host.exe"
           if ($LASTEXITCODE -ne 0) { throw "App signing failed" }
       - name: Create installer (also for unsigned builds)
         run: uv run --no-sync python scripts/build_desktop.py --package-only

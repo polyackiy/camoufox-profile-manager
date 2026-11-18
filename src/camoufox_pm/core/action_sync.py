@@ -10,9 +10,9 @@ import asyncio
 import math
 from collections.abc import Awaitable, Callable, Coroutine
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, Protocol
 
-from .action_capture import CaptureGate, CaptureRejected
+from .action_capture import CaptureRejected
 
 if TYPE_CHECKING:
     from .browser_session import BrowserSession
@@ -26,6 +26,7 @@ StopReason = Literal[
     "deadline",
     "dispatch_failed",
     "browser_changed",
+    "channel_closed",
 ]
 
 
@@ -40,6 +41,12 @@ SendClick = Callable[[], Awaitable[None]]
 PrepareClick = Callable[[Click], Awaitable[SendClick]]
 Authorize = Callable[[tuple["BrowserSession", ...]], Awaitable[bool]]
 Target = tuple["BrowserSession", PrepareClick]
+
+
+class CaptureInput(Protocol):
+    def accept(self, value: dict, proof: str) -> dict: ...
+
+    def stop(self) -> None: ...
 
 
 class ActionSync:
@@ -59,7 +66,7 @@ class ActionSync:
 
     def prepare(
         self,
-        capture: CaptureGate,
+        capture: CaptureInput,
         leader: BrowserSession,
         targets: tuple[Target, ...],
         authorize: Authorize,
@@ -107,7 +114,7 @@ class ActionRun:
 
     def __init__(
         self,
-        capture: CaptureGate,
+        capture: CaptureInput,
         sessions: tuple[BrowserSession, ...],
         targets: tuple[Target, ...],
         is_current: Callable[[BrowserSession], bool],

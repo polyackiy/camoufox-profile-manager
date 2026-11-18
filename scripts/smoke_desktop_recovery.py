@@ -43,6 +43,20 @@ def main() -> None:
         for key in tuple(environment):
             if key.startswith("CPM_"):
                 del environment[key]
+        companion = executable.with_name(
+            "cpm-capture-host.exe" if sys.platform == "win32" else "cpm-capture-host"
+        )
+        refused = subprocess.run(
+            [str(companion)],
+            cwd=work,
+            env=environment,
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            timeout=30,
+            check=False,
+        )
+        if refused.returncode != 1 or refused.stdout or refused.stderr:
+            raise RuntimeError("Bundled capture host did not quietly refuse an unprepared launch")
         environment["CPM_DB_PATH"] = str(database)
         environment["PYTHONIOENCODING"] = "utf-8"
         log = database.parent / "update-control" / "recovery-command.log"

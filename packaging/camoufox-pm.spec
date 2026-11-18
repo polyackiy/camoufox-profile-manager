@@ -49,6 +49,8 @@ version_hook = Path(ROOT) / "build" / "camoufox_pm_version_hook.py"
 write_runtime_version_hook(version_hook, version("camoufox-profile-manager"))
 
 datas = [(os.path.join(ROOT, "src", "camoufox_pm", "webui"), "camoufox_pm/webui")]
+datas += [(os.path.join(ROOT, "src", "camoufox_pm", "core", "action_capture_extension"),
+           "camoufox_pm/core/action_capture_extension")]
 datas += [(os.path.join(SPECPATH, "camoufox-pm.svg"), ".")]
 datas += copy_metadata("camoufox-profile-manager")
 datas += copy_metadata("playwright")
@@ -105,10 +107,29 @@ exe = EXE(
     # Desktop entry point redirects absent streams to the writable data folder.
     console=False,
 )
+# Native Messaging needs its own console executable for binary stdin/stdout
+# on Windows. It shares the bundle's Python runtime, but has a small module
+# graph and never imports or starts the manager or its HTTP server.
+capture = Analysis(
+    [os.path.join(ROOT, "scripts", "action_capture_probe_entry.py")],
+    pathex=[os.path.join(ROOT, "src")],
+    noarchive=False,
+)
+capture_exe = EXE(
+    PYZ(capture.pure),
+    capture.scripts,
+    [],
+    exclude_binaries=True,
+    name="cpm-capture-host",
+    console=True,
+)
 coll = COLLECT(
     exe,
+    capture_exe,
     a.binaries,
     a.datas,
+    capture.binaries,
+    capture.datas,
     name="camoufox-pm",
 )
 app = BUNDLE(

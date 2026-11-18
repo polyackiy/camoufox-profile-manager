@@ -73,3 +73,19 @@ def test_registration_removes_only_its_owned_manifest(tmp_path, monkeypatch):
         ):
             pytest.fail("Existing host was overwritten")
     assert manifest.read_text() == "new owner"
+
+
+@pytest.mark.skipif(__import__("os").name != "posix", reason="POSIX native registration mode")
+def test_native_registration_refuses_a_shared_writable_directory(tmp_path, monkeypatch):
+    from scripts import action_sync_probe
+
+    home = tmp_path / "home"
+    directory = home / ".mozilla/native-messaging-hosts"
+    directory.mkdir(parents=True)
+    directory.chmod(0o777)
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
+    monkeypatch.setattr(action_sync_probe.sys, "platform", "linux")
+    with pytest.raises(PermissionError, match="unsafe parent"):
+        with action_sync_probe.native_registration(tmp_path, "cpm.run", "addon@cpm", tmp_path):
+            pytest.fail("An unsafe manifest directory was accepted")
+    assert not (directory / "cpm.run.json").exists()

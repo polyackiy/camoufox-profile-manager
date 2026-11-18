@@ -25,12 +25,13 @@ import psutil
 from loguru import logger
 
 from ..config import get_settings
-from .action_sync import ActionSync
+from .action_sync import ActionSync, CaptureInput
 from .socks_relay import SocksRelay
 
 if TYPE_CHECKING:
     # Type-only: importing StorageManager at runtime would be a cycle, since
     # database.py has no need of this module at all.
+    from .action_sync_service import CaptureLaunch
     from .database import StorageManager
 
 try:
@@ -311,6 +312,7 @@ class BrowserSession:
         self.socks_relay = socks_relay
         self._termination_task: asyncio.Task[None] | None = None
         self.context: Any = None
+        self.action_capture: CaptureInput | None = None
 
     async def terminate(self) -> None:
         """Drain one strongly owned teardown, including after caller cancellation."""
@@ -487,6 +489,8 @@ class BrowserSessionManager:
         profile_id: str,
         launch_options: dict[str, Any],
         on_exit: ExitHandler | None = None,
+        *,
+        capture_launch: "CaptureLaunch | None" = None,
     ) -> BrowserSession:
         """Launch a Camoufox browser and register a monitored session."""
         if not CAMOUFOX_AVAILABLE:
@@ -528,8 +532,16 @@ class BrowserSessionManager:
                     cookie_directory = Path(options["user_data_dir"])
                     pending_cookies = take_pending_cookies(cookie_directory)
                 with _linux_ime_startup_preferences(options):
-                    camoufox = AsyncCamoufox(**options)
-                    browser = await camoufox.start()
+                    if capture_launch is None:
+                        camoufox = AsyncCamoufox(**options)
+                        browser = await camoufox.start()
+                    else:
+                        private = await capture_launch.options(options)
+                        try:
+                            camoufox = AsyncCamoufox(**private)
+                            browser = await camoufox.start()
+                        finally:
+                            private["from_options"]["env"].pop("CPM_ACTION_CAPTURE_PROBE", None)
                     if pending_cookies is not None:
                         from .cookie_transfer import apply_pending_cookies
 
@@ -543,6 +555,8 @@ class BrowserSessionManager:
             # Expose the ready Playwright context; automation never reaches into
             # AsyncCamoufox internals or passes destination URLs at startup.
             session.context = browser
+            if capture_launch is not None:
+                session.action_capture = capture_launch.channel
             session.on_exit = on_exit
             session.on_stopped = self.on_stopped
             self.active_sessions[profile_id] = session
@@ -616,6 +630,8 @@ class BrowserSessionManager:
 
     def _note_exit(self, session: BrowserSession) -> None:
         session._exit_observed = True
+        if session.action_capture is not None:
+            session.action_capture.stop()
         action_run = self.action_sync.for_browser(session)
         if action_run is not None:
             action_run.stop_accepting("browser_closed")
@@ -639,6 +655,9 @@ class BrowserSessionManager:
                 return False
 
             action_run = self.action_sync.for_browser(session)
+            capture = getattr(session, "action_capture", None)
+            if capture is not None:
+                capture.stop()
             if action_run is not None:
                 action_run.stop_accepting("browser_closed")
 

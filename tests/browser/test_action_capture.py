@@ -155,3 +155,82 @@ async def test_a_copied_extension_and_key_cannot_change_the_bound_profile(local_
             assert not broker.armed.is_set()
             await page.mouse.click(20, 20)
             assert broker.events.empty()
+
+
+@pytest.mark.browser
+async def test_manager_routes_a_reviewed_click_and_revokes_on_logout(
+    profile_manager, local_sites, monkeypatch
+):
+    """Use the production channel and lifecycle with a frozen console host."""
+    from camoufox_pm.api.principal import Principal
+    from camoufox_pm.core import action_sync_service, auth
+    from camoufox_pm.core.profile_manager import ProfileManager
+
+    host = os.environ.get("CPM_CAPTURE_FROZEN_HOST")
+    if not host:
+        pytest.skip("Run the manager integration with the frozen console host")
+    image = Path(host).resolve(strict=True)
+    monkeypatch.setattr(action_sync_service, "_console_host", lambda _root: (image, image))
+    launch = ProfileManager._launch_browser
+
+    async def launch_offline(self, *args, overrides=None, **kwargs):
+        public = offline_launch({"geoip": True, **(overrides or {})})
+        public["viewport"] = {"width": 900, "height": 700}
+        return await launch(self, *args, overrides=public, **kwargs)
+
+    monkeypatch.setattr(ProfileManager, "_launch_browser", launch_offline)
+    manager = profile_manager
+    actor = Principal("session", username="capture-admin")
+    user_id = auth.new_user_id()
+    await manager.storage.create_user(user_id, actor.username, "unused-test-hash")
+    session_hash = auth.hash_token(await auth.create_session(manager.storage, user_id))
+    leader = await manager.create_profile("Capture leader", generate_fingerprint=False)
+    follower = await manager.create_profile("Capture follower", generate_fingerprint=False)
+    origin = local_sites.first.rstrip("/")
+    script = """() => {
+        document.body.innerHTML = '<button id="go" style="width:96px;height:60px">Go</button>';
+        document.body.dataset.clicks = '0';
+        document.querySelector('#go').onclick = () => {
+            document.body.dataset.clicks = String(Number(document.body.dataset.clicks) + 1);
+        };
+    }"""
+    ready = asyncio.Future()
+
+    async def navigate_leader():
+        while leader.id not in manager.browser_sessions.active_sessions:
+            await asyncio.sleep(0.05)
+        browser = manager.browser_sessions.active_sessions[leader.id].context
+        page = next(iter(browser.pages), None) or await browser.new_page()
+        await page.goto(local_sites.first)
+        await page.evaluate(script)
+        ready.set_result(page)
+
+    navigation = asyncio.create_task(navigate_leader())
+    try:
+        receipt = await manager.launch_browser(follower.id, headless=True)
+        assert receipt["status"] == "launched"
+        assert "CPM_ACTION_CAPTURE_PROBE" not in str(receipt)
+        follower_session = manager.browser_sessions.active_sessions[follower.id]
+        target = next(iter(follower_session.context.pages), None)
+        if target is None:
+            target = await follower_session.context.new_page()
+        await target.goto(local_sites.first)
+        await target.evaluate(script)
+        async with manager.prepare_action_capture(
+            actor, session_hash, profile_id=leader.id, origin=origin, headless=True
+        ) as prepared:
+            source = await ready
+            run = await prepared.prepare(prepared.binding, ((follower_session, target),))
+            assert await prepared.start()
+            await source.locator("#go").click()
+            await target.wait_for_function("document.body.dataset.clicks === '1'", timeout=8_000)
+            assert await manager.storage.delete_session(session_hash)
+            await asyncio.wait_for(run.stopped.wait(), 5)
+            assert run.reason == "authority_lost"
+            assert not await prepared.start()
+            await source.locator("#go").click()
+            assert await target.locator("body").get_attribute("data-clicks") == "1"
+    finally:
+        navigation.cancel()
+        await asyncio.gather(navigation, return_exceptions=True)
+        await manager.close_all_browsers()

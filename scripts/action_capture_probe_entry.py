@@ -1,4 +1,4 @@
-"""Console-only frozen native-host entry for disposable capture acceptance."""
+"""Console-only frozen Native Messaging entry point."""
 
 from camoufox_pm.core.action_capture_host import main
 
