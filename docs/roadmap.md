@@ -25,7 +25,14 @@ explicitly opt-in; automatic application replacement remains disabled.
 
 ## Ordered next work
 
-1. Continue classifying the remaining Windows activation and shutdown incidents in
+1. Validate an **interactive multi-window action synchronizer** after the
+   completed workflow engine. The [architecture](interactive-synchronizer-design.md)
+   records leader/target selection, trusted capture, tab mapping, stop/drain and
+   security gates. The disabled [disposable capture gate](action-capture-feasibility.md)
+   is the first implementation block (#161); #162 covers manager admission and
+   playback, and #163 covers the reviewed controller and full native acceptance.
+   Normal profile launches do not enable capture.
+2. Continue classifying the remaining Windows activation and shutdown incidents in
    [#145](https://github.com/polyackiy/camoufox-profile-manager/issues/145). The
    reproduced Windows ciphertext defect is fixed in [#143](https://github.com/polyackiy/camoufox-profile-manager/issues/143). Preserve
    original ciphertext and fail-closed profile protection; use fixed diagnostics
@@ -33,11 +40,6 @@ explicitly opt-in; automatic application replacement remains disabled.
    rerun alone does not close an intermittent bug. Upload readback/recovery and
    serialized control-store initialization cover reproduced defects; they do not
    prove the cause of every earlier platform refusal.
-2. Design and validate an **interactive multi-window action synchronizer** after
-   the completed workflow engine. The [proposed architecture](interactive-synchronizer-design.md)
-   records leader/target selection, trusted capture, tab mapping, stop/drain and
-   security gates. It introduces no runtime feature. Prove the capture/channel
-   adapter with upstream Camoufox before implementing a user-facing controller.
 3. Improve window organization and manual navigation through supported upstream
    browser interfaces; preserve saved fingerprints and avoid an engine fork.
    See [browser-interface.md](browser-interface.md).

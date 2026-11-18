@@ -114,17 +114,11 @@ async def test_native_capture_routes_only_selected_trusted_input(local_sites, tm
                 pytest.fail("No captured wheel: " + broker.phase)
             assert wheel["kind"] == "scroll" and wheel["delta_y"] > 0
             assert wheel["delta_mode"] in (0, 1)
-            await target.mouse.move(wheel["x"], wheel["y"])
-            # Controlled upstream fixture only: 100 Playwright units create one
-            # native notch (three lines). This is NOT a general unit conversion
-            # for arbitrary manual wheel/trackpad input; broker admission must
-            # implement and gate its own unit-aware playback adapter.
-            if wheel["delta_mode"] == 1:
-                assert wheel["delta_y"] == 3 and wheel["delta_x"] == 0
-                await target.mouse.wheel(0, 100)
-            else:
-                await target.mouse.wheel(wheel["delta_x"], wheel["delta_y"])
-            await target.wait_for_function("scrollY > 0")
+            # This gate proves capture with explicit units. Upstream engine
+            # versions/preferences produce different line amounts per notch;
+            # do not invent a general pixel conversion for follower playback.
+            # Unit-aware manual wheel replay belongs to broker acceptance.
+            await source.wait_for_function("scrollY > 0")
             # Page navigation ends this generation; it must never silently rearm.
             await source.goto(local_sites.second)
             assert await asyncio.to_thread(broker.closed.wait, 10)

@@ -4,7 +4,7 @@
 
 **Goal:** Establish and test the trusted capture boundary before enabling interactive replay for user profiles.
 
-**Architecture:** A packaged Firefox extension captures bounded pointer/scroll events in its isolated content-script world. A separate native-message host validates framing and launch-scoped channel data; the feasibility harness binds this host to a disposable leader and relays accepted input to one explicitly mapped disposable follower. No normal launch, web endpoint, settings flag or page-callable Playwright binding enables capture.
+**Architecture:** A packaged Firefox extension captures bounded pointer/scroll events in its isolated content-script world. A separate native-message host validates framing and launch-scoped channel data; the feasibility harness binds this host to a disposable leader and relays accepted clicks to one explicitly mapped disposable follower and verifies unit-tagged native wheel capture. No normal launch, web endpoint, settings flag or page-callable Playwright binding enables capture.
 
 **Tech stack:** Python, Firefox WebExtension MV2, upstream Camoufox/Playwright, native messaging, pytest and native Actions runners.
 
@@ -38,3 +38,20 @@
 ## Follow-on blocks
 
 The broker, admission and lifecycle must recheck administrator cookie authority, own the exact live sessions and drain playback before maintenance/lease release. The controller must explicitly review origins, matching viewports and mapped tab handles, start paused and localize EN/RU/zh-CN controls. These remain separate issues until the capture gate proves practical.
+
+## Implementation evidence
+
+- #161 tracks this block; PR #164 contains the source. #162/#163 retain the
+  production broker/admission and controller/installed-manager acceptance scopes.
+- Protocol, host and extension contracts: 42 tests pass, including explicit
+  wheel units and unit-specific bounds. Ruff and core Mypy pass.
+- Independent review found a closed-shadow sensitive-input gap and a broker
+  cleanup gap on host-preparation failure. Both have regression coverage and
+  fixes. The Firefox extension-only `Element.openOrClosedShadowRoot` getter is
+  required; the Chromium `browser.dom` API is not interchangeable.
+- Two real-browser cases pass locally in source and frozen-helper modes using
+  the existing 0.5.8 / Firefox 156 pair as a control. The locked 0.5.9 / Firefox
+  158 four-target native workflow is a separate required gate, not inferred from
+  that local control. Full backend verification passes: 2526 passed, 19 skipped; resource and unraisable warnings are errors.
+- Capture preserves wheel units. The native wheel-capture test does
+  not implement a general manual-device playback adapter; this remains explicit in #162.

@@ -20,7 +20,7 @@ rejects ambiguous JSON, unknown fields, oversized/truncated frames, invalid
 geometry, wrong proofs, expired generations and out-of-order messages. Input
 stays in a bounded memory queue; disconnect ends the generation without retry or
 reconnection. The test maps its known follower explicitly, checks click delivery
-and a controlled wheel example, and invalidates the channel on navigation.
+and native wheel capture, and invalidates the channel on navigation.
 
 No text, keys, paste, clipboard, selectors, DOM snapshots, frames or form values
 are transmitted. Synthetic page events and editable controls, labels for controls
@@ -78,7 +78,7 @@ registration, lifecycle or updater acceptance.
 - [#162](https://github.com/polyackiy/camoufox-profile-manager/issues/162): manager-owned admission, administrator cookie authority, exact live session/tab mappings, private IPC access restrictions, installed-host discovery, ordered playback, bounded I/O and stop/drain integration with workflows, updates and shutdown.
 - Wheel units must remain explicit. Firefox can report lines or pixels, and
   upstream Camoufox turns an automated wheel command into native notches. The
-  test's known single-notch fixture is not a general conversion for arbitrary
+  test's wheel-capture fixture does not implement follower scrolling or convert arbitrary
   manual wheels, trackpads, nested scrollers or different site layouts. A
   unit-aware playback adapter and actual manual-device acceptance are required
   before enabling scrolling in the manager. See [MDN's unit contract](https://developer.mozilla.org/en-US/docs/Web/API/WheelEvent/deltaMode)
