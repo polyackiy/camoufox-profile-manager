@@ -26,6 +26,8 @@ jobs:
     timeout-minutes: 25
     env:
       CPM_ACTION_CAPTURE_ACCEPTANCE: "1"
+      # Emit only coroutine locations, never frame arguments or captured input.
+      CPM_BROWSER_WATCHDOG_SECONDS: "120"
     strategy:
       fail-fast: false
       matrix:
@@ -56,7 +58,10 @@ jobs:
         run: uv run --no-sync pyinstaller --noconfirm --clean --onedir --console --paths src --name cpm-capture-host scripts/action_capture_probe_entry.py
       - name: Source native capture (macOS)
         if: runner.os == 'macOS'
-        run: uv run --no-sync pytest tests/browser/test_action_capture.py -q -m browser --no-network -o faulthandler_timeout=180 -o faulthandler_exit_on_timeout=true
+        # Intel cold setup alone took 126s + 33s opening the two tabs. Its
+        # complete successful case took 174s; leave bounded bootstrap margin.
+        # Native authentication/arming and the 120s capture lifetime are separate.
+        run: uv run --no-sync pytest tests/browser/test_action_capture.py -q -m browser --no-network -o faulthandler_timeout=${{ matrix.os == 'macos-15-intel' && 300 || 180 }} -o faulthandler_exit_on_timeout=true
       - name: Source native capture (Linux)
         if: runner.os == 'Linux'
         run: xvfb-run -a uv run --no-sync pytest tests/browser/test_action_capture.py -q -m browser --no-network -o faulthandler_timeout=180 -o faulthandler_exit_on_timeout=true
@@ -64,7 +69,7 @@ jobs:
         if: runner.os == 'macOS'
         env:
           CPM_CAPTURE_FROZEN_HOST: ${{ github.workspace }}/dist/cpm-capture-host/cpm-capture-host
-        run: uv run --no-sync pytest tests/browser/test_action_capture.py -q -m browser --no-network -o faulthandler_timeout=180 -o faulthandler_exit_on_timeout=true
+        run: uv run --no-sync pytest tests/browser/test_action_capture.py -q -m browser --no-network -o faulthandler_timeout=${{ matrix.os == 'macos-15-intel' && 300 || 180 }} -o faulthandler_exit_on_timeout=true
       - name: Frozen native host capture (Linux)
         if: runner.os == 'Linux'
         env:

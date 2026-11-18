@@ -73,6 +73,14 @@ four and source controls on POSIX. General CI does not enable capture. A helper
 executable is not the installed manager; these results cannot establish installer
 registration, lifecycle or updater acceptance.
 
+The Intel runner has a five-minute per-test outer deadline: a measured successful
+two-browser setup spent 126 seconds launching and 33 seconds opening tabs, before
+the native channel could connect. Other runners use three minutes. A two-minute
+watchdog reports only coroutine locations. These outer test budgets include cold
+SDK startup; host authentication/arming deadlines and the 120-second capture
+lifetime are separate. This is not a claim that underlying SDK/OS launch stalls
+have been repaired.
+
 ## Boundaries still blocking a user preview
 
 - [#162](https://github.com/polyackiy/camoufox-profile-manager/issues/162): manager-owned admission, administrator cookie authority, exact live session/tab mappings, private IPC access restrictions, installed-host discovery, ordered playback, bounded I/O and stop/drain integration with workflows, updates and shutdown.

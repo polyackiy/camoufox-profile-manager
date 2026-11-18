@@ -63,3 +63,9 @@ The broker, admission and lifecycle must recheck administrator cookie authority,
   fixture now waits for presence with a deadline, retaining the exact version
   assertions and closing the browser on failure. This is test readiness, not a
   claim that production archive/extension code was repaired.
+- An Intel repeat reached the 180s outer deadline before a host connected.
+  Fixed-phase/coroutine-only controls then passed both source/frozen modes:
+  source cold launch took 126s, tab opening 33s, and the first complete case 174s.
+  Intel's outer per-test budget is 300s with a 120s diagnostic watchdog. Native
+  handshake/arming, generation expiry and all semantic assertions keep their own
+  bounds. This addresses test bootstrap margin, not OS/SDK startup reliability.
