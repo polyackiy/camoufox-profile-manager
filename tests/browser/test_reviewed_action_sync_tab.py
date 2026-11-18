@@ -101,7 +101,9 @@ async def exercise_reviewed_click(page, url, other_origin):
 @pytest.mark.browser
 async def test_browser_dispatch_stays_in_reviewed_document(local_sites, tmp_path):
     options = offline_launch(Profile(name="Reviewed click").to_camoufox_launch_options())
-    options.update(headless=True, viewport=VIEWPORT, user_data_dir=str(tmp_path))
-    async with AsyncCamoufox(**options, persistent_context=True) as context:
+    options.update(
+        headless=True, viewport=VIEWPORT, user_data_dir=str(tmp_path), persistent_context=True
+    )
+    async with AsyncCamoufox(**options) as context:
         page = await context.new_page()
         await exercise_reviewed_click(page, local_sites.first, local_sites.second)
